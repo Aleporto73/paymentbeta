@@ -9,6 +9,10 @@ interface StatCardProps {
   changeType?: "positive" | "negative" | "neutral";
   icon: LucideIcon;
   iconColor?: string;
+  additionalMetrics?: {
+    label: string;
+    value: string;
+  }[];
 }
 
 export function StatCard({ 
@@ -17,12 +21,13 @@ export function StatCard({
   change, 
   changeType = "neutral", 
   icon: Icon,
-  iconColor = "text-primary"
+  iconColor = "text-primary",
+  additionalMetrics
 }: StatCardProps) {
   return (
     <Card className="hover:shadow-md transition-shadow duration-200">
       <CardContent className="p-6">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between mb-4">
           <div className="space-y-2 flex-1">
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
             <p className="text-3xl font-bold tracking-tight">{value}</p>
@@ -47,6 +52,16 @@ export function StatCard({
             <Icon className={cn("h-6 w-6", iconColor)} />
           </div>
         </div>
+        {additionalMetrics && additionalMetrics.length > 0 && (
+          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border">
+            {additionalMetrics.map((metric, index) => (
+              <div key={index}>
+                <p className="text-xs text-muted-foreground mb-1">{metric.label}</p>
+                <p className="text-sm font-semibold">{metric.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

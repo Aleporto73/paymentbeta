@@ -11,7 +11,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground mt-1">Visão geral do seu negócio em tempo real</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2">
         <StatCard
           title="Faturamento Hoje"
           value="R$ 12.456,00"
@@ -19,6 +19,11 @@ export default function Dashboard() {
           changeType="positive"
           icon={DollarSign}
           iconColor="text-primary"
+          additionalMetrics={[
+            { label: "Ontem", value: "R$ 10.540,00" },
+            { label: "Últimos 7 dias", value: "R$ 82.340,00" },
+            { label: "Mês atual", value: "R$ 245.780,00" },
+          ]}
         />
         <StatCard
           title="Total de Vendas"
@@ -27,33 +32,17 @@ export default function Dashboard() {
           changeType="positive"
           icon={ShoppingCart}
           iconColor="text-success"
-        />
-        <StatCard
-          title="Novos Clientes"
-          value="32"
-          change="+12.5% este mês"
-          changeType="positive"
-          icon={Users}
-          iconColor="text-info"
-        />
-        <StatCard
-          title="Taxa de Conversão"
-          value="3.24%"
-          change="+0.8% vs mês passado"
-          changeType="positive"
-          icon={TrendingUp}
-          iconColor="text-warning"
+          additionalMetrics={[
+            { label: "Ontem", value: "210" },
+            { label: "Últimos 7 dias", value: "1.540" },
+            { label: "Mês atual", value: "4.825" },
+          ]}
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-7">
-        <div className="lg:col-span-4">
-          <RevenueChart />
-        </div>
-        <div className="lg:col-span-3">
-          <RecentSales />
-        </div>
-      </div>
+      <RevenueChart />
+      
+      <RecentSales />
     </div>
   );
 }
