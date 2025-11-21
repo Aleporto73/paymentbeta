@@ -27,8 +27,8 @@ export default function ProductDetail() {
 
   const menuItems = [
     { id: "info", label: "Informações", icon: FileText },
-    { id: "links", label: "Links de divulgação", icon: Link },
     { id: "prices", label: "Preços e planos", icon: DollarSign, badge: prices.length },
+    { id: "links", label: "Links de divulgação", icon: Link },
     { id: "affiliates", label: "Afiliados", icon: Users, badge: affiliateLinks.length },
     { id: "coupons", label: "Cupons", icon: Tag },
     { id: "order_bump", label: "Order Bump", icon: ShoppingCart },
