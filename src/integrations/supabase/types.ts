@@ -171,9 +171,11 @@ export type Database = {
           display_id: number
           id: string
           image_url: string | null
+          installments: number
           is_active: boolean | null
           name: string
           payment_method: Database["public"]["Enums"]["payment_method"]
+          price: number
           product_type: Database["public"]["Enums"]["product_type"]
           updated_at: string
           user_id: string
@@ -185,9 +187,11 @@ export type Database = {
           display_id?: number
           id?: string
           image_url?: string | null
+          installments?: number
           is_active?: boolean | null
           name: string
           payment_method: Database["public"]["Enums"]["payment_method"]
+          price?: number
           product_type: Database["public"]["Enums"]["product_type"]
           updated_at?: string
           user_id: string
@@ -199,9 +203,11 @@ export type Database = {
           display_id?: number
           id?: string
           image_url?: string | null
+          installments?: number
           is_active?: boolean | null
           name?: string
           payment_method?: Database["public"]["Enums"]["payment_method"]
+          price?: number
           product_type?: Database["public"]["Enums"]["product_type"]
           updated_at?: string
           user_id?: string

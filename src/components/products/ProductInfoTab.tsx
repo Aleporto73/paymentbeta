@@ -36,6 +36,8 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
     category: product.category,
     product_type: product.product_type,
     payment_method: product.payment_method,
+    price: product.price.toString(),
+    installments: product.installments.toString(),
     is_active: product.is_active,
   });
 
@@ -46,7 +48,11 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
     try {
       const { error } = await supabase
         .from("products")
-        .update(formData)
+        .update({
+          ...formData,
+          price: parseFloat(formData.price),
+          installments: parseInt(formData.installments),
+        })
         .eq("id", product.id);
 
       if (error) throw error;
@@ -95,9 +101,10 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Descrição</Label>
+              <Label htmlFor="description">Descrição *</Label>
               <Textarea
                 id="description"
+                required
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={4}
@@ -109,6 +116,37 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
               onImageUploaded={(url) => setFormData({ ...formData, image_url: url })}
               onImageRemoved={() => setFormData({ ...formData, image_url: "" })}
             />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="price">Preço (R$) *</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                />
+              </div>
+
+              {(formData.payment_method === "parcelado_taxa_cliente" ||
+                formData.payment_method === "parcelado_taxa_vendedor") && (
+                <div className="space-y-2">
+                  <Label htmlFor="installments">Número de Parcelas *</Label>
+                  <Input
+                    id="installments"
+                    type="number"
+                    min="1"
+                    max="12"
+                    required
+                    value={formData.installments}
+                    onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -189,17 +227,19 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setEditing(false);
-                  setFormData({
-                    name: product.name,
-                    description: product.description || "",
-                    image_url: product.image_url || "",
-                    category: product.category,
-                    product_type: product.product_type,
-                    payment_method: product.payment_method,
-                    is_active: product.is_active,
-                  });
-                }}
+                setEditing(false);
+                setFormData({
+                  name: product.name,
+                  description: product.description || "",
+                  image_url: product.image_url || "",
+                  category: product.category,
+                  product_type: product.product_type,
+                  payment_method: product.payment_method,
+                  price: product.price.toString(),
+                  installments: product.installments.toString(),
+                  is_active: product.is_active,
+                });
+              }}
               >
                 Cancelar
               </Button>
@@ -225,6 +265,20 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                 <p className="text-sm font-medium text-muted-foreground">Nome</p>
                 <p className="text-lg">{product.name}</p>
               </div>
+
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Preço</p>
+                <p className="text-lg font-semibold">R$ {product.price.toFixed(2)}</p>
+              </div>
+
+              {product.installments > 1 && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Parcelas</p>
+                  <p className="text-lg">
+                    {product.installments}x de R$ {(product.price / product.installments).toFixed(2)}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Status</p>

@@ -34,6 +34,8 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
     category: "" as ProductCategory,
     product_type: "" as ProductType,
     payment_method: "" as PaymentMethod,
+    price: "",
+    installments: "1",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,6 +50,8 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
         {
           ...formData,
           user_id: user.id,
+          price: parseFloat(formData.price),
+          installments: parseInt(formData.installments),
         },
       ]);
 
@@ -65,6 +69,8 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
         category: "" as ProductCategory,
         product_type: "" as ProductType,
         payment_method: "" as PaymentMethod,
+        price: "",
+        installments: "1",
       });
       setOpen(false);
       onProductCreated();
@@ -104,9 +110,10 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Descrição</Label>
+            <Label htmlFor="description">Descrição *</Label>
             <Textarea
               id="description"
+              required
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Descreva seu produto..."
@@ -119,6 +126,39 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
             onImageUploaded={(url) => setFormData({ ...formData, image_url: url })}
             onImageRemoved={() => setFormData({ ...formData, image_url: "" })}
           />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="price">Preço (R$) *</Label>
+              <Input
+                id="price"
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                placeholder="0.00"
+              />
+            </div>
+
+            {(formData.payment_method === "parcelado_taxa_cliente" ||
+              formData.payment_method === "parcelado_taxa_vendedor") && (
+              <div className="space-y-2">
+                <Label htmlFor="installments">Número de Parcelas *</Label>
+                <Input
+                  id="installments"
+                  type="number"
+                  min="1"
+                  max="12"
+                  required
+                  value={formData.installments}
+                  onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
+                  placeholder="1"
+                />
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

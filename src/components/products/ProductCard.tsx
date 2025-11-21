@@ -35,7 +35,13 @@ export function ProductCard({ product, onEdit, onDelete, onClick }: ProductCardP
           <div className="flex items-start justify-between mb-2">
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-1">ID: {product.display_id}</p>
-              <h3 className="font-semibold text-lg line-clamp-2">{product.name}</h3>
+              <h3 className="font-semibold text-lg line-clamp-2 mb-2">{product.name}</h3>
+              <p className="text-lg font-bold text-primary">R$ {product.price.toFixed(2)}</p>
+              {product.installments > 1 && (
+                <p className="text-xs text-muted-foreground">
+                  {product.installments}x de R$ {(product.price / product.installments).toFixed(2)}
+                </p>
+              )}
             </div>
           </div>
           <p className="text-sm text-muted-foreground">

@@ -39,6 +39,8 @@ export interface Product {
   category: ProductCategory;
   product_type: ProductType;
   payment_method: PaymentMethod;
+  price: number;
+  installments: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
