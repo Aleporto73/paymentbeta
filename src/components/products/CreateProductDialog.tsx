@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { ImageUpload } from "./ImageUpload";
 import {
   ProductCategory,
   ProductType,
@@ -113,16 +114,11 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="image_url">URL da Imagem</Label>
-            <Input
-              id="image_url"
-              type="url"
-              value={formData.image_url}
-              onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-              placeholder="https://exemplo.com/imagem.jpg"
-            />
-          </div>
+          <ImageUpload
+            currentImageUrl={formData.image_url}
+            onImageUploaded={(url) => setFormData({ ...formData, image_url: url })}
+            onImageRemoved={() => setFormData({ ...formData, image_url: "" })}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
