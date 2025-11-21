@@ -8,8 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft } from "lucide-react";
 import { ProductInfoTab } from "@/components/products/ProductInfoTab";
+import { ProductLinksTab } from "@/components/products/ProductLinksTab";
 import { ProductPricesTab } from "@/components/products/ProductPricesTab";
 import { ProductAffiliateLinksTab } from "@/components/products/ProductAffiliateLinksTab";
+import { ProductCouponsTab } from "@/components/products/ProductCouponsTab";
+import { ProductOrderBumpTab } from "@/components/products/ProductOrderBumpTab";
+import { ProductUpsellTab } from "@/components/products/ProductUpsellTab";
+import { ProductToolsTab } from "@/components/products/ProductToolsTab";
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -114,14 +119,23 @@ export default function ProductDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList>
+        <TabsList className="grid grid-cols-4 lg:grid-cols-8 w-full">
           <TabsTrigger value="info">Informações</TabsTrigger>
-          <TabsTrigger value="prices">Preços ({prices.length})</TabsTrigger>
-          <TabsTrigger value="affiliates">Afiliação ({affiliateLinks.length})</TabsTrigger>
+          <TabsTrigger value="links">Links de divulgação</TabsTrigger>
+          <TabsTrigger value="prices">Preços e planos ({prices.length})</TabsTrigger>
+          <TabsTrigger value="affiliates">Afiliados ({affiliateLinks.length})</TabsTrigger>
+          <TabsTrigger value="coupons">Cupons</TabsTrigger>
+          <TabsTrigger value="order_bump">Order Bump</TabsTrigger>
+          <TabsTrigger value="upsell">Upsell</TabsTrigger>
+          <TabsTrigger value="tools">Ferramentas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info">
           <ProductInfoTab product={product} onUpdate={fetchProduct} />
+        </TabsContent>
+
+        <TabsContent value="links">
+          <ProductLinksTab productId={product.id} />
         </TabsContent>
 
         <TabsContent value="prices">
@@ -139,6 +153,22 @@ export default function ProductDetail() {
             affiliateLinks={affiliateLinks}
             onUpdate={fetchAffiliateLinks}
           />
+        </TabsContent>
+
+        <TabsContent value="coupons">
+          <ProductCouponsTab productId={product.id} />
+        </TabsContent>
+
+        <TabsContent value="order_bump">
+          <ProductOrderBumpTab productId={product.id} />
+        </TabsContent>
+
+        <TabsContent value="upsell">
+          <ProductUpsellTab productId={product.id} />
+        </TabsContent>
+
+        <TabsContent value="tools">
+          <ProductToolsTab productId={product.id} />
         </TabsContent>
       </Tabs>
     </div>

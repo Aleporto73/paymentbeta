@@ -129,16 +129,18 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="price">Preço (R$) *</Label>
+              <Label htmlFor="price">Preço principal (R$) *</Label>
               <Input
                 id="price"
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
                 required
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                placeholder="0.00"
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, "");
+                  const numericValue = value ? (parseInt(value) / 100).toFixed(2) : "";
+                  setFormData({ ...formData, price: numericValue });
+                }}
+                placeholder="0,00"
               />
             </div>
 
