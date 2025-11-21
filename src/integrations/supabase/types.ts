@@ -14,6 +14,200 @@ export type Database = {
   }
   public: {
     Tables: {
+      product_affiliate_links: {
+        Row: {
+          affiliate_name: string
+          affiliate_url: string
+          commission_percentage: number
+          created_at: string
+          id: string
+          is_active: boolean | null
+          product_id: string
+        }
+        Insert: {
+          affiliate_name: string
+          affiliate_url: string
+          commission_percentage: number
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          product_id: string
+        }
+        Update: {
+          affiliate_name?: string
+          affiliate_url?: string
+          commission_percentage?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_affiliate_links_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_prices: {
+        Row: {
+          created_at: string
+          id: string
+          installments: number | null
+          is_default: boolean | null
+          name: string
+          price: number
+          product_id: string
+          subscription_period:
+            | Database["public"]["Enums"]["subscription_period"]
+            | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          installments?: number | null
+          is_default?: boolean | null
+          name: string
+          price: number
+          product_id: string
+          subscription_period?:
+            | Database["public"]["Enums"]["subscription_period"]
+            | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          installments?: number | null
+          is_default?: boolean | null
+          name?: string
+          price?: number
+          product_id?: string
+          subscription_period?:
+            | Database["public"]["Enums"]["subscription_period"]
+            | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_prices_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_sales: {
+        Row: {
+          affiliate_link_id: string | null
+          commission_amount: number | null
+          created_at: string
+          customer_email: string
+          customer_name: string
+          id: string
+          product_id: string
+          product_price_id: string | null
+          sale_amount: number
+          sale_date: string
+          status: string | null
+        }
+        Insert: {
+          affiliate_link_id?: string | null
+          commission_amount?: number | null
+          created_at?: string
+          customer_email: string
+          customer_name: string
+          id?: string
+          product_id: string
+          product_price_id?: string | null
+          sale_amount: number
+          sale_date?: string
+          status?: string | null
+        }
+        Update: {
+          affiliate_link_id?: string | null
+          commission_amount?: number | null
+          created_at?: string
+          customer_email?: string
+          customer_name?: string
+          id?: string
+          product_id?: string
+          product_price_id?: string | null
+          sale_amount?: number
+          sale_date?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_sales_affiliate_link_id_fkey"
+            columns: ["affiliate_link_id"]
+            isOneToOne: false
+            referencedRelation: "product_affiliate_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_sales_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_sales_product_price_id_fkey"
+            columns: ["product_price_id"]
+            isOneToOne: false
+            referencedRelation: "product_prices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          category: Database["public"]["Enums"]["product_category"]
+          created_at: string
+          description: string | null
+          display_id: number
+          id: string
+          image_url: string | null
+          is_active: boolean | null
+          name: string
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          product_type: Database["public"]["Enums"]["product_type"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["product_category"]
+          created_at?: string
+          description?: string | null
+          display_id?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          name: string
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          product_type: Database["public"]["Enums"]["product_type"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["product_category"]
+          created_at?: string
+          description?: string | null
+          display_id?: number
+          id?: string
+          image_url?: string | null
+          is_active?: boolean | null
+          name?: string
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          product_type?: Database["public"]["Enums"]["product_type"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -74,6 +268,38 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      payment_method:
+        | "a_vista"
+        | "parcelado_taxa_cliente"
+        | "parcelado_taxa_vendedor"
+      product_category:
+        | "saude_esportes"
+        | "financas_investimentos"
+        | "relacionamentos"
+        | "negocios_carreira"
+        | "espiritualidade"
+        | "sexualidade"
+        | "entretenimento"
+        | "culinaria_gastronomia"
+        | "idiomas"
+        | "direito"
+        | "apps_software"
+        | "literatura"
+        | "casa_construcao"
+        | "desenvolvimento_pessoal"
+        | "moda_beleza"
+        | "animais_plantas"
+        | "educacional"
+        | "hobbies"
+        | "design"
+        | "internet"
+        | "ecologia_meio_ambiente"
+        | "musica_artes"
+        | "tecnologia_informacao"
+        | "outros"
+        | "empreendedorismo_digital"
+      product_type: "recorrente" | "pagamento_unico"
+      subscription_period: "mensal" | "trimestral" | "semestral" | "anual"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -202,6 +428,40 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      payment_method: [
+        "a_vista",
+        "parcelado_taxa_cliente",
+        "parcelado_taxa_vendedor",
+      ],
+      product_category: [
+        "saude_esportes",
+        "financas_investimentos",
+        "relacionamentos",
+        "negocios_carreira",
+        "espiritualidade",
+        "sexualidade",
+        "entretenimento",
+        "culinaria_gastronomia",
+        "idiomas",
+        "direito",
+        "apps_software",
+        "literatura",
+        "casa_construcao",
+        "desenvolvimento_pessoal",
+        "moda_beleza",
+        "animais_plantas",
+        "educacional",
+        "hobbies",
+        "design",
+        "internet",
+        "ecologia_meio_ambiente",
+        "musica_artes",
+        "tecnologia_informacao",
+        "outros",
+        "empreendedorismo_digital",
+      ],
+      product_type: ["recorrente", "pagamento_unico"],
+      subscription_period: ["mensal", "trimestral", "semestral", "anual"],
     },
   },
 } as const
