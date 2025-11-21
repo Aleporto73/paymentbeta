@@ -4,8 +4,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Produtos from "./pages/Produtos";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -17,14 +19,15 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout><Dashboard /></Layout>} />
-          <Route path="/produtos" element={<Layout><Produtos /></Layout>} />
-          <Route path="/vendas" element={<Layout><Produtos /></Layout>} />
-          <Route path="/assinaturas" element={<Layout><Produtos /></Layout>} />
-          <Route path="/clientes" element={<Layout><Produtos /></Layout>} />
-          <Route path="/cupons" element={<Layout><Produtos /></Layout>} />
-          <Route path="/relatorios" element={<Layout><Produtos /></Layout>} />
-          <Route path="/integracoes" element={<Layout><Produtos /></Layout>} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
+          <Route path="/produtos" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/vendas" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/assinaturas" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/clientes" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/cupons" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/relatorios" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+          <Route path="/integracoes" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
