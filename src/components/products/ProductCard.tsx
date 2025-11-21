@@ -15,7 +15,7 @@ export function ProductCard({ product, onEdit, onDelete, onClick }: ProductCardP
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
       <div onClick={() => onClick(product)}>
-        <div className="aspect-video bg-muted relative overflow-hidden">
+        <div className="aspect-square bg-muted relative overflow-hidden">
           {product.image_url ? (
             <img
               src={product.image_url}
