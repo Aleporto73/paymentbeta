@@ -17,6 +17,51 @@ export function ImageUpload({ currentImageUrl, onImageUploaded, onImageRemoved }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const resizeImageToSquare = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const size = 800; // Square size
+          canvas.width = size;
+          canvas.height = size;
+          
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Não foi possível processar a imagem"));
+            return;
+          }
+
+          // Calculate crop dimensions to make it square
+          const minDim = Math.min(img.width, img.height);
+          const sx = (img.width - minDim) / 2;
+          const sy = (img.height - minDim) / 2;
+
+          // Draw image centered and cropped to square
+          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error("Erro ao processar imagem"));
+              }
+            },
+            "image/jpeg",
+            0.9
+          );
+        };
+        img.onerror = () => reject(new Error("Erro ao carregar imagem"));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error("Erro ao ler arquivo"));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const uploadImage = async (file: File) => {
     try {
       setUploading(true);
@@ -34,16 +79,19 @@ export function ImageUpload({ currentImageUrl, onImageUploaded, onImageRemoved }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
+      // Resize image to square
+      const resizedBlob = await resizeImageToSquare(file);
+
       // Generate unique filename
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const fileName = `${user.id}/${Date.now()}.jpg`;
 
       // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from("product-images")
-        .upload(fileName, file, {
+        .upload(fileName, resizedBlob, {
           cacheControl: "3600",
           upsert: false,
+          contentType: "image/jpeg",
         });
 
       if (uploadError) throw uploadError;
@@ -111,25 +159,39 @@ export function ImageUpload({ currentImageUrl, onImageUploaded, onImageRemoved }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Label>Imagem do Produto</Label>
       
       {previewUrl ? (
-        <div className="relative inline-block">
-          <img
-            src={previewUrl}
-            alt="Preview"
-            className="w-full max-w-xs rounded-lg border"
-          />
-          <Button
-            type="button"
-            variant="destructive"
-            size="icon"
-            className="absolute top-2 right-2"
-            onClick={handleRemove}
-          >
-            <X className="w-4 h-4" />
-          </Button>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <img
+              src={previewUrl}
+              alt="Preview"
+              className="w-[100px] h-[100px] rounded-lg border object-cover"
+            />
+            <Button
+              type="button"
+              variant="destructive"
+              size="icon"
+              className="absolute -top-2 -right-2 h-6 w-6"
+              onClick={handleRemove}
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">Imagem carregada</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-2"
+            >
+              Alterar imagem
+            </Button>
+          </div>
         </div>
       ) : (
         <div
