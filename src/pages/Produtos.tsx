@@ -65,7 +65,7 @@ export default function Produtos() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setProducts(data || []);
+      setProducts((data || []) as Product[]);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar produtos",

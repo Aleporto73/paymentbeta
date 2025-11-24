@@ -18,7 +18,8 @@ export type Database = {
         Row: {
           affiliate_name: string
           affiliate_url: string
-          commission_percentage: number
+          commission_type: string | null
+          commission_value: number
           created_at: string
           id: string
           is_active: boolean | null
@@ -27,7 +28,8 @@ export type Database = {
         Insert: {
           affiliate_name: string
           affiliate_url: string
-          commission_percentage: number
+          commission_type?: string | null
+          commission_value: number
           created_at?: string
           id?: string
           is_active?: boolean | null
@@ -36,7 +38,8 @@ export type Database = {
         Update: {
           affiliate_name?: string
           affiliate_url?: string
-          commission_percentage?: number
+          commission_type?: string | null
+          commission_value?: number
           created_at?: string
           id?: string
           is_active?: boolean | null
@@ -45,6 +48,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "product_affiliate_links_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_coupons: {
+        Row: {
+          code: string
+          created_at: string | null
+          discount_type: string
+          discount_value: number
+          id: string
+          is_active: boolean | null
+          product_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          discount_type: string
+          discount_value: number
+          id?: string
+          is_active?: boolean | null
+          product_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          discount_type?: string
+          discount_value?: number
+          id?: string
+          is_active?: boolean | null
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_coupons_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
@@ -215,6 +256,8 @@ export type Database = {
         Row: {
           category: Database["public"]["Enums"]["product_category"]
           created_at: string
+          default_commission_type: string | null
+          default_commission_value: number | null
           description: string | null
           display_id: number
           id: string
@@ -232,6 +275,8 @@ export type Database = {
         Insert: {
           category: Database["public"]["Enums"]["product_category"]
           created_at?: string
+          default_commission_type?: string | null
+          default_commission_value?: number | null
           description?: string | null
           display_id?: number
           id?: string
@@ -249,6 +294,8 @@ export type Database = {
         Update: {
           category?: Database["public"]["Enums"]["product_category"]
           created_at?: string
+          default_commission_type?: string | null
+          default_commission_value?: number | null
           description?: string | null
           display_id?: number
           id?: string

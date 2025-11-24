@@ -133,7 +133,11 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                     required
                     value={formData.price}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/[^\d,]/g, '');
+                      let value = e.target.value.replace(/[^\d]/g, '');
+                      if (value.length > 0) {
+                        const numValue = parseInt(value);
+                        value = formatCurrency(numValue / 100);
+                      }
                       setFormData({ ...formData, price: value });
                     }}
                     placeholder="0,00"
