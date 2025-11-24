@@ -6,6 +6,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Power, Trash2 } from "lucide-react";
 import { AffiliateWithProducts } from "@/types/affiliate";
+import { EditAffiliateDialog } from "@/components/products/EditAffiliateDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function Afiliados() {
   const [affiliates, setAffiliates] = useState<AffiliateWithProducts[]>([]);
@@ -92,8 +104,6 @@ export default function Afiliados() {
   };
 
   const handleDelete = async (affiliateId: string) => {
-    if (!confirm("Tem certeza que deseja excluir este afiliado?")) return;
-
     try {
       const { error } = await supabase
         .from("affiliates")
@@ -165,6 +175,13 @@ export default function Afiliados() {
                     </Badge>
                   </div>
                   <div className="flex gap-2">
+                    <EditAffiliateDialog
+                      affiliateId={affiliate.id}
+                      affiliateName={affiliate.name}
+                      affiliateEmail={affiliate.email}
+                      onSuccess={fetchAffiliates}
+                      variant="icon"
+                    />
                     <Button
                       variant="ghost"
                       size="icon"
@@ -173,15 +190,32 @@ export default function Afiliados() {
                     >
                       <Power className="w-4 h-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(affiliate.id)}
-                      className="text-destructive hover:text-destructive"
-                      title="Excluir"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Tem certeza que deseja excluir este afiliado? Esta ação não pode ser desfeita.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(affiliate.id)}>
+                            Excluir
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardHeader>

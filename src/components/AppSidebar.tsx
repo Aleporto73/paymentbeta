@@ -3,7 +3,8 @@ import {
   Package, 
   ShoppingCart, 
   CreditCard,
-  Users, 
+  Users,
+  UserCog,
   Ticket,
   BarChart3,
   Plug
@@ -29,7 +30,7 @@ const mainItems = [
   { title: "Vendas", url: "/vendas", icon: ShoppingCart },
   { title: "Assinaturas", url: "/assinaturas", icon: CreditCard },
   { title: "Clientes", url: "/clientes", icon: Users },
-  { title: "Afiliados", url: "/afiliados", icon: Users },
+  { title: "Afiliados", url: "/afiliados", icon: UserCog },
 ];
 
 const managementItems = [
