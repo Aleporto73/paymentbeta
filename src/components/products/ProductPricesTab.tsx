@@ -10,6 +10,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProductPrice, SubscriptionPeriod, SUBSCRIPTION_PERIOD_LABELS, ProductType } from "@/types/product";
+import { formatCurrency, parseCurrency } from "@/lib/utils";
 
 interface ProductPricesTabProps {
   productId: string;
@@ -41,7 +42,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
         {
           product_id: productId,
           name: formData.name,
-          price: parseFloat(formData.price),
+          price: parseCurrency(formData.price),
           subscription_period: formData.subscription_period || null,
           installments: parseInt(formData.installments),
           is_default: formData.is_default,
@@ -128,12 +129,14 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                   <Label htmlFor="price">Valor (R$) *</Label>
                   <Input
                     id="price"
-                    type="number"
-                    step="0.01"
+                    type="text"
                     required
                     value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    placeholder="0.00"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^\d,]/g, '');
+                      setFormData({ ...formData, price: value });
+                    }}
+                    placeholder="0,00"
                   />
                 </div>
 
@@ -204,7 +207,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                   </div>
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">
-                      R$ {price.price.toFixed(2)}
+                      R$ {formatCurrency(price.price)}
                     </span>
                     {price.subscription_period && (
                       <span>
