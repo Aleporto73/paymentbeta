@@ -16,9 +16,10 @@ interface ProductPricesTabProps {
   prices: ProductPrice[];
   onUpdate: () => void;
   productType: ProductType;
+  productUniqueCode: string;
 }
 
-export function ProductPricesTab({ productId, prices, onUpdate, productType }: ProductPricesTabProps) {
+export function ProductPricesTab({ productId, prices, onUpdate, productType, productUniqueCode }: ProductPricesTabProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -44,7 +45,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType }: P
           subscription_period: formData.subscription_period || null,
           installments: parseInt(formData.installments),
           is_default: formData.is_default,
-        },
+        } as any,
       ]);
 
       if (error) throw error;
@@ -213,6 +214,18 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType }: P
                     {price.installments > 1 && (
                       <span>{price.installments}x parcelas</span>
                     )}
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium">Código do plano: </span>
+                      <span className="font-mono">{price.unique_code}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium">Link de checkout: </span>
+                      <span className="font-mono">
+                        https://exemplocheckout.com.br/{productUniqueCode}/{price.unique_code}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <Button

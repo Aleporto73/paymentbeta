@@ -42,6 +42,7 @@ export interface Product {
   price: number;
   installments: number;
   is_active: boolean;
+  unique_code: string;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +55,7 @@ export interface ProductPrice {
   subscription_period: SubscriptionPeriod | null;
   installments: number;
   is_default: boolean;
+  unique_code: string;
   created_at: string;
 }
 

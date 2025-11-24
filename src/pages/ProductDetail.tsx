@@ -176,6 +176,7 @@ export default function ProductDetail() {
               prices={prices}
               onUpdate={fetchPrices}
               productType={product.product_type}
+              productUniqueCode={product.unique_code}
             />
           )}
           {activeTab === "affiliates" && (

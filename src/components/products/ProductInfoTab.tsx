@@ -306,6 +306,16 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                     {new Date(product.created_at).toLocaleDateString("pt-BR")}
                   </p>
                 </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Código do Produto</p>
+                  <p className="text-base text-foreground font-mono bg-muted px-3 py-1 rounded inline-block">
+                    {product.unique_code}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Link: https://exemplocheckout.com.br/{product.unique_code}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
