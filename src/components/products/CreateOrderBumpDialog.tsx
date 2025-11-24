@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -33,14 +33,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { formatCurrency, parseCurrency } from "@/lib/utils";
 import type { Product, ProductOrderBump } from "@/types/product";
 
 const formSchema = z.object({
   order_bump_product_id: z.string().min(1, "Selecione um produto"),
   title: z.string().min(3, "O título deve ter no mínimo 3 caracteres"),
   description: z.string().optional(),
-  price: z.coerce.number().min(0.01, "O preço deve ser maior que zero"),
+  price: z.number().min(0.01, "O preço deve ser maior que zero"),
   is_active: z.boolean().default(true),
+  display_order: z.number().int().min(1, "Ordem deve ser maior que zero").default(1),
 });
 
 interface CreateOrderBumpDialogProps {
@@ -59,6 +61,7 @@ export function CreateOrderBumpDialog({
   editingOrderBump,
 }: CreateOrderBumpDialogProps) {
   const queryClient = useQueryClient();
+  const [priceDisplay, setPriceDisplay] = useState("");
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -68,28 +71,35 @@ export function CreateOrderBumpDialog({
       description: "",
       price: 0,
       is_active: true,
+      display_order: 1,
     },
   });
 
   useEffect(() => {
-    if (editingOrderBump) {
-      form.reset({
-        order_bump_product_id: editingOrderBump.order_bump_product_id,
-        title: editingOrderBump.title,
-        description: editingOrderBump.description || "",
-        price: editingOrderBump.price,
-        is_active: editingOrderBump.is_active,
-      });
-    } else {
-      form.reset({
-        order_bump_product_id: "",
-        title: "",
-        description: "",
-        price: 0,
-        is_active: true,
-      });
+    if (isOpen) {
+      if (editingOrderBump) {
+        form.reset({
+          order_bump_product_id: editingOrderBump.order_bump_product_id,
+          title: editingOrderBump.title,
+          description: editingOrderBump.description || "",
+          price: editingOrderBump.price,
+          is_active: editingOrderBump.is_active,
+          display_order: editingOrderBump.display_order,
+        });
+        setPriceDisplay(formatCurrency(editingOrderBump.price));
+      } else {
+        form.reset({
+          order_bump_product_id: "",
+          title: "",
+          description: "",
+          price: 0,
+          is_active: true,
+          display_order: 1,
+        });
+        setPriceDisplay("");
+      }
     }
-  }, [editingOrderBump, form, isOpen]);
+  }, [editingOrderBump, isOpen, form]);
 
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof formSchema>) => {
@@ -102,6 +112,7 @@ export function CreateOrderBumpDialog({
             description: values.description || null,
             price: values.price,
             is_active: values.is_active,
+            display_order: values.display_order,
           })
           .eq("id", editingOrderBump.id);
 
@@ -116,6 +127,7 @@ export function CreateOrderBumpDialog({
             description: values.description || null,
             price: values.price,
             is_active: values.is_active,
+            display_order: values.display_order,
           });
 
         if (error) throw error;
@@ -130,6 +142,7 @@ export function CreateOrderBumpDialog({
       );
       onClose();
       form.reset();
+      setPriceDisplay("");
     },
     onError: (error) => {
       toast.error("Erro ao salvar Order Bump");
@@ -232,15 +245,55 @@ export function CreateOrderBumpDialog({
                 <FormItem>
                   <FormLabel>Preço do Order Bump</FormLabel>
                   <FormControl>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      {...field}
-                    />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                        R$
+                      </span>
+                      <Input
+                        type="text"
+                        placeholder="0,00"
+                        className="pl-10"
+                        value={priceDisplay}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setPriceDisplay(value);
+                          const numericValue = parseCurrency(value);
+                          field.onChange(numericValue);
+                        }}
+                        onBlur={() => {
+                          if (priceDisplay) {
+                            const numericValue = parseCurrency(priceDisplay);
+                            setPriceDisplay(formatCurrency(numericValue));
+                          }
+                        }}
+                      />
+                    </div>
                   </FormControl>
                   <FormDescription>
                     Preço especial para o Order Bump (pode ser diferente do preço original)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="display_order"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ordem de Exibição</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="1"
+                      {...field}
+                      onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Números menores aparecem primeiro no checkout
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
