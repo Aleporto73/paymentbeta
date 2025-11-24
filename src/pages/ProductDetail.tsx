@@ -169,7 +169,13 @@ export default function ProductDetail() {
         {/* Conteúdo */}
         <div className="flex-1 min-w-0">
           {activeTab === "info" && <ProductInfoTab product={product} onUpdate={fetchProduct} />}
-          {activeTab === "links" && <ProductLinksTab productId={product.id} />}
+          {activeTab === "links" && (
+            <ProductLinksTab 
+              productId={product.id} 
+              productUniqueCode={product.unique_code}
+              prices={prices}
+            />
+          )}
           {activeTab === "prices" && (
             <ProductPricesTab
               productId={product.id}
