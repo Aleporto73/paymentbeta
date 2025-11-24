@@ -2,8 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, ShoppingCart, TrendingUp, TrendingDown, Package, Users } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { BarChart3, ShoppingCart, TrendingUp, TrendingDown, Package, Users, CalendarIcon } from "lucide-react";
+import { formatCurrency, cn } from "@/lib/utils";
+import { format, subDays, startOfDay, endOfDay } from "date-fns";
 import {
   LineChart,
   Line,
@@ -20,8 +24,14 @@ import {
   Cell,
 } from "recharts";
 
+type DateFilter = "today" | "7days" | "30days" | "custom";
+
 export default function Relatorios() {
   const [loading, setLoading] = useState(true);
+  const [dateFilter, setDateFilter] = useState<DateFilter>("30days");
+  const [customDateFrom, setCustomDateFrom] = useState<Date>();
+  const [customDateTo, setCustomDateTo] = useState<Date>();
+  
   const [checkoutStats, setCheckoutStats] = useState({
     totalViews: 0,
     totalAbandons: 0,
@@ -42,19 +52,49 @@ export default function Relatorios() {
   const [checkoutFunnel, setCheckoutFunnel] = useState<any[]>([]);
   const [orderBumpsPerformance, setOrderBumpsPerformance] = useState<any[]>([]);
 
+  const getDateRange = () => {
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date = endOfDay(now);
+
+    switch (dateFilter) {
+      case "today":
+        startDate = startOfDay(now);
+        break;
+      case "7days":
+        startDate = startOfDay(subDays(now, 7));
+        break;
+      case "30days":
+        startDate = startOfDay(subDays(now, 30));
+        break;
+      case "custom":
+        startDate = customDateFrom ? startOfDay(customDateFrom) : startOfDay(subDays(now, 30));
+        endDate = customDateTo ? endOfDay(customDateTo) : endOfDay(now);
+        break;
+      default:
+        startDate = startOfDay(subDays(now, 30));
+    }
+
+    return { startDate: startDate.toISOString(), endDate: endDate.toISOString() };
+  };
+
   useEffect(() => {
     fetchAnalytics();
-  }, []);
+  }, [dateFilter, customDateFrom, customDateTo]);
 
   const fetchAnalytics = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      const { startDate, endDate } = getDateRange();
+
       // Buscar eventos do checkout
       const { data: checkoutEvents } = await supabase
         .from("checkout_events")
         .select("*")
+        .gte("created_at", startDate)
+        .lte("created_at", endDate)
         .order("created_at", { ascending: false });
 
       if (checkoutEvents) {
@@ -97,6 +137,8 @@ export default function Relatorios() {
       const { data: sales } = await supabase
         .from("product_sales")
         .select("*")
+        .gte("sale_date", startDate)
+        .lte("sale_date", endDate)
         .order("sale_date", { ascending: false });
 
       if (sales) {
@@ -130,6 +172,8 @@ export default function Relatorios() {
       const { data: orderBumpAnalytics } = await supabase
         .from("product_order_bump_analytics")
         .select("*, product_order_bumps(title)")
+        .gte("created_at", startDate)
+        .lte("created_at", endDate)
         .order("created_at", { ascending: false });
 
       if (orderBumpAnalytics) {
@@ -170,8 +214,75 @@ export default function Relatorios() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Relatórios e Analytics</h1>
+        
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={dateFilter === "today" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setDateFilter("today")}
+          >
+            Hoje
+          </Button>
+          <Button
+            variant={dateFilter === "7days" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setDateFilter("7days")}
+          >
+            Últimos 7 dias
+          </Button>
+          <Button
+            variant={dateFilter === "30days" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setDateFilter("30days")}
+          >
+            Últimos 30 dias
+          </Button>
+          
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={dateFilter === "custom" ? "default" : "outline"}
+                size="sm"
+                className={cn("justify-start text-left font-normal")}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateFilter === "custom" && customDateFrom && customDateTo
+                  ? `${format(customDateFrom, "dd/MM")} - ${format(customDateTo, "dd/MM")}`
+                  : "Personalizado"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Data inicial</label>
+                  <Calendar
+                    mode="single"
+                    selected={customDateFrom}
+                    onSelect={(date) => {
+                      setCustomDateFrom(date);
+                      setDateFilter("custom");
+                    }}
+                    className={cn("pointer-events-auto")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Data final</label>
+                  <Calendar
+                    mode="single"
+                    selected={customDateTo}
+                    onSelect={(date) => {
+                      setCustomDateTo(date);
+                      setDateFilter("custom");
+                    }}
+                    className={cn("pointer-events-auto")}
+                  />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       <Tabs defaultValue="checkout" className="space-y-6">
