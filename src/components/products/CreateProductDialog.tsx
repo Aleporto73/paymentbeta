@@ -46,20 +46,43 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
-      const { error } = await supabase.from("products").insert([
+      // Criar o produto
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .insert([
+          {
+            ...formData,
+            user_id: user.id,
+            price: parseFloat(formData.price),
+            installments: parseInt(formData.installments),
+          } as any,
+        ])
+        .select()
+        .single();
+
+      if (productError) throw productError;
+
+      // Criar o preço principal automaticamente
+      const priceName = formData.product_type === "recorrente" 
+        ? "Plano Mensal" 
+        : "Preço Principal";
+      
+      const { error: priceError } = await supabase.from("product_prices").insert([
         {
-          ...formData,
-          user_id: user.id,
+          product_id: product.id,
+          name: priceName,
           price: parseFloat(formData.price),
+          subscription_period: formData.product_type === "recorrente" ? "mensal" : null,
           installments: parseInt(formData.installments),
-        },
+          is_default: true,
+        } as any,
       ]);
 
-      if (error) throw error;
+      if (priceError) throw priceError;
 
       toast({
         title: "Produto criado com sucesso!",
-        description: "O produto foi adicionado à sua lista.",
+        description: "O produto e o preço principal foram criados.",
       });
 
       setFormData({
