@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 import { OrderBumpPreview } from "./OrderBumpPreview";
+import { ImageUpload } from "./ImageUpload";
 import type { Product, ProductOrderBump } from "@/types/product";
 
 const formSchema = z.object({
@@ -49,6 +50,7 @@ const formSchema = z.object({
   preview_text_color: z.string().default("#1f2937"),
   preview_button_color: z.string().default("#3b82f6"),
   preview_position: z.enum(["below_product", "sidebar", "popup"]).default("below_product"),
+  image_url: z.string().optional(),
 });
 
 interface CreateOrderBumpDialogProps {
@@ -82,6 +84,7 @@ export function CreateOrderBumpDialog({
       preview_text_color: "#1f2937",
       preview_button_color: "#3b82f6",
       preview_position: "below_product",
+      image_url: "",
     },
   });
 
@@ -101,6 +104,7 @@ export function CreateOrderBumpDialog({
           preview_text_color: editingOrderBump.preview_text_color,
           preview_button_color: editingOrderBump.preview_button_color,
           preview_position: editingOrderBump.preview_position,
+          image_url: editingOrderBump.image_url || "",
         });
         setPriceDisplay(formatCurrency(editingOrderBump.price));
       } else {
@@ -115,6 +119,7 @@ export function CreateOrderBumpDialog({
           preview_text_color: "#1f2937",
           preview_button_color: "#3b82f6",
           preview_position: "below_product",
+          image_url: "",
         });
         setPriceDisplay("");
       }
@@ -137,6 +142,7 @@ export function CreateOrderBumpDialog({
             preview_text_color: values.preview_text_color,
             preview_button_color: values.preview_button_color,
             preview_position: values.preview_position,
+            image_url: values.image_url || null,
           })
           .eq("id", editingOrderBump.id);
 
@@ -156,6 +162,7 @@ export function CreateOrderBumpDialog({
             preview_text_color: values.preview_text_color,
             preview_button_color: values.preview_button_color,
             preview_position: values.preview_position,
+            image_url: values.image_url || null,
           });
 
         if (error) throw error;
@@ -206,6 +213,23 @@ export function CreateOrderBumpDialog({
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <TabsContent value="configuracao" className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="image_url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <ImageUpload
+                        currentImageUrl={field.value}
+                        onImageUploaded={(url) => field.onChange(url)}
+                        onImageRemoved={() => field.onChange("")}
+                      />
+                      <FormDescription>
+                        Imagem do produto do Order Bump (opcional)
+                      </FormDescription>
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="order_bump_product_id"
@@ -359,6 +383,7 @@ export function CreateOrderBumpDialog({
                 <OrderBumpPreview 
                   orderBump={watchedValues}
                   productName={selectedProduct?.name}
+                  imageUrl={watchedValues.image_url}
                 />
 
                 <div className="grid grid-cols-2 gap-4">

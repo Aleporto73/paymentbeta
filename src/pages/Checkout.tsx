@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, CreditCard, Info } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatCPF, formatPhone } from "@/lib/utils";
 import { toast } from "sonner";
 import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
 import { ProductOrderBump } from "@/types/product";
@@ -223,7 +223,7 @@ export default function Checkout() {
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         {/* Header com produto */}
         <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
           <div className="w-48 h-32 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
@@ -301,7 +301,11 @@ export default function Checkout() {
                       id="cpf"
                       placeholder="Digite seu CPF/CNPJ"
                       value={formData.cpf}
-                      onChange={(e) => setFormData({ ...formData, cpf: e.target.value })}
+                      onChange={(e) => {
+                        const formatted = formatCPF(e.target.value);
+                        setFormData({ ...formData, cpf: formatted });
+                      }}
+                      maxLength={18}
                       required
                     />
                   </div>
@@ -311,7 +315,11 @@ export default function Checkout() {
                       id="phone"
                       placeholder="Digite seu celular"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      onChange={(e) => {
+                        const formatted = formatPhone(e.target.value);
+                        setFormData({ ...formData, phone: formatted });
+                      }}
+                      maxLength={15}
                     />
                   </div>
                 </div>

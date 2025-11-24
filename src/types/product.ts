@@ -98,6 +98,7 @@ export interface ProductOrderBump {
   preview_text_color: string;
   preview_button_color: string;
   preview_position: 'below_product' | 'sidebar' | 'popup';
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
