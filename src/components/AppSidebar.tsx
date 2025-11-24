@@ -34,10 +34,10 @@ const mainItems = [
   { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Afiliados", url: "/afiliados", icon: UserCog },
+  { title: "Cupons", url: "/cupons", icon: Ticket },
 ];
 
 const managementItems = [
-  { title: "Cupons", url: "/cupons", icon: Ticket },
   { title: "Integrações", url: "/integracoes", icon: Plug },
 ];
 
