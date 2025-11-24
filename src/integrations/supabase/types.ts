@@ -14,10 +14,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      affiliates: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_active: boolean | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       product_affiliate_links: {
         Row: {
-          affiliate_name: string
-          affiliate_url: string
+          affiliate_id: string | null
+          affiliate_name: string | null
+          affiliate_url: string | null
           commission_type: string | null
           commission_value: number
           created_at: string
@@ -26,8 +54,9 @@ export type Database = {
           product_id: string
         }
         Insert: {
-          affiliate_name: string
-          affiliate_url: string
+          affiliate_id?: string | null
+          affiliate_name?: string | null
+          affiliate_url?: string | null
           commission_type?: string | null
           commission_value: number
           created_at?: string
@@ -36,8 +65,9 @@ export type Database = {
           product_id: string
         }
         Update: {
-          affiliate_name?: string
-          affiliate_url?: string
+          affiliate_id?: string | null
+          affiliate_name?: string | null
+          affiliate_url?: string | null
           commission_type?: string | null
           commission_value?: number
           created_at?: string
@@ -46,6 +76,13 @@ export type Database = {
           product_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "product_affiliate_links_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "product_affiliate_links_product_id_fkey"
             columns: ["product_id"]

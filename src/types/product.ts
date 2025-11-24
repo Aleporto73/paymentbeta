@@ -66,6 +66,7 @@ export interface ProductPrice {
 export interface ProductAffiliateLink {
   id: string;
   product_id: string;
+  affiliate_id?: string;
   affiliate_name: string;
   affiliate_url: string;
   commission_type: CommissionType;

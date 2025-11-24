@@ -29,6 +29,7 @@ const mainItems = [
   { title: "Vendas", url: "/vendas", icon: ShoppingCart },
   { title: "Assinaturas", url: "/assinaturas", icon: CreditCard },
   { title: "Clientes", url: "/clientes", icon: Users },
+  { title: "Afiliados", url: "/afiliados", icon: Users },
 ];
 
 const managementItems = [

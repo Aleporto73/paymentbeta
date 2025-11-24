@@ -7,11 +7,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Percent, DollarSign, Trash2, Edit, Power } from "lucide-react";
+import { Percent, Trash2, Edit, Power } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProductAffiliateLink, CommissionType } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
+import { AddAffiliateDialog } from "./AddAffiliateDialog";
 
 interface ProductAffiliateLinksTabProps {
   productId: string;
@@ -199,7 +200,7 @@ export function ProductAffiliateLinksTab({
     if (type === 'percentage') {
       return `${value}%`;
     }
-    return `R$ ${formatCurrency(value)}`;
+    return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   return (
@@ -210,7 +211,14 @@ export function ProductAffiliateLinksTab({
             <CardTitle>Afiliados</CardTitle>
             <CardDescription>Gerencie os afiliados e suas comissões</CardDescription>
           </div>
-          <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
+          <div className="flex gap-2">
+            <AddAffiliateDialog
+              productId={productId}
+              defaultCommissionType={defaultCommissionType}
+              defaultCommissionValue={defaultCommissionValue}
+              onSuccess={onUpdate}
+            />
+            <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Percent className="w-4 h-4 mr-2" />
@@ -308,6 +316,7 @@ export function ProductAffiliateLinksTab({
               </form>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
