@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
 import { ProductOrderBump } from "@/types/product";
+import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
@@ -29,6 +30,12 @@ export default function Checkout() {
     email: "",
     cpf: "",
     phone: "",
+  });
+
+  const { trackConversion } = useCheckoutTracking({
+    productId: product?.id || "",
+    priceId: price?.id,
+    affiliateCode,
   });
 
   useEffect(() => {
@@ -106,6 +113,13 @@ export default function Checkout() {
       toast.error("Por favor, preencha todos os campos obrigatórios");
       return;
     }
+
+    // Track conversion
+    trackConversion(
+      Array.from(selectedOrderBumps),
+      totalPrice,
+      orderBumpsTotal
+    );
 
     // Aqui você implementaria a lógica de pagamento
     toast.success("Processando pagamento...");

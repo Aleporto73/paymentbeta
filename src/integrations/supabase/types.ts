@@ -41,6 +41,66 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_events: {
+        Row: {
+          affiliate_code: string | null
+          created_at: string
+          event_type: string
+          id: string
+          ip_address: string | null
+          order_bumps_amount: number | null
+          order_bumps_selected: string[] | null
+          price_id: string | null
+          product_id: string | null
+          session_id: string
+          total_amount: number | null
+          user_agent: string | null
+        }
+        Insert: {
+          affiliate_code?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          order_bumps_amount?: number | null
+          order_bumps_selected?: string[] | null
+          price_id?: string | null
+          product_id?: string | null
+          session_id: string
+          total_amount?: number | null
+          user_agent?: string | null
+        }
+        Update: {
+          affiliate_code?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          order_bumps_amount?: number | null
+          order_bumps_selected?: string[] | null
+          price_id?: string | null
+          product_id?: string | null
+          session_id?: string
+          total_amount?: number | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_events_price_id_fkey"
+            columns: ["price_id"]
+            isOneToOne: false
+            referencedRelation: "product_prices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_events_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_affiliate_links: {
         Row: {
           affiliate_id: string | null
