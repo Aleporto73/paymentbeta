@@ -179,6 +179,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
+          display_order: number
           id: string
           is_active: boolean | null
           order_bump_product_id: string
@@ -190,6 +191,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
+          display_order?: number
           id?: string
           is_active?: boolean | null
           order_bump_product_id: string
@@ -201,6 +203,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
+          display_order?: number
           id?: string
           is_active?: boolean | null
           order_bump_product_id?: string

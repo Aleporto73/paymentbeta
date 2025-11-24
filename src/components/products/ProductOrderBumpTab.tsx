@@ -44,7 +44,7 @@ export function ProductOrderBumpTab({ productId }: ProductOrderBumpTabProps) {
         .from("product_order_bumps")
         .select("*")
         .eq("product_id", productId)
-        .order("created_at", { ascending: false });
+        .order("display_order", { ascending: true });
 
       if (error) throw error;
       return data as ProductOrderBump[];
@@ -112,6 +112,7 @@ export function ProductOrderBumpTab({ productId }: ProductOrderBumpTabProps) {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-20">Ordem</TableHead>
                 <TableHead>Título</TableHead>
                 <TableHead>Produto</TableHead>
                 <TableHead>Preço</TableHead>
@@ -122,7 +123,10 @@ export function ProductOrderBumpTab({ productId }: ProductOrderBumpTabProps) {
             <TableBody>
               {orderBumps.map((orderBump) => (
                 <TableRow key={orderBump.id}>
-                  <TableCell className="font-medium">{orderBump.title}</TableCell>
+                  <TableCell className="font-medium text-center">
+                    {orderBump.display_order}
+                  </TableCell>
+                  <TableCell>{orderBump.title}</TableCell>
                   <TableCell>{getProductName(orderBump.order_bump_product_id)}</TableCell>
                   <TableCell>
                     {new Intl.NumberFormat("pt-BR", {
