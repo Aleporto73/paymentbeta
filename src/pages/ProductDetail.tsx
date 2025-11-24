@@ -192,6 +192,7 @@ export default function ProductDetail() {
               onUpdate={fetchAffiliateLinks}
               defaultCommissionType={product.default_commission_type}
               defaultCommissionValue={product.default_commission_value}
+              product={product}
             />
           )}
           {activeTab === "coupons" && <ProductCouponsTab productId={product.id} />}

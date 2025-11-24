@@ -105,6 +105,16 @@ export function AddAffiliateDialog({
 
       if (linkError) throw linkError;
 
+      // Assign affiliate role
+      const { error: roleError } = await supabase
+        .from("user_roles")
+        .insert({
+          user_id: authData.user.id,
+          role: "affiliate",
+        });
+
+      if (roleError) throw roleError;
+
       toast({
         title: "Afiliado cadastrado",
         description: "O afiliado foi cadastrado com sucesso.",

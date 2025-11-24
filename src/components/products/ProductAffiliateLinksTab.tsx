@@ -10,9 +10,21 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Percent, Trash2, Edit, Power } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ProductAffiliateLink, CommissionType } from "@/types/product";
+import { ProductAffiliateLink, CommissionType, Product } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 import { AddAffiliateDialog } from "./AddAffiliateDialog";
+import { EditAffiliateDialog } from "./EditAffiliateDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface ProductAffiliateLinksTabProps {
   productId: string;
@@ -20,6 +32,7 @@ interface ProductAffiliateLinksTabProps {
   onUpdate: () => void;
   defaultCommissionType: CommissionType;
   defaultCommissionValue: number;
+  product?: Product;
 }
 
 export function ProductAffiliateLinksTab({
@@ -28,6 +41,7 @@ export function ProductAffiliateLinksTab({
   onUpdate,
   defaultCommissionType,
   defaultCommissionValue,
+  product,
 }: ProductAffiliateLinksTabProps) {
   const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -349,14 +363,17 @@ export function ProductAffiliateLinksTab({
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => openEditDialog(link)}
-                    title="Editar comissão"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Button>
+                  <EditAffiliateDialog
+                    affiliateId={link.affiliate_id!}
+                    affiliateName={link.affiliate_name || ""}
+                    affiliateEmail=""
+                    productId={productId}
+                    currentCommissionType={link.commission_type as CommissionType}
+                    currentCommissionValue={link.commission_value}
+                    defaultCommissionType={product?.default_commission_type as CommissionType}
+                    defaultCommissionValue={product?.default_commission_value || 0}
+                    onSuccess={onUpdate}
+                  />
                   <Button
                     variant="ghost"
                     size="icon"
@@ -365,15 +382,32 @@ export function ProductAffiliateLinksTab({
                   >
                     <Power className="w-4 h-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(link.id)}
-                    className="text-destructive hover:text-destructive"
-                    title="Excluir link"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        title="Excluir link"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Tem certeza que deseja excluir este afiliado? Esta ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDelete(link.id)}>
+                          Excluir
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             ))}

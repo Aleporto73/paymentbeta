@@ -11,6 +11,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProductCoupon, DiscountType } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface ProductCouponsTabProps {
   productId: string;
@@ -23,6 +34,7 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
+    code: "",
     discount_type: "percentage" as DiscountType,
     discount_value: "",
   });
@@ -50,30 +62,47 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
     }
   };
 
-  const generateCouponCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.code.trim()) {
+      toast({
+        title: "Erro",
+        description: "O código do cupom não pode estar vazio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
+      // Check if coupon code already exists for this product
+      const { data: existingCoupon } = await supabase
+        .from("product_coupons")
+        .select("id")
+        .eq("product_id", productId)
+        .eq("code", formData.code.toUpperCase())
+        .single();
+
+      if (existingCoupon) {
+        toast({
+          title: "Erro",
+          description: "Já existe um cupom com este código para este produto.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
       const numValue = formData.discount_type === 'percentage' 
         ? parseFloat(formData.discount_value)
         : parseCurrency(formData.discount_value);
 
-      const code = generateCouponCode();
-
       const { error } = await supabase.from("product_coupons").insert([
         {
           product_id: productId,
-          code: code,
+          code: formData.code.toUpperCase(),
           discount_type: formData.discount_type,
           discount_value: numValue,
         },
@@ -83,10 +112,11 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
 
       toast({
         title: "Cupom criado",
-        description: `Código do cupom: ${code}`,
+        description: `Código do cupom: ${formData.code.toUpperCase()}`,
       });
 
       setFormData({
+        code: "",
         discount_type: "percentage",
         discount_value: "",
       });
@@ -187,6 +217,23 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
+                  <Label htmlFor="coupon-code">Código do Cupom *</Label>
+                  <Input
+                    id="coupon-code"
+                    placeholder="Ex: DESCONTO10"
+                    value={formData.code}
+                    onChange={(e) =>
+                      setFormData({ ...formData, code: e.target.value.toUpperCase() })
+                    }
+                    maxLength={20}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Digite o código personalizado do cupom (máximo 20 caracteres)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <Label>Tipo de Desconto</Label>
                   <Select
                     value={formData.discount_type}
@@ -232,12 +279,6 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
                     }}
                     placeholder={formData.discount_type === 'percentage' ? '0.00' : '0,00'}
                   />
-                </div>
-
-                <div className="bg-muted p-3 rounded-lg">
-                  <p className="text-sm text-muted-foreground">
-                    Um código único será gerado automaticamente para este cupom.
-                  </p>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">
@@ -292,22 +333,39 @@ export function ProductCouponsTab({ productId }: ProductCouponsTabProps) {
                     <Copy className="w-4 h-4" />
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant={coupon.is_active ? "default" : "outline"}
                     size="icon"
                     onClick={() => handleToggleActive(coupon.id, coupon.is_active)}
                     title={coupon.is_active ? "Desativar cupom" : "Ativar cupom"}
                   >
                     <Power className="w-4 h-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(coupon.id)}
-                    className="text-destructive hover:text-destructive"
-                    title="Excluir cupom"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        title="Excluir cupom"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Tem certeza que deseja excluir o cupom "{coupon.code}"? Esta ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDelete(coupon.id)}>
+                          Excluir
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             ))}
