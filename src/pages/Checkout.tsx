@@ -34,6 +34,7 @@ export default function Checkout() {
     cpf: "",
     phone: "",
   });
+  const [emailError, setEmailError] = useState<string>("");
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -237,6 +238,19 @@ export default function Checkout() {
     toast.success("Cupom removido");
   };
 
+  const validateEmail = (email: string) => {
+    if (!email) {
+      setEmailError("");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setEmailError("Digite um e-mail válido");
+    } else {
+      setEmailError("");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-3xl mx-auto">
@@ -305,9 +319,22 @@ export default function Checkout() {
                     type="email"
                     placeholder="Seu e-mail"
                     value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, email: e.target.value });
+                      validateEmail(e.target.value);
+                    }}
+                    className={emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}
                     required
                   />
+                  {emailError && (
+                    <p className="text-sm text-destructive mt-1">{emailError}</p>
+                  )}
+                  {formData.email && !emailError && (
+                    <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      E-mail válido
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
