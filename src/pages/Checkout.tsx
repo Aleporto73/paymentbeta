@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle2, CreditCard, Info } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
+import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
+import { ProductOrderBump } from "@/types/product";
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
@@ -18,6 +20,8 @@ export default function Checkout() {
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<any>(null);
   const [price, setPrice] = useState<any>(null);
+  const [orderBumps, setOrderBumps] = useState<ProductOrderBump[]>([]);
+  const [selectedOrderBumps, setSelectedOrderBumps] = useState<Set<string>>(new Set());
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "card">("pix");
 
   const [formData, setFormData] = useState({
@@ -44,6 +48,18 @@ export default function Checkout() {
 
         if (productError) throw productError;
         setProduct(productData);
+
+        // Buscar order bumps ativos
+        const { data: orderBumpsData, error: orderBumpsError } = await supabase
+          .from("product_order_bumps")
+          .select("*")
+          .eq("product_id", productData.id)
+          .eq("is_active", true)
+          .order("display_order");
+
+        if (!orderBumpsError && orderBumpsData) {
+          setOrderBumps(orderBumpsData as ProductOrderBump[]);
+        }
 
         // Se tiver código de preço específico, buscar, senão usar o padrão
         if (priceCode) {
@@ -118,6 +134,25 @@ export default function Checkout() {
   }
 
   const finalPrice = price?.price || product.price;
+  
+  const toggleOrderBump = (orderBumpId: string) => {
+    setSelectedOrderBumps(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderBumpId)) {
+        newSet.delete(orderBumpId);
+      } else {
+        newSet.add(orderBumpId);
+      }
+      return newSet;
+    });
+  };
+
+  const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
+    const bump = orderBumps.find(b => b.id === bumpId);
+    return total + (bump?.price || 0);
+  }, 0);
+
+  const totalPrice = finalPrice + orderBumpsTotal;
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
@@ -275,6 +310,21 @@ export default function Checkout() {
             </CardContent>
           </Card>
 
+          {/* Order Bumps */}
+          {orderBumps.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-xl font-bold">📦 Aproveite esta oferta especial!</h2>
+              {orderBumps.map((orderBump) => (
+                <CheckoutOrderBump
+                  key={orderBump.id}
+                  orderBump={orderBump}
+                  isSelected={selectedOrderBumps.has(orderBump.id)}
+                  onToggle={toggleOrderBump}
+                />
+              ))}
+            </div>
+          )}
+
           {/* Sua Compra */}
           <Card>
             <CardContent className="pt-6">
@@ -286,9 +336,29 @@ export default function Checkout() {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between pb-4 border-b">
-                  <span className="font-medium">{product.name}</span>
-                  <span className="font-bold">R$ {formatCurrency(finalPrice)}</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{product.name}</span>
+                    <span className="font-bold">R$ {formatCurrency(finalPrice)}</span>
+                  </div>
+                  
+                  {Array.from(selectedOrderBumps).map(bumpId => {
+                    const bump = orderBumps.find(b => b.id === bumpId);
+                    if (!bump) return null;
+                    return (
+                      <div key={bumpId} className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{bump.title}</span>
+                        <span className="font-semibold">R$ {formatCurrency(bump.price)}</span>
+                      </div>
+                    );
+                  })}
+                  
+                  {orderBumpsTotal > 0 && (
+                    <div className="border-t pt-3 flex items-center justify-between text-lg font-bold">
+                      <span>Total:</span>
+                      <span className="text-primary">R$ {formatCurrency(totalPrice)}</span>
+                    </div>
+                  )}
                 </div>
 
                 <Button type="submit" className="w-full h-12 text-lg font-semibold">
