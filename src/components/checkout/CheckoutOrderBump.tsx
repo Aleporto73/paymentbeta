@@ -15,14 +15,13 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
 
   return (
     <div
-      className="border rounded-lg p-4 transition-all duration-200 cursor-pointer"
+      className="border rounded-lg p-4 transition-all duration-200"
       style={{
         backgroundColor,
         color: textColor,
         borderColor: isSelected ? buttonColor : "#e5e7eb",
         borderWidth: isSelected ? "2px" : "1px",
       }}
-      onClick={() => onToggle(orderBump.id)}
     >
       <div className="flex items-start gap-4">
         <div className="pt-1">
