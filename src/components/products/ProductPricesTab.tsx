@@ -215,16 +215,10 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                       <span>{price.installments}x parcelas</span>
                     )}
                   </div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2">
                     <div className="text-xs text-muted-foreground">
                       <span className="font-medium">Código do plano: </span>
                       <span className="font-mono">{price.unique_code}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-medium">Link de checkout: </span>
-                      <span className="font-mono">
-                        https://exemplocheckout.com.br/{productUniqueCode}/{price.unique_code}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -232,7 +226,9 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                   variant="ghost"
                   size="icon"
                   onClick={() => handleDelete(price.id)}
-                  className="text-destructive hover:text-destructive"
+                  disabled={price.is_default}
+                  className="text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={price.is_default ? "O plano principal não pode ser excluído" : "Excluir plano"}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
