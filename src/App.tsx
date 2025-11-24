@@ -13,6 +13,7 @@ import Afiliados from "./pages/Afiliados";
 import AffiliateDashboard from "./pages/AffiliateDashboard";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import Checkout from "./pages/Checkout";
 
 const App = () => {
   const [queryClient] = useState(() => new QueryClient({
@@ -32,6 +33,7 @@ const App = () => {
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/checkout" element={<Checkout />} />
           <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
           <Route path="/produtos" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
           <Route path="/produtos/:id" element={<ProtectedRoute><Layout><ProductDetail /></Layout></ProtectedRoute>} />
