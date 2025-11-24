@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/dashboard/StatCard";
+import { AffiliatePerformanceChart } from "@/components/dashboard/AffiliatePerformanceChart";
 import { DollarSign, TrendingUp, MousePointerClick, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -244,6 +245,8 @@ export default function AffiliateDashboard() {
           iconColor="text-warning"
         />
       </div>
+
+      <AffiliatePerformanceChart sales={sales} totalClicks={stats.totalClicks} />
 
       <Card>
         <CardHeader>
