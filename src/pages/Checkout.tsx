@@ -35,12 +35,32 @@ export default function Checkout() {
     phone: "",
   });
   const [emailError, setEmailError] = useState<string>("");
+  const [cpfError, setCpfError] = useState<string>("");
+  const [phoneError, setPhoneError] = useState<string>("");
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
     priceId: price?.id,
     affiliateCode,
   });
+
+  useEffect(() => {
+    // Preencher campos a partir dos parâmetros da URL
+    const name = searchParams.get("name") || searchParams.get("nome");
+    const email = searchParams.get("email");
+    
+    if (name || email) {
+      setFormData(prev => ({
+        ...prev,
+        fullName: name || prev.fullName,
+        email: email || prev.email,
+      }));
+      
+      if (email) {
+        validateEmail(email);
+      }
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchCheckoutData = async () => {
@@ -251,6 +271,94 @@ export default function Checkout() {
     }
   };
 
+  const validateCPF = (cpf: string) => {
+    if (!cpf) {
+      setCpfError("");
+      return;
+    }
+    
+    const cleanCPF = cpf.replace(/\D/g, '');
+    
+    if (cleanCPF.length < 11) {
+      setCpfError("CPF incompleto");
+      return;
+    }
+
+    if (cleanCPF.length === 14) {
+      // É CNPJ, validação simplificada
+      setCpfError("");
+      return;
+    }
+    
+    // Validação de CPF
+    if (cleanCPF.length !== 11 || /^(\d)\1{10}$/.test(cleanCPF)) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    let sum = 0;
+    let remainder;
+    
+    for (let i = 1; i <= 9; i++) {
+      sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
+    }
+    
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCPF.substring(9, 10))) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    sum = 0;
+    for (let i = 1; i <= 10; i++) {
+      sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
+    }
+    
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCPF.substring(10, 11))) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    setCpfError("");
+  };
+
+  const validatePhone = (phone: string) => {
+    if (!phone) {
+      setPhoneError("");
+      return;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    if (cleanPhone.length < 11) {
+      setPhoneError("Celular incompleto");
+      return;
+    }
+    
+    if (cleanPhone.length !== 11) {
+      setPhoneError("Celular inválido");
+      return;
+    }
+    
+    // Validar DDD (11-99)
+    const ddd = parseInt(cleanPhone.substring(0, 2));
+    if (ddd < 11 || ddd > 99) {
+      setPhoneError("DDD inválido");
+      return;
+    }
+    
+    // Validar se o nono dígito é 9 (celular)
+    if (cleanPhone[2] !== '9') {
+      setPhoneError("Número deve ser de celular");
+      return;
+    }
+    
+    setPhoneError("");
+  };
+
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-3xl mx-auto">
@@ -347,10 +455,21 @@ export default function Checkout() {
                       onChange={(e) => {
                         const formatted = formatCPF(e.target.value);
                         setFormData({ ...formData, cpf: formatted });
+                        validateCPF(formatted);
                       }}
+                      className={cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}
                       maxLength={18}
                       required
                     />
+                    {cpfError && (
+                      <p className="text-sm text-destructive mt-1">{cpfError}</p>
+                    )}
+                    {formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 && (
+                      <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        {formData.cpf.replace(/\D/g, '').length === 11 ? 'CPF válido' : 'CNPJ válido'}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="phone">Celular</Label>
@@ -361,9 +480,20 @@ export default function Checkout() {
                       onChange={(e) => {
                         const formatted = formatPhone(e.target.value);
                         setFormData({ ...formData, phone: formatted });
+                        validatePhone(formatted);
                       }}
+                      className={phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}
                       maxLength={15}
                     />
+                    {phoneError && (
+                      <p className="text-sm text-destructive mt-1">{phoneError}</p>
+                    )}
+                    {formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 && (
+                      <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Celular válido
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
