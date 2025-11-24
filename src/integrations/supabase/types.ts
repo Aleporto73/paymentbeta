@@ -52,6 +52,51 @@ export type Database = {
           },
         ]
       }
+      product_link_clicks: {
+        Row: {
+          clicked_at: string
+          id: string
+          ip_address: string | null
+          price_id: string
+          product_id: string
+          referrer: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          clicked_at?: string
+          id?: string
+          ip_address?: string | null
+          price_id: string
+          product_id: string
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          clicked_at?: string
+          id?: string
+          ip_address?: string | null
+          price_id?: string
+          product_id?: string
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_link_clicks_price_id_fkey"
+            columns: ["price_id"]
+            isOneToOne: false
+            referencedRelation: "product_prices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_link_clicks_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_prices: {
         Row: {
           created_at: string
