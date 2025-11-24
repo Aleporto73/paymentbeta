@@ -72,7 +72,7 @@ export function ProductLinksTab({ productId, productUniqueCode, prices }: Produc
         ) : (
           <div className="space-y-4">
             {prices.map((price) => {
-              const checkoutLink = `https://checkout.payment.app.br/${productUniqueCode}/${price.unique_code}`;
+              const checkoutLink = `https://checkout.payment.app.br/?product=${productUniqueCode}&price=${price.unique_code}`;
               const isCopied = copiedLink === checkoutLink;
 
               return (
