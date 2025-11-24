@@ -68,7 +68,23 @@ export default function Checkout() {
           .order("display_order");
 
         if (!orderBumpsError && orderBumpsData) {
-          setOrderBumps(orderBumpsData as ProductOrderBump[]);
+          // Buscar imagens dos produtos dos order bumps
+          if (orderBumpsData.length > 0) {
+            const productIds = orderBumpsData.map(ob => ob.order_bump_product_id);
+            const { data: productsData } = await supabase
+              .from("products")
+              .select("id, image_url")
+              .in("id", productIds);
+
+            const orderBumpsWithImages = orderBumpsData.map(ob => ({
+              ...ob,
+              product_image_url: productsData?.find(p => p.id === ob.order_bump_product_id)?.image_url || null
+            }));
+
+            setOrderBumps(orderBumpsWithImages as ProductOrderBump[]);
+          } else {
+            setOrderBumps([]);
+          }
         }
 
         // Se tiver código de preço específico, buscar, senão usar o padrão

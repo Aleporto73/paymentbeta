@@ -27,9 +27,9 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          {orderBump.image_url && (
+          {orderBump.product_image_url && (
             <img 
-              src={orderBump.image_url} 
+              src={orderBump.product_image_url} 
               alt={orderBump.title} 
               className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
             />
