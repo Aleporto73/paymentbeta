@@ -31,13 +31,13 @@ const mainItems = [
   { title: "Produtos", url: "/produtos", icon: Package },
   { title: "Vendas", url: "/vendas", icon: ShoppingCart },
   { title: "Assinaturas", url: "/assinaturas", icon: CreditCard },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Afiliados", url: "/afiliados", icon: UserCog },
 ];
 
 const managementItems = [
   { title: "Cupons", url: "/cupons", icon: Ticket },
-  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
   { title: "Integrações", url: "/integracoes", icon: Plug },
 ];
 
