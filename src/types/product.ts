@@ -28,6 +28,8 @@ export type ProductCategory =
 export type ProductType = 'recorrente' | 'pagamento_unico';
 export type PaymentMethod = 'a_vista' | 'parcelado_taxa_cliente' | 'parcelado_taxa_vendedor';
 export type SubscriptionPeriod = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+export type CommissionType = 'percentage' | 'fixed';
+export type DiscountType = 'percentage' | 'fixed';
 
 export interface Product {
   id: string;
@@ -43,6 +45,8 @@ export interface Product {
   installments: number;
   is_active: boolean;
   unique_code: string;
+  default_commission_type: CommissionType;
+  default_commission_value: number;
   created_at: string;
   updated_at: string;
 }
@@ -64,7 +68,18 @@ export interface ProductAffiliateLink {
   product_id: string;
   affiliate_name: string;
   affiliate_url: string;
-  commission_percentage: number;
+  commission_type: CommissionType;
+  commission_value: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ProductCoupon {
+  id: string;
+  product_id: string;
+  code: string;
+  discount_type: DiscountType;
+  discount_value: number;
   is_active: boolean;
   created_at: string;
 }

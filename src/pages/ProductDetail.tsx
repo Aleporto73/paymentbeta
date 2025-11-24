@@ -46,7 +46,7 @@ export default function ProductDetail() {
         .single();
 
       if (error) throw error;
-      setProduct(data);
+      setProduct(data as Product);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar produto",
@@ -87,7 +87,7 @@ export default function ProductDetail() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setAffiliateLinks(data || []);
+      setAffiliateLinks((data || []) as ProductAffiliateLink[]);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar links de afiliação",
@@ -190,6 +190,8 @@ export default function ProductDetail() {
               productId={product.id}
               affiliateLinks={affiliateLinks}
               onUpdate={fetchAffiliateLinks}
+              defaultCommissionType={product.default_commission_type}
+              defaultCommissionValue={product.default_commission_value}
             />
           )}
           {activeTab === "coupons" && <ProductCouponsTab productId={product.id} />}

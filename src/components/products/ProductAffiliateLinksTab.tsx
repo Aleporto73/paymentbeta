@@ -1,67 +1,93 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Copy, ExternalLink } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Percent, DollarSign, Trash2, Edit, Power } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ProductAffiliateLink } from "@/types/product";
+import { ProductAffiliateLink, CommissionType } from "@/types/product";
+import { formatCurrency, parseCurrency } from "@/lib/utils";
 
 interface ProductAffiliateLinksTabProps {
   productId: string;
   affiliateLinks: ProductAffiliateLink[];
   onUpdate: () => void;
+  defaultCommissionType: CommissionType;
+  defaultCommissionValue: number;
 }
 
 export function ProductAffiliateLinksTab({
   productId,
   affiliateLinks,
   onUpdate,
+  defaultCommissionType,
+  defaultCommissionValue,
 }: ProductAffiliateLinksTabProps) {
-  const [open, setOpen] = useState(false);
+  const [commissionDialogOpen, setCommissionDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedLink, setSelectedLink] = useState<ProductAffiliateLink | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  const [formData, setFormData] = useState({
-    affiliate_name: "",
-    affiliate_url: "",
-    commission_percentage: "",
+  const [commissionForm, setCommissionForm] = useState({
+    type: defaultCommissionType,
+    value: defaultCommissionType === 'percentage' ? String(defaultCommissionValue) : formatCurrency(defaultCommissionValue),
+    applyTo: "new" as "all" | "new",
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [editForm, setEditForm] = useState({
+    type: "percentage" as CommissionType,
+    value: "",
+  });
+
+  const handleCommissionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { error } = await supabase.from("product_affiliate_links").insert([
-        {
-          product_id: productId,
-          affiliate_name: formData.affiliate_name,
-          affiliate_url: formData.affiliate_url,
-          commission_percentage: parseFloat(formData.commission_percentage),
-        },
-      ]);
+      const numValue = commissionForm.type === 'percentage' 
+        ? parseFloat(commissionForm.value)
+        : parseCurrency(commissionForm.value);
 
-      if (error) throw error;
+      // Update product default commission
+      const { error: productError } = await supabase
+        .from("products")
+        .update({
+          default_commission_type: commissionForm.type,
+          default_commission_value: numValue,
+        })
+        .eq("id", productId);
+
+      if (productError) throw productError;
+
+      // If apply to all, update existing affiliates
+      if (commissionForm.applyTo === "all") {
+        const { error: linksError } = await supabase
+          .from("product_affiliate_links")
+          .update({
+            commission_type: commissionForm.type,
+            commission_value: numValue,
+          })
+          .eq("product_id", productId);
+
+        if (linksError) throw linksError;
+      }
 
       toast({
-        title: "Link de afiliação adicionado",
-        description: "O link foi adicionado com sucesso.",
+        title: "Comissão configurada",
+        description: "A comissão padrão foi atualizada com sucesso.",
       });
 
-      setFormData({
-        affiliate_name: "",
-        affiliate_url: "",
-        commission_percentage: "",
-      });
-      setOpen(false);
+      setCommissionDialogOpen(false);
       onUpdate();
     } catch (error: any) {
       toast({
-        title: "Erro ao adicionar link",
+        title: "Erro ao configurar comissão",
         description: error.message,
         variant: "destructive",
       });
@@ -70,9 +96,76 @@ export function ProductAffiliateLinksTab({
     }
   };
 
+  const handleEditCommission = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLink) return;
+    
+    setLoading(true);
+
+    try {
+      const numValue = editForm.type === 'percentage' 
+        ? parseFloat(editForm.value)
+        : parseCurrency(editForm.value);
+
+      const { error } = await supabase
+        .from("product_affiliate_links")
+        .update({
+          commission_type: editForm.type,
+          commission_value: numValue,
+        })
+        .eq("id", selectedLink.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Comissão atualizada",
+        description: "A comissão do afiliado foi atualizada com sucesso.",
+      });
+
+      setEditDialogOpen(false);
+      setSelectedLink(null);
+      onUpdate();
+    } catch (error: any) {
+      toast({
+        title: "Erro ao atualizar comissão",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleActive = async (linkId: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("product_affiliate_links")
+        .update({ is_active: !currentStatus })
+        .eq("id", linkId);
+
+      if (error) throw error;
+
+      toast({
+        title: currentStatus ? "Link desativado" : "Link ativado",
+        description: `O link foi ${currentStatus ? "desativado" : "ativado"} com sucesso.`,
+      });
+
+      onUpdate();
+    } catch (error: any) {
+      toast({
+        title: "Erro ao atualizar status",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleDelete = async (linkId: string) => {
     try {
-      const { error } = await supabase.from("product_affiliate_links").delete().eq("id", linkId);
+      const { error } = await supabase
+        .from("product_affiliate_links")
+        .delete()
+        .eq("id", linkId);
 
       if (error) throw error;
 
@@ -91,77 +184,125 @@ export function ProductAffiliateLinksTab({
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({
-      title: "Link copiado!",
-      description: "O link foi copiado para a área de transferência.",
+  const openEditDialog = (link: ProductAffiliateLink) => {
+    setSelectedLink(link);
+    setEditForm({
+      type: link.commission_type,
+      value: link.commission_type === 'percentage' 
+        ? String(link.commission_value) 
+        : formatCurrency(link.commission_value),
     });
+    setEditDialogOpen(true);
+  };
+
+  const formatCommissionDisplay = (type: CommissionType, value: number) => {
+    if (type === 'percentage') {
+      return `${value}%`;
+    }
+    return `R$ ${formatCurrency(value)}`;
   };
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Links de Afiliação</CardTitle>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <div>
+            <CardTitle>Afiliados</CardTitle>
+            <CardDescription>Gerencie os afiliados e suas comissões</CardDescription>
+          </div>
+          <Dialog open={commissionDialogOpen} onOpenChange={setCommissionDialogOpen}>
             <DialogTrigger asChild>
               <Button>
-                <Plus className="w-4 h-4 mr-2" />
-                Adicionar Link
+                <Percent className="w-4 h-4 mr-2" />
+                Comissão
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Adicionar Link de Afiliação</DialogTitle>
+                <DialogTitle>Configurar Comissão Padrão</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleCommissionSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="affiliate_name">Nome do Afiliado *</Label>
+                  <Label>Tipo de Comissão</Label>
+                  <Select
+                    value={commissionForm.type}
+                    onValueChange={(value: CommissionType) => {
+                      setCommissionForm({ 
+                        ...commissionForm, 
+                        type: value,
+                        value: value === 'percentage' ? '0' : '0,00'
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">Porcentagem (%)</SelectItem>
+                      <SelectItem value="fixed">Valor Fixo (R$)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="commission_value">
+                    {commissionForm.type === 'percentage' ? 'Porcentagem (%)' : 'Valor (R$)'}
+                  </Label>
                   <Input
-                    id="affiliate_name"
+                    id="commission_value"
+                    type="text"
                     required
-                    value={formData.affiliate_name}
-                    onChange={(e) => setFormData({ ...formData, affiliate_name: e.target.value })}
-                    placeholder="Ex: João Silva"
+                    value={commissionForm.value}
+                    onChange={(e) => {
+                      if (commissionForm.type === 'percentage') {
+                        const value = e.target.value.replace(/[^\d.]/g, '');
+                        setCommissionForm({ ...commissionForm, value });
+                      } else {
+                        let value = e.target.value.replace(/[^\d]/g, '');
+                        if (value.length > 0) {
+                          const numValue = parseInt(value);
+                          value = formatCurrency(numValue / 100);
+                        }
+                        setCommissionForm({ ...commissionForm, value });
+                      }
+                    }}
+                    placeholder={commissionForm.type === 'percentage' ? '0.00' : '0,00'}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="affiliate_url">URL do Link *</Label>
-                  <Input
-                    id="affiliate_url"
-                    type="url"
-                    required
-                    value={formData.affiliate_url}
-                    onChange={(e) => setFormData({ ...formData, affiliate_url: e.target.value })}
-                    placeholder="https://exemplo.com/aff/12345"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="commission_percentage">Comissão (%) *</Label>
-                  <Input
-                    id="commission_percentage"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    required
-                    value={formData.commission_percentage}
-                    onChange={(e) =>
-                      setFormData({ ...formData, commission_percentage: e.target.value })
+                  <Label>Aplicar em</Label>
+                  <RadioGroup
+                    value={commissionForm.applyTo}
+                    onValueChange={(value: "all" | "new") =>
+                      setCommissionForm({ ...commissionForm, applyTo: value })
                     }
-                    placeholder="0.00"
-                  />
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="new" id="new" />
+                      <Label htmlFor="new" className="font-normal cursor-pointer">
+                        Apenas novos afiliados
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="all" id="all" />
+                      <Label htmlFor="all" className="font-normal cursor-pointer">
+                        Todos os afiliados (incluindo atuais)
+                      </Label>
+                    </div>
+                  </RadioGroup>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCommissionDialogOpen(false)}
+                  >
                     Cancelar
                   </Button>
                   <Button type="submit" disabled={loading}>
-                    {loading ? "Adicionando..." : "Adicionar"}
+                    {loading ? "Salvando..." : "Salvar"}
                   </Button>
                 </div>
               </form>
@@ -172,8 +313,8 @@ export function ProductAffiliateLinksTab({
       <CardContent>
         {affiliateLinks.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p>Nenhum link de afiliação cadastrado</p>
-            <p className="text-sm mt-2">Clique em "Adicionar Link" para começar</p>
+            <p>Nenhum afiliado cadastrado</p>
+            <p className="text-sm mt-2">Configure a comissão para começar a trabalhar com afiliados</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -194,7 +335,7 @@ export function ProductAffiliateLinksTab({
                       URL: {link.affiliate_url}
                     </p>
                     <p className="text-sm font-medium">
-                      Comissão: {link.commission_percentage}%
+                      Comissão: {formatCommissionDisplay(link.commission_type, link.commission_value)}
                     </p>
                   </div>
                 </div>
@@ -202,18 +343,18 @@ export function ProductAffiliateLinksTab({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => copyToClipboard(link.affiliate_url)}
-                    title="Copiar link"
+                    onClick={() => openEditDialog(link)}
+                    title="Editar comissão"
                   >
-                    <Copy className="w-4 h-4" />
+                    <Edit className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => window.open(link.affiliate_url, "_blank")}
-                    title="Abrir link"
+                    onClick={() => handleToggleActive(link.id, link.is_active)}
+                    title={link.is_active ? "Desativar link" : "Ativar link"}
                   >
-                    <ExternalLink className="w-4 h-4" />
+                    <Power className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -229,6 +370,76 @@ export function ProductAffiliateLinksTab({
             ))}
           </div>
         )}
+
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Comissão</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleEditCommission} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Tipo de Comissão</Label>
+                <Select
+                  value={editForm.type}
+                  onValueChange={(value: CommissionType) => {
+                    setEditForm({ 
+                      ...editForm, 
+                      type: value,
+                      value: value === 'percentage' ? '0' : '0,00'
+                    });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percentage">Porcentagem (%)</SelectItem>
+                    <SelectItem value="fixed">Valor Fixo (R$)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit_commission_value">
+                  {editForm.type === 'percentage' ? 'Porcentagem (%)' : 'Valor (R$)'}
+                </Label>
+                <Input
+                  id="edit_commission_value"
+                  type="text"
+                  required
+                  value={editForm.value}
+                  onChange={(e) => {
+                    if (editForm.type === 'percentage') {
+                      const value = e.target.value.replace(/[^\d.]/g, '');
+                      setEditForm({ ...editForm, value });
+                    } else {
+                      let value = e.target.value.replace(/[^\d]/g, '');
+                      if (value.length > 0) {
+                        const numValue = parseInt(value);
+                        value = formatCurrency(numValue / 100);
+                      }
+                      setEditForm({ ...editForm, value });
+                    }
+                  }}
+                  placeholder={editForm.type === 'percentage' ? '0.00' : '0,00'}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
