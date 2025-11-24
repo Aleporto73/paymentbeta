@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState } from "react";
 
 import {
   Sidebar,
@@ -43,6 +45,24 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const isCollapsed = state === "collapsed";
+  const [userRole, setUserRole] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+        
+        setUserRole(roleData?.role || null);
+      }
+    };
+    
+    fetchUserRole();
+  }, []);
   
   const isActive = (path: string) => {
     if (path === "/") {
@@ -50,6 +70,10 @@ export function AppSidebar() {
     }
     return location.pathname.startsWith(path);
   };
+
+  const affiliateItems = [
+    { title: "Meu Dashboard", url: "/dashboard-afiliado", icon: BarChart3 },
+  ];
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -65,50 +89,77 @@ export function AppSidebar() {
           </div>
         </div>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Principal</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
-                      end={item.url === "/"}
-                      className="hover:bg-sidebar-accent transition-colors"
-                      activeClassName="bg-primary-light text-primary font-medium border-l-3 border-primary"
-                    >
-                      <item.icon className="h-5 w-5" />
-                      {!isCollapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {userRole === 'affiliate' ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>Afiliado</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {affiliateItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink 
+                        to={item.url} 
+                        end={item.url === "/dashboard-afiliado"}
+                        className="hover:bg-sidebar-accent transition-colors"
+                        activeClassName="bg-primary-light text-primary font-medium border-l-3 border-primary"
+                      >
+                        <item.icon className="h-5 w-5" />
+                        {!isCollapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel>Principal</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {mainItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink 
+                          to={item.url} 
+                          end={item.url === "/"}
+                          className="hover:bg-sidebar-accent transition-colors"
+                          activeClassName="bg-primary-light text-primary font-medium border-l-3 border-primary"
+                        >
+                          <item.icon className="h-5 w-5" />
+                          {!isCollapsed && <span>{item.title}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Gestão</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {managementItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url}
-                      className="hover:bg-sidebar-accent transition-colors"
-                      activeClassName="bg-primary-light text-primary font-medium border-l-3 border-primary"
-                    >
-                      <item.icon className="h-5 w-5" />
-                      {!isCollapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Gestão</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {managementItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink 
+                          to={item.url}
+                          className="hover:bg-sidebar-accent transition-colors"
+                          activeClassName="bg-primary-light text-primary font-medium border-l-3 border-primary"
+                        >
+                          <item.icon className="h-5 w-5" />
+                          {!isCollapsed && <span>{item.title}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
     </Sidebar>
   );
