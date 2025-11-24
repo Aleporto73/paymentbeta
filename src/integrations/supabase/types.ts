@@ -175,6 +175,48 @@ export type Database = {
           },
         ]
       }
+      product_order_bump_analytics: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          order_bump_id: string
+          product_id: string
+          revenue_generated: number | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          order_bump_id: string
+          product_id: string
+          revenue_generated?: number | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          order_bump_id?: string
+          product_id?: string
+          revenue_generated?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_order_bump_analytics_order_bump_id_fkey"
+            columns: ["order_bump_id"]
+            isOneToOne: false
+            referencedRelation: "product_order_bumps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_order_bump_analytics_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_order_bumps: {
         Row: {
           created_at: string
@@ -183,6 +225,10 @@ export type Database = {
           id: string
           is_active: boolean | null
           order_bump_product_id: string
+          preview_background_color: string | null
+          preview_button_color: string | null
+          preview_position: string | null
+          preview_text_color: string | null
           price: number
           product_id: string
           title: string
@@ -195,6 +241,10 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           order_bump_product_id: string
+          preview_background_color?: string | null
+          preview_button_color?: string | null
+          preview_position?: string | null
+          preview_text_color?: string | null
           price: number
           product_id: string
           title: string
@@ -207,6 +257,10 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           order_bump_product_id?: string
+          preview_background_color?: string | null
+          preview_button_color?: string | null
+          preview_position?: string | null
+          preview_text_color?: string | null
           price?: number
           product_id?: string
           title?: string

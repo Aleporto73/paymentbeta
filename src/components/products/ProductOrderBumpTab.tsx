@@ -25,7 +25,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CreateOrderBumpDialog } from "./CreateOrderBumpDialog";
+import { OrderBumpAnalytics } from "./OrderBumpAnalytics";
 import type { ProductOrderBump, Product } from "@/types/product";
+import { formatCurrency } from "@/lib/utils";
 
 interface ProductOrderBumpTabProps {
   productId: string;
@@ -122,45 +124,47 @@ export function ProductOrderBumpTab({ productId }: ProductOrderBumpTabProps) {
             </TableHeader>
             <TableBody>
               {orderBumps.map((orderBump) => (
-                <TableRow key={orderBump.id}>
-                  <TableCell className="font-medium text-center">
-                    {orderBump.display_order}
-                  </TableCell>
-                  <TableCell>{orderBump.title}</TableCell>
-                  <TableCell>{getProductName(orderBump.order_bump_product_id)}</TableCell>
-                  <TableCell>
-                    {new Intl.NumberFormat("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                    }).format(orderBump.price)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={orderBump.is_active ? "default" : "secondary"}>
-                      {orderBump.is_active ? "Ativo" : "Inativo"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setEditingOrderBump(orderBump);
-                          setIsCreateDialogOpen(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteOrderBumpId(orderBump.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <>
+                  <TableRow key={orderBump.id}>
+                    <TableCell className="font-medium text-center">
+                      {orderBump.display_order}
+                    </TableCell>
+                    <TableCell>{orderBump.title}</TableCell>
+                    <TableCell>{getProductName(orderBump.order_bump_product_id)}</TableCell>
+                    <TableCell>R$ {formatCurrency(orderBump.price)}</TableCell>
+                    <TableCell>
+                      <Badge variant={orderBump.is_active ? "default" : "secondary"}>
+                        {orderBump.is_active ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditingOrderBump(orderBump);
+                            setIsCreateDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteOrderBumpId(orderBump.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow key={`analytics-${orderBump.id}`}>
+                    <TableCell colSpan={6} className="p-4 bg-muted/30">
+                      <OrderBumpAnalytics orderBumpId={orderBump.id} />
+                    </TableCell>
+                  </TableRow>
+                </>
               ))}
             </TableBody>
           </Table>

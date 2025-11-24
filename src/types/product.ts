@@ -94,8 +94,21 @@ export interface ProductOrderBump {
   price: number;
   is_active: boolean;
   display_order: number;
+  preview_background_color: string;
+  preview_text_color: string;
+  preview_button_color: string;
+  preview_position: 'below_product' | 'sidebar' | 'popup';
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductOrderBumpAnalytics {
+  id: string;
+  order_bump_id: string;
+  product_id: string;
+  event_type: 'view' | 'accept' | 'reject';
+  revenue_generated: number;
+  created_at: string;
 }
 
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
