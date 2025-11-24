@@ -15,12 +15,13 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
 
   return (
     <div
-      className="border rounded-lg p-4 transition-all duration-200"
+      className="border rounded-lg p-4 transition-all duration-300 animate-fade-in"
       style={{
         backgroundColor,
         color: textColor,
         borderColor: isSelected ? buttonColor : "#e5e7eb",
         borderWidth: isSelected ? "2px" : "1px",
+        transform: isSelected ? "scale(1.02)" : "scale(1)",
       }}
     >
       <div className="flex items-start gap-4">
@@ -28,7 +29,7 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
           <Checkbox
             checked={isSelected}
             onCheckedChange={() => onToggle(orderBump.id)}
-            className="border-2"
+            className="border-2 transition-all duration-200"
             style={{
               borderColor: buttonColor,
             }}
@@ -41,7 +42,7 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
               {orderBump.title}
             </h3>
             <div className="text-right">
-              <div className="text-2xl font-bold" style={{ color: buttonColor }}>
+              <div className="text-2xl font-bold transition-all duration-200" style={{ color: buttonColor }}>
                 +R$ {formatCurrency(orderBump.price)}
               </div>
             </div>
@@ -53,15 +54,17 @@ export default function CheckoutOrderBump({ orderBump, isSelected, onToggle }: C
             </p>
           )}
           
-          <div 
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium"
+          <button
+            type="button"
+            onClick={() => onToggle(orderBump.id)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:scale-105 active:scale-95"
             style={{ 
               backgroundColor: buttonColor,
               color: "#ffffff"
             }}
           >
             {isSelected ? "✓ Adicionado" : "Clique para adicionar"}
-          </div>
+          </button>
         </div>
       </div>
     </div>
