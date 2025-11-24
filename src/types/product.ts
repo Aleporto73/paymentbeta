@@ -85,6 +85,18 @@ export interface ProductCoupon {
   created_at: string;
 }
 
+export interface ProductOrderBump {
+  id: string;
+  product_id: string;
+  order_bump_product_id: string;
+  title: string;
+  description: string | null;
+  price: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
   saude_esportes: 'Saúde e Esportes',
   financas_investimentos: 'Finanças e Investimentos',

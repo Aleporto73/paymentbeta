@@ -175,6 +175,42 @@ export type Database = {
           },
         ]
       }
+      product_order_bumps: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean | null
+          order_bump_product_id: string
+          price: number
+          product_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          order_bump_product_id: string
+          price: number
+          product_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          order_bump_product_id?: string
+          price?: number
+          product_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       product_prices: {
         Row: {
           created_at: string
