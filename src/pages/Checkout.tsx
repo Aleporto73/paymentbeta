@@ -27,6 +27,7 @@ export default function Checkout() {
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
+  const [showCouponField, setShowCouponField] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -37,6 +38,15 @@ export default function Checkout() {
   const [emailError, setEmailError] = useState<string>("");
   const [cpfError, setCpfError] = useState<string>("");
   const [phoneError, setPhoneError] = useState<string>("");
+
+  const [cardData, setCardData] = useState({
+    cardholderName: "",
+    cardNumber: "",
+    zipCode: "",
+    expiryDate: "",
+    cvv: "",
+    installments: "1",
+  });
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -255,6 +265,7 @@ export default function Checkout() {
   const removeCoupon = () => {
     setAppliedCoupon(null);
     setCouponCode("");
+    setShowCouponField(false);
     toast.success("Cupom removido");
   };
 
@@ -533,28 +544,119 @@ export default function Checkout() {
                 </Button>
               </div>
 
-              <div className="bg-muted/50 rounded-lg p-4 mb-4">
-                <div className="flex items-start gap-2">
-                  <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <div className="text-sm">
-                    <p className="font-semibold mb-2">Informações sobre o pagamento via PIX</p>
-                    <p className="text-muted-foreground mb-2">
-                      O pagamento é instantâneo e liberação imediata.
-                    </p>
-                    <p className="text-muted-foreground">
-                      Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro,
-                      onde encontrará o passo a passo para realizar o pagamento.
-                    </p>
+              {paymentMethod === "pix" ? (
+                <div className="bg-muted/50 rounded-lg p-4 mb-4">
+                  <div className="flex items-start gap-2">
+                    <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-semibold mb-2">Informações sobre o pagamento via PIX</p>
+                      <p className="text-muted-foreground mb-2">
+                        O pagamento é instantâneo e liberação imediata.
+                      </p>
+                      <p className="text-muted-foreground">
+                        Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro,
+                        onde encontrará o passo a passo para realizar o pagamento.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="cardholderName">Nome do titular</Label>
+                    <Input
+                      id="cardholderName"
+                      placeholder="Digite o nome do titular"
+                      value={cardData.cardholderName}
+                      onChange={(e) => setCardData({ ...cardData, cardholderName: e.target.value })}
+                      required={paymentMethod === "card"}
+                    />
+                  </div>
 
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between text-lg font-semibold">
-                  <span>💵 Valor à vista:</span>
-                  <span>R$ {formatCurrency(finalPrice)}</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="cardNumber">Número do cartão</Label>
+                      <Input
+                        id="cardNumber"
+                        placeholder="Digite o número do cartão"
+                        value={cardData.cardNumber}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 16);
+                          const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
+                          setCardData({ ...cardData, cardNumber: formatted });
+                        }}
+                        maxLength={19}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="zipCode">CEP do endereço de cobrança</Label>
+                      <Input
+                        id="zipCode"
+                        placeholder="00000-000"
+                        value={cardData.zipCode}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 8);
+                          const formatted = value.replace(/(\d{5})(\d)/, '$1-$2');
+                          setCardData({ ...cardData, zipCode: formatted });
+                        }}
+                        maxLength={9}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="expiryDate">Vencimento</Label>
+                      <Input
+                        id="expiryDate"
+                        placeholder="MM/AA"
+                        value={cardData.expiryDate}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                          const formatted = value.replace(/(\d{2})(\d)/, '$1/$2');
+                          setCardData({ ...cardData, expiryDate: formatted });
+                        }}
+                        maxLength={5}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="cvv">CVV</Label>
+                      <Input
+                        id="cvv"
+                        placeholder="000"
+                        value={cardData.cvv}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 3);
+                          setCardData({ ...cardData, cvv: value });
+                        }}
+                        maxLength={3}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="installments">Parcelamento</Label>
+                      <Input
+                        id="installments"
+                        value={`${cardData.installments} X de R$ ${formatCurrency(totalPrice / parseInt(cardData.installments))}`}
+                        readOnly
+                        className="cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {paymentMethod === "pix" && (
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between text-lg font-semibold">
+                    <span>💵 Valor à vista:</span>
+                    <span>R$ {formatCurrency(finalPrice)}</span>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -604,48 +706,60 @@ export default function Checkout() {
 
                 {/* Cupom de Desconto */}
                 <div className="border-t pt-4">
-                  <Label htmlFor="coupon" className="text-sm font-semibold mb-2 block">
-                    Cupom de Desconto
-                  </Label>
-                  {!appliedCoupon ? (
-                    <div className="flex gap-2">
-                      <Input
-                        id="coupon"
-                        placeholder="Digite o código do cupom"
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), validateCoupon())}
-                        disabled={validatingCoupon}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={validateCoupon}
-                        disabled={validatingCoupon}
-                      >
-                        {validatingCoupon ? "Validando..." : "Aplicar"}
-                      </Button>
-                    </div>
+                  {!showCouponField && !appliedCoupon ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowCouponField(true)}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Você tem um cupom?
+                    </button>
                   ) : (
-                    <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-green-600" />
-                          <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                            Cupom {appliedCoupon.code} aplicado
-                          </span>
+                    <>
+                      <Label htmlFor="coupon" className="text-sm font-semibold mb-2 block">
+                        Cupom de Desconto
+                      </Label>
+                      {!appliedCoupon ? (
+                        <div className="flex gap-2">
+                          <Input
+                            id="coupon"
+                            placeholder="Digite o código do cupom"
+                            value={couponCode}
+                            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), validateCoupon())}
+                            disabled={validatingCoupon}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={validateCoupon}
+                            disabled={validatingCoupon}
+                          >
+                            {validatingCoupon ? "Validando..." : "Aplicar"}
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={removeCoupon}
-                          className="h-auto p-1 text-green-700 dark:text-green-300"
-                        >
-                          Remover
-                        </Button>
-                      </div>
-                    </div>
+                      ) : (
+                        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-green-600" />
+                              <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                                Cupom {appliedCoupon.code} aplicado
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={removeCoupon}
+                              className="h-auto p-1 text-green-700 dark:text-green-300"
+                            >
+                              Remover
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
