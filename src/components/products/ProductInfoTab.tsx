@@ -253,70 +253,61 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
           </form>
         ) : (
           <div className="space-y-6">
-            {product.image_url && (
-              <div>
+            <div className="flex gap-6">
+              {product.image_url && (
                 <img
                   src={product.image_url}
                   alt={product.name}
-                  className="w-[100px] h-[100px] object-cover rounded-lg border"
+                  className="w-[100px] h-[100px] object-cover rounded-lg border shrink-0"
                 />
-              </div>
-            )}
+              )}
+              
+              <div className="flex-1 space-y-4">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-muted-foreground">Nome</p>
+                    <p className="text-lg font-semibold">{product.name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-muted-foreground">Preço</p>
+                    <p className="text-lg font-semibold">R$ {product.price.toFixed(2)}</p>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Nome</p>
-                <p className="text-lg">{product.name}</p>
-              </div>
+                {product.description && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Descrição</p>
+                    <p className="text-base text-foreground whitespace-pre-wrap">{product.description}</p>
+                  </div>
+                )}
 
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Preço</p>
-                <p className="text-lg font-semibold">R$ {product.price.toFixed(2)}</p>
-              </div>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Status</p>
+                    <p className="text-base text-foreground">{product.is_active ? "Ativo" : "Inativo"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Categoria</p>
+                    <p className="text-base text-foreground">{CATEGORY_LABELS[product.category]}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Tipo</p>
+                    <p className="text-base text-foreground">{PRODUCT_TYPE_LABELS[product.product_type]}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Forma de Pagamento</p>
+                    <p className="text-base text-foreground">{PAYMENT_METHOD_LABELS[product.payment_method]}</p>
+                  </div>
+                </div>
 
-              {product.installments > 1 && (
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Parcelas</p>
-                  <p className="text-lg">
-                    {product.installments}x de R$ {(product.price / product.installments).toFixed(2)}
+                  <p className="text-sm font-medium text-muted-foreground">Data de Cadastro</p>
+                  <p className="text-base text-foreground">
+                    {new Date(product.created_at).toLocaleDateString("pt-BR")}
                   </p>
                 </div>
-              )}
-
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Status</p>
-                <p className="text-lg">{product.is_active ? "Ativo" : "Inativo"}</p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Categoria</p>
-                <p className="text-lg">{CATEGORY_LABELS[product.category]}</p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Tipo</p>
-                <p className="text-lg">{PRODUCT_TYPE_LABELS[product.product_type]}</p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Forma de Pagamento</p>
-                <p className="text-lg">{PAYMENT_METHOD_LABELS[product.payment_method]}</p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Data de Cadastro</p>
-                <p className="text-lg">
-                  {new Date(product.created_at).toLocaleDateString("pt-BR")}
-                </p>
               </div>
             </div>
-
-            {product.description && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Descrição</p>
-                <p className="text-base whitespace-pre-wrap">{product.description}</p>
-              </div>
-            )}
           </div>
         )}
       </CardContent>
