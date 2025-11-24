@@ -64,6 +64,7 @@ export type Database = {
           subscription_period:
             | Database["public"]["Enums"]["subscription_period"]
             | null
+          unique_code: string
         }
         Insert: {
           created_at?: string
@@ -76,6 +77,7 @@ export type Database = {
           subscription_period?:
             | Database["public"]["Enums"]["subscription_period"]
             | null
+          unique_code: string
         }
         Update: {
           created_at?: string
@@ -88,6 +90,7 @@ export type Database = {
           subscription_period?:
             | Database["public"]["Enums"]["subscription_period"]
             | null
+          unique_code?: string
         }
         Relationships: [
           {
@@ -177,6 +180,7 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"]
           price: number
           product_type: Database["public"]["Enums"]["product_type"]
+          unique_code: string
           updated_at: string
           user_id: string
         }
@@ -193,6 +197,7 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"]
           price?: number
           product_type: Database["public"]["Enums"]["product_type"]
+          unique_code: string
           updated_at?: string
           user_id: string
         }
@@ -209,6 +214,7 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"]
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"]
+          unique_code?: string
           updated_at?: string
           user_id?: string
         }
@@ -264,6 +270,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_unique_code: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
