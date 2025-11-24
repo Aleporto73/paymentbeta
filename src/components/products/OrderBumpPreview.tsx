@@ -6,9 +6,10 @@ import { Check } from "lucide-react";
 interface OrderBumpPreviewProps {
   orderBump: Partial<ProductOrderBump>;
   productName?: string;
+  imageUrl?: string;
 }
 
-export function OrderBumpPreview({ orderBump, productName }: OrderBumpPreviewProps) {
+export function OrderBumpPreview({ orderBump, productName, imageUrl }: OrderBumpPreviewProps) {
   const {
     title = "Título do Order Bump",
     description = "Descrição do Order Bump...",
@@ -43,6 +44,13 @@ export function OrderBumpPreview({ orderBump, productName }: OrderBumpPreviewPro
       >
         <CardContent className="p-4 space-y-3">
           <div className="flex items-start gap-3">
+            {imageUrl && (
+              <img 
+                src={imageUrl} 
+                alt={title} 
+                className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+              />
+            )}
             <div 
               className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5"
               style={{ backgroundColor: preview_button_color }}

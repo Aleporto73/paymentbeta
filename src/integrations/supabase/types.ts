@@ -283,6 +283,7 @@ export type Database = {
           description: string | null
           display_order: number
           id: string
+          image_url: string | null
           is_active: boolean | null
           order_bump_product_id: string
           preview_background_color: string | null
@@ -299,6 +300,7 @@ export type Database = {
           description?: string | null
           display_order?: number
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           order_bump_product_id: string
           preview_background_color?: string | null
@@ -315,6 +317,7 @@ export type Database = {
           description?: string | null
           display_order?: number
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           order_bump_product_id?: string
           preview_background_color?: string | null
