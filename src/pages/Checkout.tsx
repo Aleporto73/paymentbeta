@@ -170,7 +170,10 @@ export default function Checkout() {
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Main Content */}
+          <div className="flex-1 max-w-4xl">
         {/* Header com produto */}
         <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
           <div className="w-48 h-32 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
@@ -402,10 +405,82 @@ export default function Checkout() {
           </Card>
         </form>
 
-        {/* Footer */}
-        <footer className="mt-8 text-center text-sm text-muted-foreground">
-          Tecnologia Payment App © 2025 - Todos os direitos reservados
-        </footer>
+          {/* Footer */}
+          <footer className="mt-8 text-center text-sm text-muted-foreground">
+            Tecnologia Payment App © 2025 - Todos os direitos reservados
+          </footer>
+        </div>
+
+        {/* Sidebar - Resumo do Pedido */}
+        <div className="lg:w-96">
+          <Card className="sticky top-8 animate-fade-in">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <span className="text-primary font-semibold">📝</span>
+                </div>
+                <h2 className="text-xl font-bold">Resumo do Pedido</h2>
+              </div>
+
+              <div className="space-y-4">
+                {/* Produto Principal */}
+                <div className="pb-3 border-b">
+                  <div className="text-sm text-muted-foreground mb-1">Produto Principal</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium text-sm">{product.name}</span>
+                    <span className="font-bold whitespace-nowrap">R$ {formatCurrency(finalPrice)}</span>
+                  </div>
+                </div>
+
+                {/* Order Bumps Selecionados */}
+                {selectedOrderBumps.size > 0 && (
+                  <div className="pb-3 border-b animate-fade-in">
+                    <div className="text-sm text-muted-foreground mb-2">Extras Selecionados</div>
+                    <div className="space-y-2">
+                      {Array.from(selectedOrderBumps).map(bumpId => {
+                        const bump = orderBumps.find(b => b.id === bumpId);
+                        if (!bump) return null;
+                        return (
+                          <div key={bumpId} className="flex items-start justify-between gap-2 animate-scale-in">
+                            <span className="text-sm">{bump.title}</span>
+                            <span className="font-semibold text-sm whitespace-nowrap">+R$ {formatCurrency(bump.price)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Total */}
+                <div className="pt-2">
+                  <div className="flex items-center justify-between text-lg font-bold">
+                    <span>Total</span>
+                    <span className="text-primary text-2xl transition-all duration-300">
+                      R$ {formatCurrency(totalPrice)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Benefícios */}
+                <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <span>Acesso imediato</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <span>Compra 100% segura</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <span>Pagamento único</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
       </div>
     </div>
   );
