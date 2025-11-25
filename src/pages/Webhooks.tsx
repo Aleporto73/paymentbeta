@@ -72,7 +72,15 @@ export default function Webhooks() {
   const [retrying, setRetrying] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState<Filters>({
+  const [tempFilters, setTempFilters] = useState<Filters>({
+    productId: "all",
+    status: "all",
+    webhookUrl: "",
+    startDate: "",
+    endDate: "",
+  });
+  
+  const [appliedFilters, setAppliedFilters] = useState<Filters>({
     productId: "all",
     status: "all",
     webhookUrl: "",
@@ -82,7 +90,11 @@ export default function Webhooks() {
 
   useEffect(() => {
     fetchData();
-  }, [filters]);
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [appliedFilters]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -106,8 +118,8 @@ export default function Webhooks() {
       let productIds = productsData.map((p) => p.id);
       
       // Apply product filter
-      if (filters.productId && filters.productId !== "all") {
-        productIds = [filters.productId];
+      if (appliedFilters.productId && appliedFilters.productId !== "all") {
+        productIds = [appliedFilters.productId];
       }
 
       // Fetch queue stats
@@ -141,24 +153,24 @@ export default function Webhooks() {
         .in("product_id", productIds);
 
       // Apply status filter
-      if (filters.status === "success") {
+      if (appliedFilters.status === "success") {
         logsQuery = logsQuery.eq("success", true);
-      } else if (filters.status === "failed") {
+      } else if (appliedFilters.status === "failed") {
         logsQuery = logsQuery.eq("success", false);
       }
       // If status is "all", no filter is applied
 
       // Apply webhook URL filter
-      if (filters.webhookUrl) {
-        logsQuery = logsQuery.ilike("webhook_url", `%${filters.webhookUrl}%`);
+      if (appliedFilters.webhookUrl) {
+        logsQuery = logsQuery.ilike("webhook_url", `%${appliedFilters.webhookUrl}%`);
       }
 
       // Apply date filters
-      if (filters.startDate) {
-        logsQuery = logsQuery.gte("created_at", new Date(filters.startDate).toISOString());
+      if (appliedFilters.startDate) {
+        logsQuery = logsQuery.gte("created_at", new Date(appliedFilters.startDate).toISOString());
       }
-      if (filters.endDate) {
-        const endDate = new Date(filters.endDate);
+      if (appliedFilters.endDate) {
+        const endDate = new Date(appliedFilters.endDate);
         endDate.setHours(23, 59, 59, 999);
         logsQuery = logsQuery.lte("created_at", endDate.toISOString());
       }
@@ -242,21 +254,27 @@ export default function Webhooks() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
+  const applyFilters = () => {
+    setAppliedFilters(tempFilters);
+  };
+
   const clearFilters = () => {
-    setFilters({
+    const emptyFilters = {
       productId: "all",
       status: "all",
       webhookUrl: "",
       startDate: "",
       endDate: "",
-    });
+    };
+    setTempFilters(emptyFilters);
+    setAppliedFilters(emptyFilters);
   };
 
-  const hasActiveFilters = filters.productId !== "all" || 
-    filters.status !== "all" || 
-    filters.webhookUrl !== "" || 
-    filters.startDate !== "" || 
-    filters.endDate !== "";
+  const hasActiveFilters = appliedFilters.productId !== "all" || 
+    appliedFilters.status !== "all" || 
+    appliedFilters.webhookUrl !== "" || 
+    appliedFilters.startDate !== "" || 
+    appliedFilters.endDate !== "";
 
   return (
     <div className="space-y-6">
@@ -276,7 +294,7 @@ export default function Webhooks() {
             Filtros
             {hasActiveFilters && (
               <Badge variant="secondary" className="ml-2">
-                {Object.values(filters).filter(v => v !== "").length}
+                {Object.values(appliedFilters).filter(v => v !== "" && v !== "all").length}
               </Badge>
             )}
           </Button>
@@ -306,9 +324,9 @@ export default function Webhooks() {
               <div className="space-y-2">
                 <Label htmlFor="product-filter">Produto</Label>
                 <Select
-                  value={filters.productId}
+                  value={tempFilters.productId}
                   onValueChange={(value) =>
-                    setFilters({ ...filters, productId: value })
+                    setTempFilters({ ...tempFilters, productId: value })
                   }
                 >
                   <SelectTrigger id="product-filter">
@@ -328,9 +346,9 @@ export default function Webhooks() {
               <div className="space-y-2">
                 <Label htmlFor="status-filter">Status</Label>
                 <Select
-                  value={filters.status}
+                  value={tempFilters.status}
                   onValueChange={(value) =>
-                    setFilters({ ...filters, status: value })
+                    setTempFilters({ ...tempFilters, status: value })
                   }
                 >
                   <SelectTrigger id="status-filter">
@@ -349,9 +367,9 @@ export default function Webhooks() {
                 <Input
                   id="url-filter"
                   placeholder="Filtrar por URL..."
-                  value={filters.webhookUrl}
+                  value={tempFilters.webhookUrl}
                   onChange={(e) =>
-                    setFilters({ ...filters, webhookUrl: e.target.value })
+                    setTempFilters({ ...tempFilters, webhookUrl: e.target.value })
                   }
                 />
               </div>
@@ -361,9 +379,9 @@ export default function Webhooks() {
                 <Input
                   id="start-date"
                   type="date"
-                  value={filters.startDate}
+                  value={tempFilters.startDate}
                   onChange={(e) =>
-                    setFilters({ ...filters, startDate: e.target.value })
+                    setTempFilters({ ...tempFilters, startDate: e.target.value })
                   }
                 />
               </div>
@@ -373,12 +391,21 @@ export default function Webhooks() {
                 <Input
                   id="end-date"
                   type="date"
-                  value={filters.endDate}
+                  value={tempFilters.endDate}
                   onChange={(e) =>
-                    setFilters({ ...filters, endDate: e.target.value })
+                    setTempFilters({ ...tempFilters, endDate: e.target.value })
                   }
                 />
               </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={clearFilters}>
+                Limpar
+              </Button>
+              <Button onClick={applyFilters}>
+                Buscar
+              </Button>
             </div>
           </CardContent>
         </Card>
