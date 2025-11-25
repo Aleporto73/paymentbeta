@@ -650,8 +650,8 @@ export default function Checkout() {
               <div className="flex gap-4 mb-6">
                 <Button
                   type="button"
-                  variant={paymentMethod === "pix" ? "default" : "outline"}
-                  className="flex-1"
+                  variant="outline"
+                  className={`flex-1 ${paymentMethod === "pix" ? "bg-muted" : ""}`}
                   onClick={() => setPaymentMethod("pix")}
                 >
                   <svg className="w-6 h-6 mr-2" viewBox="0 0 512 512" fill="currentColor">
@@ -661,8 +661,8 @@ export default function Checkout() {
                 </Button>
                 <Button
                   type="button"
-                  variant={paymentMethod === "card" ? "default" : "outline"}
-                  className="flex-1"
+                  variant="outline"
+                  className={`flex-1 ${paymentMethod === "card" ? "bg-muted" : ""}`}
                   onClick={() => setPaymentMethod("card")}
                 >
                   <CreditCard className="w-5 h-5 mr-2" />
@@ -942,7 +942,7 @@ export default function Checkout() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full h-12 text-lg font-semibold">
+                <Button type="submit" className="w-full h-12 text-lg font-semibold bg-[#157347] hover:bg-[#157347]/90 text-white">
                   Comprar agora
                 </Button>
 
