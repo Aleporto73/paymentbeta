@@ -41,6 +41,66 @@ export type Database = {
         }
         Relationships: []
       }
+      asaas_customers: {
+        Row: {
+          address: string | null
+          address_number: string | null
+          asaas_customer_id: string
+          city: string | null
+          complement: string | null
+          cpf_cnpj: string | null
+          created_at: string
+          email: string
+          id: string
+          mobile_phone: string | null
+          name: string
+          phone: string | null
+          postal_code: string | null
+          province: string | null
+          state: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          address_number?: string | null
+          asaas_customer_id: string
+          city?: string | null
+          complement?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          mobile_phone?: string | null
+          name: string
+          phone?: string | null
+          postal_code?: string | null
+          province?: string | null
+          state?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          address_number?: string | null
+          asaas_customer_id?: string
+          city?: string | null
+          complement?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          mobile_phone?: string | null
+          name?: string
+          phone?: string | null
+          postal_code?: string | null
+          province?: string | null
+          state?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       checkout_events: {
         Row: {
           affiliate_code: string | null
@@ -564,6 +624,188 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          affiliate_code: string | null
+          asaas_customer_id: string
+          asaas_subscription_id: string
+          billing_type: string
+          cancelled_at: string | null
+          created_at: string
+          cycle: string
+          description: string | null
+          id: string
+          next_due_date: string | null
+          product_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          value: number
+        }
+        Insert: {
+          affiliate_code?: string | null
+          asaas_customer_id: string
+          asaas_subscription_id: string
+          billing_type: string
+          cancelled_at?: string | null
+          created_at?: string
+          cycle: string
+          description?: string | null
+          id?: string
+          next_due_date?: string | null
+          product_id?: string | null
+          status: string
+          updated_at?: string
+          user_id: string
+          value: number
+        }
+        Update: {
+          affiliate_code?: string | null
+          asaas_customer_id?: string
+          asaas_subscription_id?: string
+          billing_type?: string
+          cancelled_at?: string | null
+          created_at?: string
+          cycle?: string
+          description?: string | null
+          id?: string
+          next_due_date?: string | null
+          product_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          affiliate_code: string | null
+          asaas_customer_id: string | null
+          asaas_payment_id: string
+          billing_type: string
+          confirmed_date: string | null
+          created_at: string
+          credit_date: string | null
+          customer_cpf_cnpj: string | null
+          customer_email: string
+          customer_name: string
+          customer_phone: string | null
+          customer_state: string | null
+          description: string | null
+          device_type: string | null
+          due_date: string | null
+          external_reference: string | null
+          id: string
+          installment_count: number | null
+          installment_value: number | null
+          ip_address: string | null
+          net_value: number | null
+          order_bumps_amount: number | null
+          order_bumps_selected: string[] | null
+          payment_date: string | null
+          payment_method: string
+          price_id: string | null
+          product_id: string | null
+          status: string
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+          value: number
+        }
+        Insert: {
+          affiliate_code?: string | null
+          asaas_customer_id?: string | null
+          asaas_payment_id: string
+          billing_type: string
+          confirmed_date?: string | null
+          created_at?: string
+          credit_date?: string | null
+          customer_cpf_cnpj?: string | null
+          customer_email: string
+          customer_name: string
+          customer_phone?: string | null
+          customer_state?: string | null
+          description?: string | null
+          device_type?: string | null
+          due_date?: string | null
+          external_reference?: string | null
+          id?: string
+          installment_count?: number | null
+          installment_value?: number | null
+          ip_address?: string | null
+          net_value?: number | null
+          order_bumps_amount?: number | null
+          order_bumps_selected?: string[] | null
+          payment_date?: string | null
+          payment_method: string
+          price_id?: string | null
+          product_id?: string | null
+          status: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+          value: number
+        }
+        Update: {
+          affiliate_code?: string | null
+          asaas_customer_id?: string | null
+          asaas_payment_id?: string
+          billing_type?: string
+          confirmed_date?: string | null
+          created_at?: string
+          credit_date?: string | null
+          customer_cpf_cnpj?: string | null
+          customer_email?: string
+          customer_name?: string
+          customer_phone?: string | null
+          customer_state?: string | null
+          description?: string | null
+          device_type?: string | null
+          due_date?: string | null
+          external_reference?: string | null
+          id?: string
+          installment_count?: number | null
+          installment_value?: number | null
+          ip_address?: string | null
+          net_value?: number | null
+          order_bumps_amount?: number | null
+          order_bumps_selected?: string[] | null
+          payment_date?: string | null
+          payment_method?: string
+          price_id?: string | null
+          product_id?: string | null
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_price_id_fkey"
+            columns: ["price_id"]
+            isOneToOne: false
+            referencedRelation: "product_prices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
