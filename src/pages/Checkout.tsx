@@ -1045,19 +1045,19 @@ export default function Checkout() {
                 <h2 className="text-xl font-bold mb-4">Identificação</h2>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="fullName" className="text-sm font-semibold">Nome completo</Label>
+                    <Label htmlFor="fullName" className="text-sm font-medium">Nome completo</Label>
                     <Input
                       id="fullName"
                       placeholder="Seu nome completo"
                       value={formData.fullName}
                       onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="mt-2 h-12"
+                      className="mt-1"
                       required
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="email" className="text-sm font-semibold">E-mail</Label>
+                    <Label htmlFor="email" className="text-sm font-medium">E-mail</Label>
                     <Input
                       id="email"
                       type="email"
@@ -1067,7 +1067,7 @@ export default function Checkout() {
                         setFormData({ ...formData, email: e.target.value });
                         validateEmail(e.target.value);
                       }}
-                      className={`mt-2 h-12 ${emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                      className={`mt-1 ${emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                       required
                     />
                     {emailError && (
@@ -1077,7 +1077,7 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="cpf" className="text-sm font-semibold">CPF/CNPJ</Label>
+                      <Label htmlFor="cpf" className="text-sm font-medium">CPF/CNPJ</Label>
                       <Input
                         id="cpf"
                         placeholder="Digite seu CPF/CNPJ"
@@ -1087,7 +1087,7 @@ export default function Checkout() {
                           setFormData({ ...formData, cpf: formatted });
                           validateCPF(formatted);
                         }}
-                        className={`mt-2 h-12 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        className={`mt-1 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                         maxLength={18}
                         required
                       />
@@ -1096,7 +1096,7 @@ export default function Checkout() {
                       )}
                     </div>
                     <div>
-                      <Label htmlFor="phone" className="text-sm font-semibold">Celular</Label>
+                      <Label htmlFor="phone" className="text-sm font-medium">Celular</Label>
                       <Input
                         id="phone"
                         placeholder="Digite seu celular"
@@ -1106,7 +1106,7 @@ export default function Checkout() {
                           setFormData({ ...formData, phone: formatted });
                           validatePhone(formatted);
                         }}
-                        className={`mt-2 h-12 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        className={`mt-1 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                         maxLength={15}
                       />
                       {phoneError && (
@@ -1120,35 +1120,33 @@ export default function Checkout() {
               {/* Métodos de Pagamento */}
               <div>
                 <h2 className="text-xl font-bold mb-4">Forma de pagamento</h2>
-                <div className="flex gap-4">
-                  <Button
+                <div className="grid grid-cols-2 gap-3">
+                  <button
                     type="button"
-                    variant="outline"
-                    className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
+                    className={`relative flex items-center gap-3 px-4 py-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "pix" 
-                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
-                        : "border-gray-300"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
+                        : "border-gray-300 bg-white dark:bg-background hover:border-gray-400"
                     }`}
                     onClick={() => setPaymentMethod("pix")}
                   >
-                    <svg className="w-6 h-6 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
+                    <svg className="w-7 h-7 text-teal-500 flex-shrink-0" viewBox="0 0 512 512" fill="currentColor">
                       <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
                     </svg>
-                    <span className="font-semibold">Pix</span>
-                  </Button>
-                  <Button
+                    <span className="font-semibold text-base">Pix</span>
+                  </button>
+                  <button
                     type="button"
-                    variant="outline"
-                    className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
+                    className={`relative flex items-center gap-3 px-4 py-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "card" 
-                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
-                        : "border-gray-300"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
+                        : "border-gray-300 bg-white dark:bg-background hover:border-gray-400"
                     }`}
                     onClick={() => setPaymentMethod("card")}
                   >
-                    <CreditCard className="w-5 h-5" />
-                    <span className="font-semibold">Cartão de crédito</span>
-                  </Button>
+                    <CreditCard className="w-6 h-6 text-gray-600 flex-shrink-0" />
+                    <span className="font-semibold text-base">Cartão de crédito</span>
+                  </button>
                 </div>
               </div>
 
