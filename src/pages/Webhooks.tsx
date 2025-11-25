@@ -73,8 +73,8 @@ export default function Webhooks() {
   const [products, setProducts] = useState<Product[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
-    productId: "",
-    status: "",
+    productId: "all",
+    status: "all",
     webhookUrl: "",
     startDate: "",
     endDate: "",
@@ -106,7 +106,7 @@ export default function Webhooks() {
       let productIds = productsData.map((p) => p.id);
       
       // Apply product filter
-      if (filters.productId) {
+      if (filters.productId && filters.productId !== "all") {
         productIds = [filters.productId];
       }
 
@@ -146,6 +146,7 @@ export default function Webhooks() {
       } else if (filters.status === "failed") {
         logsQuery = logsQuery.eq("success", false);
       }
+      // If status is "all", no filter is applied
 
       // Apply webhook URL filter
       if (filters.webhookUrl) {
@@ -243,15 +244,19 @@ export default function Webhooks() {
 
   const clearFilters = () => {
     setFilters({
-      productId: "",
-      status: "",
+      productId: "all",
+      status: "all",
       webhookUrl: "",
       startDate: "",
       endDate: "",
     });
   };
 
-  const hasActiveFilters = Object.values(filters).some(value => value !== "");
+  const hasActiveFilters = filters.productId !== "all" || 
+    filters.status !== "all" || 
+    filters.webhookUrl !== "" || 
+    filters.startDate !== "" || 
+    filters.endDate !== "";
 
   return (
     <div className="space-y-6">
@@ -310,7 +315,7 @@ export default function Webhooks() {
                     <SelectValue placeholder="Todos os produtos" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos os produtos</SelectItem>
+                    <SelectItem value="all">Todos os produtos</SelectItem>
                     {products.map((product) => (
                       <SelectItem key={product.id} value={product.id}>
                         {product.name}
@@ -332,7 +337,7 @@ export default function Webhooks() {
                     <SelectValue placeholder="Todos os status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos os status</SelectItem>
+                    <SelectItem value="all">Todos os status</SelectItem>
                     <SelectItem value="success">Sucesso</SelectItem>
                     <SelectItem value="failed">Falha</SelectItem>
                   </SelectContent>
