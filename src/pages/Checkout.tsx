@@ -47,6 +47,8 @@ export default function Checkout() {
     cvv: "",
     installments: "1",
   });
+  const [cardError, setCardError] = useState<string>("");
+  const [cardBrand, setCardBrand] = useState<string>("");
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -154,6 +156,92 @@ export default function Checkout() {
     }
     
     setPhoneError("");
+  };
+
+  // Detectar bandeira do cartão
+  const detectCardBrand = (cardNumber: string) => {
+    const cleanNumber = cardNumber.replace(/\s/g, '');
+    
+    if (/^4/.test(cleanNumber)) {
+      return 'Visa';
+    } else if (/^5[1-5]/.test(cleanNumber)) {
+      return 'Mastercard';
+    } else if (/^3[47]/.test(cleanNumber)) {
+      return 'Amex';
+    } else if (/^6(?:011|5)/.test(cleanNumber)) {
+      return 'Discover';
+    } else if (/^(?:2131|1800|35)/.test(cleanNumber)) {
+      return 'JCB';
+    } else if (/^3(?:0[0-5]|[68])/.test(cleanNumber)) {
+      return 'Diners';
+    } else if (/^(?:5[06789]|6)/.test(cleanNumber)) {
+      return 'Elo';
+    } else if (/^(636368|438935|504175|451416|636297)/.test(cleanNumber)) {
+      return 'Hipercard';
+    }
+    return '';
+  };
+
+  // Validação Luhn
+  const luhnValidation = (cardNumber: string) => {
+    const cleanNumber = cardNumber.replace(/\s/g, '');
+    
+    if (cleanNumber.length < 13) {
+      return false;
+    }
+    
+    let sum = 0;
+    let isEven = false;
+    
+    for (let i = cleanNumber.length - 1; i >= 0; i--) {
+      let digit = parseInt(cleanNumber[i]);
+      
+      if (isEven) {
+        digit *= 2;
+        if (digit > 9) {
+          digit -= 9;
+        }
+      }
+      
+      sum += digit;
+      isEven = !isEven;
+    }
+    
+    return sum % 10 === 0;
+  };
+
+  // Validar cartão de crédito
+  const validateCard = (cardNumber: string) => {
+    if (!cardNumber) {
+      setCardError("");
+      setCardBrand("");
+      return;
+    }
+    
+    const cleanNumber = cardNumber.replace(/\s/g, '');
+    
+    if (cleanNumber.length < 13) {
+      setCardError("Número incompleto");
+      const brand = detectCardBrand(cardNumber);
+      setCardBrand(brand);
+      return;
+    }
+    
+    const brand = detectCardBrand(cardNumber);
+    setCardBrand(brand);
+    
+    if (!brand) {
+      setCardError("Bandeira não identificada");
+      return;
+    }
+    
+    // Validar com algoritmo de Luhn
+    if (!luhnValidation(cardNumber)) {
+      setCardError("Número de cartão inválido");
+      return;
+    }
+    
+    setCardError("");
   };
 
   useEffect(() => {
@@ -577,18 +665,36 @@ export default function Checkout() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="cardNumber">Número do cartão</Label>
-                      <Input
-                        id="cardNumber"
-                        placeholder="Digite o número do cartão"
-                        value={cardData.cardNumber}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 16);
-                          const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
-                          setCardData({ ...cardData, cardNumber: formatted });
-                        }}
-                        maxLength={19}
-                        required={paymentMethod === "card"}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="cardNumber"
+                          placeholder="0000 0000 0000 0000"
+                          value={cardData.cardNumber}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/\D/g, '').slice(0, 16);
+                            const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
+                            setCardData({ ...cardData, cardNumber: formatted });
+                            validateCard(formatted);
+                          }}
+                          className={cardError ? "border-destructive focus-visible:ring-destructive pr-20" : cardData.cardNumber && !cardError && cardData.cardNumber.replace(/\s/g, '').length >= 13 ? "border-green-500 focus-visible:ring-green-500 pr-20" : "pr-20"}
+                          maxLength={19}
+                          required={paymentMethod === "card"}
+                        />
+                        {cardBrand && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded">
+                            {cardBrand}
+                          </div>
+                        )}
+                      </div>
+                      {cardError && (
+                        <p className="text-sm text-destructive mt-1">{cardError}</p>
+                      )}
+                      {cardData.cardNumber && !cardError && cardData.cardNumber.replace(/\s/g, '').length >= 13 && (
+                        <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Cartão válido
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="zipCode">CEP do endereço de cobrança</Label>
@@ -616,7 +722,10 @@ export default function Checkout() {
                         value={cardData.expiryDate}
                         onChange={(e) => {
                           const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                          const formatted = value.replace(/(\d{2})(\d)/, '$1/$2');
+                          let formatted = value;
+                          if (value.length >= 2) {
+                            formatted = value.slice(0, 2) + '/' + value.slice(2);
+                          }
                           setCardData({ ...cardData, expiryDate: formatted });
                         }}
                         maxLength={5}
@@ -627,13 +736,14 @@ export default function Checkout() {
                       <Label htmlFor="cvv">CVV</Label>
                       <Input
                         id="cvv"
-                        placeholder="000"
+                        placeholder={cardBrand === 'Amex' ? '0000' : '000'}
                         value={cardData.cvv}
                         onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 3);
+                          const maxLength = cardBrand === 'Amex' ? 4 : 3;
+                          const value = e.target.value.replace(/\D/g, '').slice(0, maxLength);
                           setCardData({ ...cardData, cvv: value });
                         }}
-                        maxLength={3}
+                        maxLength={cardBrand === 'Amex' ? 4 : 3}
                         required={paymentMethod === "card"}
                       />
                     </div>
