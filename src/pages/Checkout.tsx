@@ -1051,7 +1051,7 @@ export default function Checkout() {
                   </div>
 
                   <div>
-                    <Label htmlFor="email" className="text-sm font-medium">
+                    <Label htmlFor="email" className="text-sm">
                       E-mail
                     </Label>
                     <Input
@@ -1071,7 +1071,7 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="cpf" className="text-sm font-medium">
+                      <Label htmlFor="cpf" className="text-sm">
                         CPF/CNPJ
                       </Label>
                       <Input
@@ -1090,7 +1090,7 @@ export default function Checkout() {
                       {cpfError && <p className="text-sm text-destructive mt-1">{cpfError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="phone" className="text-sm font-medium">
+                      <Label htmlFor="phone" className="text-sm">
                         Celular
                       </Label>
                       <Input
@@ -1168,7 +1168,7 @@ export default function Checkout() {
               {paymentMethod === "card" && (
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="cardholderName" className="text-sm font-medium">
+                    <Label htmlFor="cardholderName" className="text-sm">
                       Nome do titular
                     </Label>
                     <Input
@@ -1183,7 +1183,7 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="cardNumber" className="text-sm font-medium">
+                      <Label htmlFor="cardNumber" className="text-sm">
                         Número do cartão
                       </Label>
                       <div className="relative mt-1">
@@ -1216,7 +1216,7 @@ export default function Checkout() {
                       {cardError && <p className="text-sm text-destructive mt-1">{cardError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="zipCode" className="text-sm font-medium">
+                      <Label htmlFor="zipCode" className="text-sm">
                         CEP
                       </Label>
                       <Input
@@ -1238,7 +1238,7 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="expiryDate" className="text-sm font-medium">
+                      <Label htmlFor="expiryDate" className="text-sm">
                         Vencimento
                       </Label>
                       <Input
@@ -1261,7 +1261,7 @@ export default function Checkout() {
                       {expiryError && <p className="text-sm text-destructive mt-1">{expiryError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="cvv" className="text-sm font-medium">
+                      <Label htmlFor="cvv" className="text-sm">
                         CVV
                       </Label>
                       <Input
@@ -1279,7 +1279,7 @@ export default function Checkout() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="installments" className="text-sm font-medium">
+                      <Label htmlFor="installments" className="text-sm">
                         Parcelas
                       </Label>
                       <Input
