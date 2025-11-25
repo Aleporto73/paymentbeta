@@ -14,25 +14,28 @@ serve(async (req) => {
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    
-    if (!user) {
-      throw new Error('Unauthorized');
+    const {
+      customerData,
+      paymentData,
+      productId,
+      priceId,
+      userId,
+    } = await req.json();
+
+    console.log('Creating payment for product:', productId);
+
+    if (!userId) {
+      throw new Error('User ID is required');
     }
 
     // Get integration settings to fetch API key
     const { data: integrationSettings, error: settingsError } = await supabaseClient
       .from('integration_settings')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('integration_name', 'asaas')
       .single();
 
@@ -52,17 +55,9 @@ serve(async (req) => {
       ? 'https://sandbox.asaas.com/api/v3'
       : 'https://www.asaas.com/api/v3';
 
-    const {
-      customerData,
-      paymentData,
-      productId,
-      priceId,
-      affiliateCode,
-      orderBumps,
-      deviceInfo
-    } = await req.json();
+    const { affiliateCode, orderBumps, deviceInfo } = await req.json();
 
-    console.log('Creating payment for user:', user.id);
+    console.log('Creating payment with customer data');
 
     // 1. Create or get customer in Asaas
     const customerResponse = await fetch(`${asaasBaseUrl}/customers`, {
@@ -98,7 +93,7 @@ serve(async (req) => {
 
     // Save customer to local database
     await supabaseClient.from('asaas_customers').upsert({
-      user_id: user.id,
+      user_id: userId,
       asaas_customer_id: customerResult.id,
       name: customerData.name,
       email: customerData.email,
@@ -168,7 +163,7 @@ serve(async (req) => {
 
     // 3. Save transaction to local database
     await supabaseClient.from('transactions').insert({
-      user_id: user.id,
+      user_id: userId,
       asaas_payment_id: paymentResult.id,
       asaas_customer_id: customerResult.id,
       product_id: productId,
