@@ -58,6 +58,8 @@ export default function Checkout() {
     state: "",
   });
   const [showCoupon, setShowCoupon] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [paymentResult, setPaymentResult] = useState<any>(null);
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -425,15 +427,125 @@ export default function Checkout() {
       return;
     }
 
-    // Track conversion
-    trackConversion(
-      Array.from(selectedOrderBumps),
-      totalPrice,
-      orderBumpsTotal
-    );
+    // Validar campos adicionais baseado no método de pagamento
+    if (paymentMethod === "card") {
+      if (!cardData.cardholderName || !cardData.cardNumber || !cardData.expiryDate || !cardData.cvv || !cardData.zipCode) {
+        toast.error("Por favor, preencha todos os dados do cartão");
+        return;
+      }
 
-    // Aqui você implementaria a lógica de pagamento
-    toast.success("Processando pagamento...");
+      if (cardError || expiryError) {
+        toast.error("Por favor, corrija os erros no formulário");
+        return;
+      }
+    }
+
+    setProcessing(true);
+
+    try {
+      // Preparar dados do cliente
+      const customerData = {
+        name: formData.fullName,
+        email: formData.email,
+        cpfCnpj: formData.cpf.replace(/\D/g, ''),
+        mobilePhone: formData.phone.replace(/\D/g, ''),
+        phone: formData.phone.replace(/\D/g, ''),
+        postalCode: address.state ? cardData.zipCode.replace(/\D/g, '') : undefined,
+        address: address.street || undefined,
+        addressNumber: "S/N",
+        province: address.neighborhood || undefined,
+        city: address.city || undefined,
+        state: address.state || undefined,
+      };
+
+      // Preparar dados do pagamento
+      const billingType = paymentMethod === "pix" ? "PIX" : "CREDIT_CARD";
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 7); // Vencimento em 7 dias
+
+      const paymentData: any = {
+        billingType,
+        value: totalPrice,
+        dueDate: dueDate.toISOString().split('T')[0],
+        description: `${product.name}${price?.name ? ` - ${price.name}` : ''}`,
+        externalReference: `${product.unique_code}-${Date.now()}`,
+      };
+
+      // Adicionar dados do cartão se for pagamento com cartão
+      if (paymentMethod === "card") {
+        const [month, year] = cardData.expiryDate.split('/');
+        paymentData.creditCard = {
+          holderName: cardData.cardholderName,
+          number: cardData.cardNumber.replace(/\s/g, ''),
+          expiryMonth: month,
+          expiryYear: `20${year}`,
+          ccv: cardData.cvv,
+        };
+
+        const installments = parseInt(cardData.installments);
+        if (installments > 1) {
+          paymentData.installmentCount = installments;
+          paymentData.installmentValue = totalPrice / installments;
+        }
+      }
+
+      // Preparar order bumps selecionados
+      const selectedBumps = Array.from(selectedOrderBumps).map(bumpId => {
+        const bump = orderBumps.find(b => b.id === bumpId);
+        return {
+          id: bumpId,
+          price: bump?.price || 0,
+          title: bump?.title || '',
+        };
+      });
+
+      // Obter informações do dispositivo
+      const deviceInfo = {
+        deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+        userAgent: navigator.userAgent,
+        ip: undefined, // Será preenchido no backend
+      };
+
+      // Chamar edge function
+      const { data, error } = await supabase.functions.invoke('create-payment', {
+        body: {
+          customerData,
+          paymentData,
+          productId: product.id,
+          priceId: price?.id,
+          affiliateCode,
+          orderBumps: selectedBumps,
+          deviceInfo,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || 'Erro ao processar pagamento');
+      }
+
+      // Track conversion
+      trackConversion(
+        Array.from(selectedOrderBumps),
+        totalPrice,
+        orderBumpsTotal
+      );
+
+      setPaymentResult(data);
+
+      if (paymentMethod === "pix") {
+        toast.success("QR Code PIX gerado com sucesso!");
+      } else {
+        toast.success("Pagamento processado com sucesso!");
+      }
+
+    } catch (error: any) {
+      console.error("Erro ao processar pagamento:", error);
+      toast.error(error.message || "Erro ao processar pagamento. Tente novamente.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (loading) {
@@ -1025,8 +1137,19 @@ export default function Checkout() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full h-12 text-lg font-semibold bg-[#157347] hover:bg-[#157347]/90 text-white">
-                  Comprar agora
+                <Button 
+                  type="submit" 
+                  className="w-full h-12 text-lg font-semibold bg-[#157347] hover:bg-[#157347]/90 text-white"
+                  disabled={processing}
+                >
+                  {processing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Processando...
+                    </>
+                  ) : (
+                    "Comprar agora"
+                  )}
                 </Button>
 
                 <p className="text-center text-sm text-muted-foreground">
@@ -1051,6 +1174,81 @@ export default function Checkout() {
             </CardContent>
           </Card>
         </form>
+
+        {/* Payment Result - mostrar após processamento */}
+        {paymentResult && (
+          <Card className="mt-6 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+                <h2 className="text-xl font-bold text-green-900 dark:text-green-100">
+                  Pagamento Iniciado com Sucesso!
+                </h2>
+              </div>
+
+              {paymentMethod === "pix" && paymentResult.pixData && (
+                <div className="space-y-4">
+                  <p className="text-green-800 dark:text-green-200">
+                    Escaneie o QR Code abaixo para realizar o pagamento via PIX:
+                  </p>
+                  
+                  <div className="bg-white p-4 rounded-lg flex justify-center">
+                    <img 
+                      src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
+                      alt="QR Code PIX"
+                      className="max-w-[300px] w-full"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-green-900 dark:text-green-100">
+                      Ou copie o código PIX:
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        value={paymentResult.pixData.payload}
+                        readOnly
+                        className="font-mono text-sm"
+                      />
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(paymentResult.pixData.payload);
+                          toast.success("Código PIX copiado!");
+                        }}
+                        variant="outline"
+                      >
+                        Copiar
+                      </Button>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    O pagamento será confirmado automaticamente após a compensação.
+                  </p>
+                </div>
+              )}
+
+              {paymentMethod === "card" && (
+                <div className="space-y-4">
+                  <p className="text-green-800 dark:text-green-200">
+                    Seu pagamento foi processado e está sendo analisado. Você receberá uma confirmação por e-mail em breve.
+                  </p>
+                  {paymentResult.invoiceUrl && (
+                    <Button
+                      type="button"
+                      onClick={() => window.open(paymentResult.invoiceUrl, '_blank')}
+                      className="w-full"
+                      variant="outline"
+                    >
+                      Ver Fatura
+                    </Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Footer */}
         <footer className="mt-8 text-center text-sm text-muted-foreground">
