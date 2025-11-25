@@ -1168,7 +1168,7 @@ export default function Checkout() {
 
               {/* Formulário do Cartão */}
               {paymentMethod === "card" && (
-                <div className="space-y-4  border border-gray-200">
+                <div className="space-y-4  border border-gray-200 rounded-lg p-4 ">
                   <div>
                     <Label htmlFor="cardholderName" className="text-sm">
                       Nome do titular
