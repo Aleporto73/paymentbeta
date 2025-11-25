@@ -167,6 +167,7 @@ export default function Checkout() {
   });
 
   // Calculate pricing values
+  const MINIMUM_PAYMENT_VALUE = 5.00; // Valor mínimo exigido pelo gateway de pagamento
   const finalPrice = price?.price || product?.price || 0;
   const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
     const bump = orderBumps.find(b => b.id === bumpId);
@@ -183,6 +184,7 @@ export default function Checkout() {
   };
   const discount = calculateDiscount();
   const totalPrice = Math.max(0, subtotal - discount);
+  const isBelowMinimum = totalPrice < MINIMUM_PAYMENT_VALUE;
 
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
@@ -1461,10 +1463,25 @@ export default function Checkout() {
                   </div>
                 </div>
 
+                {/* Alerta de valor mínimo */}
+                {isBelowMinimum && (
+                  <div className="bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                        <p className="font-medium">Valor mínimo não atingido</p>
+                        <p className="text-xs mt-1">
+                          O valor total da compra deve ser de pelo menos R$ 5,00 para processar o pagamento.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <Button 
                   type="submit" 
                   className="w-full h-12 text-lg font-semibold bg-[#157347] hover:bg-[#157347]/90 text-white"
-                  disabled={processing}
+                  disabled={processing || isBelowMinimum}
                 >
                   {paymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
                 </Button>
