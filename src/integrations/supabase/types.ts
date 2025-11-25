@@ -541,6 +541,41 @@ export type Database = {
           },
         ]
       }
+      product_webhooks: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          product_id: string
+          updated_at: string
+          webhook_url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          product_id: string
+          updated_at?: string
+          webhook_url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          product_id?: string
+          updated_at?: string
+          webhook_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_webhooks_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           category: Database["public"]["Enums"]["product_category"]
@@ -825,6 +860,81 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      webhook_logs: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json
+          product_id: string
+          response_body: string | null
+          response_status: number | null
+          success: boolean
+          webhook_url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload: Json
+          product_id: string
+          response_body?: string | null
+          response_status?: number | null
+          success?: boolean
+          webhook_url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          product_id?: string
+          response_body?: string | null
+          response_status?: number | null
+          success?: boolean
+          webhook_url?: string
+        }
+        Relationships: []
+      }
+      webhook_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_message: string | null
+          id: string
+          last_attempt_at: string | null
+          max_attempts: number
+          payload: Json
+          product_id: string
+          status: string
+          updated_at: string
+          webhook_url: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          max_attempts?: number
+          payload: Json
+          product_id: string
+          status?: string
+          updated_at?: string
+          webhook_url: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          max_attempts?: number
+          payload?: Json
+          product_id?: string
+          status?: string
+          updated_at?: string
+          webhook_url?: string
         }
         Relationships: []
       }
