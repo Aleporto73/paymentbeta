@@ -1034,7 +1034,7 @@ export default function Checkout() {
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Identificação */}
-              <div className="mb-8 border-b">
+              <div className="border-b mb-8 ">
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="fullName" className="text-sm">
