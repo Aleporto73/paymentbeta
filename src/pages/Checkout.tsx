@@ -5,7 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, ChevronDown, ChevronUp, CreditCard, Info } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CheckCircle2, ChevronDown, ChevronUp, CreditCard, Info, Copy } from "lucide-react";
 import { formatCurrency, formatCPF, formatPhone } from "@/lib/utils";
 import { toast } from "sonner";
 import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
@@ -60,6 +61,7 @@ export default function Checkout() {
   const [showCoupon, setShowCoupon] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [paymentResult, setPaymentResult] = useState<any>(null);
+  const [showPixModal, setShowPixModal] = useState(false);
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -440,6 +442,11 @@ export default function Checkout() {
       }
     }
 
+    // Se for PIX, abrir modal
+    if (paymentMethod === "pix") {
+      setShowPixModal(true);
+    }
+
     setProcessing(true);
 
     try {
@@ -535,7 +542,7 @@ export default function Checkout() {
       setPaymentResult(data);
 
       if (paymentMethod === "pix") {
-        toast.success("QR Code PIX gerado com sucesso!");
+        // Modal já está aberto, apenas manter
       } else {
         toast.success("Pagamento processado com sucesso!");
       }
@@ -543,6 +550,7 @@ export default function Checkout() {
     } catch (error: any) {
       console.error("Erro ao processar pagamento:", error);
       toast.error(error.message || "Erro ao processar pagamento. Tente novamente.");
+      setShowPixModal(false);
     } finally {
       setProcessing(false);
     }
@@ -1142,14 +1150,7 @@ export default function Checkout() {
                   className="w-full h-12 text-lg font-semibold bg-[#157347] hover:bg-[#157347]/90 text-white"
                   disabled={processing}
                 >
-                  {processing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Processando...
-                    </>
-                  ) : (
-                    "Comprar agora"
-                  )}
+                  {paymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
                 </Button>
 
                 <p className="text-center text-sm text-muted-foreground">
@@ -1175,8 +1176,57 @@ export default function Checkout() {
           </Card>
         </form>
 
-        {/* Payment Result - mostrar após processamento */}
-        {paymentResult && (
+        {/* PIX Modal */}
+        <Dialog open={showPixModal} onOpenChange={setShowPixModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {processing ? "Gerando PIX..." : "Pagamento via PIX"}
+              </DialogTitle>
+            </DialogHeader>
+
+            {processing ? (
+              <div className="flex flex-col items-center justify-center py-8 space-y-4">
+                <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-muted-foreground">Aguarde, estamos gerando seu QR Code PIX...</p>
+              </div>
+            ) : paymentResult?.pixData ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground text-center">
+                  Escaneie o QR Code abaixo para realizar o pagamento via PIX:
+                </p>
+                
+                <div className="bg-white p-4 rounded-lg flex justify-center border">
+                  <img 
+                    src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
+                    alt="QR Code PIX"
+                    className="max-w-[250px] w-full"
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(paymentResult.pixData.payload);
+                    toast.success("Código PIX copiado!");
+                  }}
+                  className="w-full"
+                  variant="outline"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copiar código PIX
+                </Button>
+
+                <p className="text-xs text-muted-foreground text-center">
+                  O pagamento será confirmado automaticamente após a compensação.
+                </p>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        {/* Payment Result for Card - mostrar após processamento */}
+        {paymentResult && paymentMethod === "card" && (
           <Card className="mt-6 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-4">
@@ -1186,66 +1236,21 @@ export default function Checkout() {
                 </h2>
               </div>
 
-              {paymentMethod === "pix" && paymentResult.pixData && (
-                <div className="space-y-4">
-                  <p className="text-green-800 dark:text-green-200">
-                    Escaneie o QR Code abaixo para realizar o pagamento via PIX:
-                  </p>
-                  
-                  <div className="bg-white p-4 rounded-lg flex justify-center">
-                    <img 
-                      src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
-                      alt="QR Code PIX"
-                      className="max-w-[300px] w-full"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-green-900 dark:text-green-100">
-                      Ou copie o código PIX:
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input 
-                        value={paymentResult.pixData.payload}
-                        readOnly
-                        className="font-mono text-sm"
-                      />
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(paymentResult.pixData.payload);
-                          toast.success("Código PIX copiado!");
-                        }}
-                        variant="outline"
-                      >
-                        Copiar
-                      </Button>
-                    </div>
-                  </div>
-
-                  <p className="text-sm text-green-700 dark:text-green-300">
-                    O pagamento será confirmado automaticamente após a compensação.
-                  </p>
-                </div>
-              )}
-
-              {paymentMethod === "card" && (
-                <div className="space-y-4">
-                  <p className="text-green-800 dark:text-green-200">
-                    Seu pagamento foi processado e está sendo analisado. Você receberá uma confirmação por e-mail em breve.
-                  </p>
-                  {paymentResult.invoiceUrl && (
-                    <Button
-                      type="button"
-                      onClick={() => window.open(paymentResult.invoiceUrl, '_blank')}
-                      className="w-full"
-                      variant="outline"
-                    >
-                      Ver Fatura
-                    </Button>
-                  )}
-                </div>
-              )}
+              <div className="space-y-4">
+                <p className="text-green-800 dark:text-green-200">
+                  Seu pagamento foi processado e está sendo analisado. Você receberá uma confirmação por e-mail em breve.
+                </p>
+                {paymentResult.invoiceUrl && (
+                  <Button
+                    type="button"
+                    onClick={() => window.open(paymentResult.invoiceUrl, '_blank')}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    Ver Fatura
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
