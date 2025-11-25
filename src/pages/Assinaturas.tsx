@@ -45,6 +45,8 @@ export default function Assinaturas() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [subscriptionPayments, setSubscriptionPayments] = useState<any[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
   
   const [tempFilters, setTempFilters] = useState({
     search: "",
@@ -307,9 +309,38 @@ export default function Assinaturas() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const viewSubscriptionDetails = (subscription: Subscription) => {
+  const fetchSubscriptionPayments = async (asaasCustomerId: string) => {
+    setLoadingPayments(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('asaas_customer_id', asaasCustomerId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setSubscriptionPayments(data || []);
+    } catch (error) {
+      console.error('Error fetching subscription payments:', error);
+      toast({
+        title: "Erro ao carregar pagamentos",
+        description: "Não foi possível carregar o histórico de pagamentos.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const viewSubscriptionDetails = async (subscription: Subscription) => {
     setSelectedSubscription(subscription);
     setShowDetailsModal(true);
+    await fetchSubscriptionPayments(subscription.asaas_customer_id);
   };
 
   return (
@@ -561,69 +592,142 @@ export default function Assinaturas() {
 
       {/* Details Modal */}
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalhes da Assinatura</DialogTitle>
           </DialogHeader>
           {selectedSubscription && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">ID Asaas</label>
-                  <p className="text-sm mt-1">{selectedSubscription.asaas_subscription_id}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Status</label>
-                  <p className="text-sm mt-1">{getStatusBadge(selectedSubscription.status)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Produto</label>
-                  <p className="text-sm mt-1">{selectedSubscription.product_name}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Valor</label>
-                  <p className="text-sm mt-1">R$ {formatCurrency(selectedSubscription.value)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Ciclo</label>
-                  <p className="text-sm mt-1 capitalize">{selectedSubscription.cycle}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Tipo de Cobrança</label>
-                  <p className="text-sm mt-1">{selectedSubscription.billing_type}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Data de Criação</label>
-                  <p className="text-sm mt-1">
-                    {format(new Date(selectedSubscription.created_at), "dd/MM/yyyy HH:mm")}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Próximo Vencimento</label>
-                  <p className="text-sm mt-1">
-                    {selectedSubscription.next_due_date
-                      ? format(new Date(selectedSubscription.next_due_date), "dd/MM/yyyy")
-                      : "-"}
-                  </p>
-                </div>
-                {selectedSubscription.cancelled_at && (
+            <div className="space-y-6">
+              {/* Subscription Details */}
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Informações da Assinatura</h3>
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">Data de Cancelamento</label>
+                    <label className="text-sm font-medium text-muted-foreground">ID Asaas</label>
+                    <p className="text-sm mt-1">{selectedSubscription.asaas_subscription_id}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Status</label>
+                    <p className="text-sm mt-1">{getStatusBadge(selectedSubscription.status)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Produto</label>
+                    <p className="text-sm mt-1">{selectedSubscription.product_name}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Valor</label>
+                    <p className="text-sm mt-1">R$ {formatCurrency(selectedSubscription.value)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Ciclo</label>
+                    <p className="text-sm mt-1 capitalize">{selectedSubscription.cycle}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Tipo de Cobrança</label>
+                    <p className="text-sm mt-1">{selectedSubscription.billing_type}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Data de Criação</label>
                     <p className="text-sm mt-1">
-                      {format(new Date(selectedSubscription.cancelled_at), "dd/MM/yyyy HH:mm")}
+                      {format(new Date(selectedSubscription.created_at), "dd/MM/yyyy HH:mm")}
                     </p>
                   </div>
-                )}
-                {selectedSubscription.affiliate_code && (
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">Código de Afiliado</label>
-                    <p className="text-sm mt-1">{selectedSubscription.affiliate_code}</p>
+                    <label className="text-sm font-medium text-muted-foreground">Próximo Vencimento</label>
+                    <p className="text-sm mt-1">
+                      {selectedSubscription.next_due_date
+                        ? format(new Date(selectedSubscription.next_due_date), "dd/MM/yyyy")
+                        : "-"}
+                    </p>
                   </div>
-                )}
-                {selectedSubscription.description && (
-                  <div className="col-span-2">
-                    <label className="text-sm font-medium text-muted-foreground">Descrição</label>
-                    <p className="text-sm mt-1">{selectedSubscription.description}</p>
+                  {selectedSubscription.cancelled_at && (
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Data de Cancelamento</label>
+                      <p className="text-sm mt-1">
+                        {format(new Date(selectedSubscription.cancelled_at), "dd/MM/yyyy HH:mm")}
+                      </p>
+                    </div>
+                  )}
+                  {selectedSubscription.affiliate_code && (
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Código de Afiliado</label>
+                      <p className="text-sm mt-1">{selectedSubscription.affiliate_code}</p>
+                    </div>
+                  )}
+                  {selectedSubscription.description && (
+                    <div className="col-span-2">
+                      <label className="text-sm font-medium text-muted-foreground">Descrição</label>
+                      <p className="text-sm mt-1">{selectedSubscription.description}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment History */}
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Histórico de Pagamentos</h3>
+                {loadingPayments ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Carregando histórico...
+                  </div>
+                ) : subscriptionPayments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Nenhum pagamento encontrado para esta assinatura
+                  </div>
+                ) : (
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Valor</TableHead>
+                          <TableHead>Método</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Vencimento</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {subscriptionPayments.map((payment) => (
+                          <TableRow key={payment.id}>
+                            <TableCell>
+                              <div className="text-sm">
+                                {format(new Date(payment.created_at), "dd/MM/yyyy")}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {format(new Date(payment.created_at), "HH:mm")}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">
+                                R$ {formatCurrency(payment.value)}
+                              </div>
+                              {payment.installment_count && payment.installment_count > 1 && (
+                                <div className="text-xs text-muted-foreground">
+                                  {payment.installment_count}x de R$ {formatCurrency(payment.installment_value || 0)}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm capitalize">
+                                {payment.payment_method === "PIX" ? "PIX" : payment.billing_type}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(payment.status)}
+                            </TableCell>
+                            <TableCell>
+                              {payment.due_date ? (
+                                <div className="text-sm">
+                                  {format(new Date(payment.due_date), "dd/MM/yyyy")}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </div>
