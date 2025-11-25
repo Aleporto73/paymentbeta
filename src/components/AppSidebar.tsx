@@ -86,7 +86,7 @@ export function AppSidebar() {
             <img 
               src={logo} 
               alt="Payment Logo" 
-              className={`h-8 object-contain transition-all ${isCollapsed ? 'w-8' : 'w-auto max-w-[150px]'}`}
+              className={`h-12 object-contain transition-all ${isCollapsed ? 'w-12' : 'w-auto max-w-[180px]'}`}
             />
           </div>
         </div>
