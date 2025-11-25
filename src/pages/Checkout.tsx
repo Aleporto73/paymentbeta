@@ -1009,34 +1009,32 @@ export default function Checkout() {
           </div>
         )}
 
-        {/* Header com produto - Exatamente como na imagem */}
-        <Card className="mb-6">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              {product.image_url && (
-                <img 
-                  src={product.image_url} 
-                  alt={product.name}
-                  className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
-                />
-              )}
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Autor: {product.user_id?.split('-')[0] || 'PsiForm Tecnologia'}
-                </p>
-                <div className="text-4xl font-bold text-blue-600 mb-1">
-                  R$ {formatCurrency(finalPrice)}{price?.subscription_period === 'mensal' ? ' / mês' : ''}
-                </div>
-                {price?.name && (
-                  <p className="text-sm text-muted-foreground">
-                    {product.name} - {price.name}
-                  </p>
-                )}
+        {/* Header com produto - Sem card, conteúdo direto */}
+        <div className="mb-8">
+          <div className="flex items-start gap-4">
+            {product.image_url && (
+              <img 
+                src={product.image_url} 
+                alt={product.name}
+                className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
+              />
+            )}
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
+              <p className="text-sm text-muted-foreground mb-3">
+                Autor: {product.user_id?.split('-')[0] || 'PsiForm Tecnologia'}
+              </p>
+              <div className="text-4xl font-bold text-blue-600 mb-1">
+                R$ {formatCurrency(finalPrice)}{price?.subscription_period === 'mensal' ? ' / mês' : ''}
               </div>
+              {price?.name && (
+                <p className="text-sm text-muted-foreground">
+                  {product.name} - {price.name}
+                </p>
+              )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Identificação - Layout clean sem card */}
