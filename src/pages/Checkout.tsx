@@ -1116,7 +1116,6 @@ export default function Checkout() {
 
               {/* Métodos de Pagamento */}
               <div>
-                <h2 className="text-xl font-bold mb-4">Forma de pagamento</h2>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
