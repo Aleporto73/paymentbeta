@@ -14,6 +14,7 @@ import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
+import logo from "@/assets/logo_pay.png";
 
 import {
   Sidebar,
@@ -82,12 +83,11 @@ export function AppSidebar() {
       <SidebarContent>
         <div className="px-6 py-6">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-white font-bold text-sm">P</span>
-            </div>
-            {!isCollapsed && (
-              <span className="font-bold text-lg text-foreground">Payment</span>
-            )}
+            <img 
+              src={logo} 
+              alt="Payment Logo" 
+              className={`h-8 object-contain transition-all ${isCollapsed ? 'w-8' : 'w-auto max-w-[150px]'}`}
+            />
           </div>
         </div>
 
