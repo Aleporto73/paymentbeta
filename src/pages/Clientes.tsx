@@ -94,7 +94,6 @@ export default function Clientes() {
           value,
           products (name)
         `)
-        .eq("user_id", user.id)
         .in("status", ["CONFIRMED", "RECEIVED"])
         .not("customer_cpf_cnpj", "is", null);
 

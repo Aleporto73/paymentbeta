@@ -84,7 +84,6 @@ export default function Assinaturas() {
       const { data } = await supabase
         .from("products")
         .select("id, name")
-        .eq("user_id", user.id)
         .order("name");
 
       if (data) {
@@ -118,8 +117,7 @@ export default function Assinaturas() {
           product_id,
           affiliate_code,
           products (name)
-        `, { count: "exact" })
-        .eq("user_id", user.id);
+        `, { count: "exact" });
 
       if (appliedFilters.status !== "all") {
         query = query.eq("status", appliedFilters.status);

@@ -69,7 +69,6 @@ export function RecentSales() {
       const { data } = await supabase
         .from("products")
         .select("id, name")
-        .eq("user_id", user.id)
         .order("name");
 
       if (data) {
@@ -97,8 +96,7 @@ export function RecentSales() {
           created_at,
           product_id,
           products (name)
-        `)
-        .eq("user_id", user.id);
+        `);
 
       // Apply status filter
       if (appliedFilters.status !== "all") {
@@ -141,8 +139,7 @@ export function RecentSales() {
       // Get total count for pagination (separate query)
       const countQuery = supabase
         .from("transactions")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .select("*", { count: "exact", head: true });
 
       // Apply same filters to count query
       if (appliedFilters.status !== "all") {

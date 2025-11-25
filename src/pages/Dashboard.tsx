@@ -46,11 +46,10 @@ export default function Dashboard() {
       const last7DaysStart = startOfDay(subDays(now, 7));
       const monthStart = startOfMonth(now);
 
-      // Fetch all confirmed transactions for the user
+      // Fetch all confirmed transactions
       const { data: transactions } = await supabase
         .from("transactions")
         .select("value, created_at, status")
-        .eq("user_id", user.id)
         .in("status", ["RECEIVED", "CONFIRMED"]);
 
       if (!transactions) {
