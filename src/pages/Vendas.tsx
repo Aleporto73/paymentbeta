@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { supabase } from "@/integrations/supabase/client";
-import { Filter, X, Download, Eye } from "lucide-react";
+import { Filter, X, Download, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { startOfDay, subDays, format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -45,6 +46,8 @@ export default function Vendas() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   
   const [tempFilters, setTempFilters] = useState({
     search: "",
@@ -66,8 +69,13 @@ export default function Vendas() {
   }, []);
 
   useEffect(() => {
+    setCurrentPage(1); // Reset to first page when filters change
     fetchSales();
   }, [appliedFilters]);
+
+  useEffect(() => {
+    fetchSales();
+  }, [currentPage, itemsPerPage]);
 
   const fetchProducts = async () => {
     try {
@@ -151,7 +159,10 @@ export default function Vendas() {
         query = query.or(`customer_name.ilike.%${appliedFilters.search}%,customer_email.ilike.%${appliedFilters.search}%`);
       }
 
-      query = query.order("created_at", { ascending: false }).limit(100);
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      query = query.order("created_at", { ascending: false }).range(from, to);
 
       const { data, count } = await query;
 
@@ -176,6 +187,7 @@ export default function Vendas() {
   };
 
   const applyFilters = () => {
+    setCurrentPage(1);
     setAppliedFilters(tempFilters);
   };
 
@@ -186,8 +198,19 @@ export default function Vendas() {
       period: "all",
       productId: "all",
     };
+    setCurrentPage(1);
     setTempFilters(defaultFilters);
     setAppliedFilters(defaultFilters);
+  };
+
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
+
+  const goToPreviousPage = () => {
+    setCurrentPage((prev) => Math.max(prev - 1, 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
   };
 
   const exportToCSV = () => {
@@ -383,9 +406,31 @@ export default function Vendas() {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            Lista de Vendas ({totalCount})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>
+              Lista de Vendas ({totalCount})
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Itens por página:</span>
+              <Select
+                value={itemsPerPage.toString()}
+                onValueChange={(value) => {
+                  setItemsPerPage(Number(value));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -395,48 +440,78 @@ export default function Vendas() {
               Nenhuma venda encontrada
             </div>
           ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Valor</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sales.map((sale) => (
-                    <TableRow key={sale.id}>
-                      <TableCell>
-                        {format(new Date(sale.created_at), "dd/MM/yyyy HH:mm")}
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{sale.customer_name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {sale.customer_email}
-                        </div>
-                      </TableCell>
-                      <TableCell>{sale.product_name}</TableCell>
-                      <TableCell>R$ {formatCurrency(sale.value)}</TableCell>
-                      <TableCell>{getStatusBadge(sale.status)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => viewSaleDetails(sale)}
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          Ver detalhes
-                        </Button>
-                      </TableCell>
+            <>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {sales.map((sale) => (
+                      <TableRow key={sale.id}>
+                        <TableCell>
+                          {format(new Date(sale.created_at), "dd/MM/yyyy HH:mm")}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{sale.customer_name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {sale.customer_email}
+                          </div>
+                        </TableCell>
+                        <TableCell>{sale.product_name}</TableCell>
+                        <TableCell>R$ {formatCurrency(sale.value)}</TableCell>
+                        <TableCell>{getStatusBadge(sale.status)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => viewSaleDetails(sale)}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Ver detalhes
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Página {currentPage} de {totalPages}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={goToPreviousPage}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={goToNextPage}
+                      disabled={currentPage === totalPages}
+                    >
+                      Próxima
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
