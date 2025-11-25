@@ -513,6 +513,17 @@ export default function Checkout() {
         ip: undefined, // Será preenchido no backend
       };
 
+      // Obter user_id do produto (proprietário)
+      const { data: productData } = await supabase
+        .from('products')
+        .select('user_id')
+        .eq('id', product.id)
+        .single();
+
+      if (!productData?.user_id) {
+        throw new Error('Produto não encontrado');
+      }
+
       // Chamar edge function
       const { data, error } = await supabase.functions.invoke('create-payment', {
         body: {
@@ -520,6 +531,7 @@ export default function Checkout() {
           paymentData,
           productId: product.id,
           priceId: price?.id,
+          userId: productData.user_id,
           affiliateCode,
           orderBumps: selectedBumps,
           deviceInfo,
