@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { Filter, X, Download, Eye, ChevronLeft, ChevronRight } from "lucide-react";
-import { startOfDay, subDays, format } from "date-fns";
+import { Filter, X, Download, Eye, ChevronLeft, ChevronRight, Users, DollarSign, TrendingUp, Copy, ExternalLink } from "lucide-react";
+import { startOfDay, subDays, startOfMonth, format } from "date-fns";
+import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 interface Affiliate {
@@ -26,6 +27,26 @@ interface AffiliateProduct {
   commission_type: string;
   commission_value: number;
   is_active: boolean;
+  affiliate_url?: string;
+  link_id?: string;
+}
+
+interface AffiliateMetrics {
+  activeCount: number;
+  monthlyCommissions: number;
+  averageTicket: number;
+  topAffiliates: {
+    name: string;
+    sales: number;
+    commissions: number;
+  }[];
+}
+
+interface LinkStats {
+  clicks: number;
+  conversions: number;
+  conversionRate: number;
+  revenue: number;
 }
 
 export default function Afiliados() {
@@ -39,6 +60,15 @@ export default function Afiliados() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [metrics, setMetrics] = useState<AffiliateMetrics>({
+    activeCount: 0,
+    monthlyCommissions: 0,
+    averageTicket: 0,
+    topAffiliates: [],
+  });
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [linkStats, setLinkStats] = useState<Record<string, LinkStats>>({});
+  const [loadingLinkStats, setLoadingLinkStats] = useState(false);
   
   const [tempFilters, setTempFilters] = useState({
     search: "",
@@ -54,6 +84,7 @@ export default function Afiliados() {
 
   useEffect(() => {
     fetchAffiliates();
+    fetchMetrics();
   }, []);
 
   useEffect(() => {
@@ -129,16 +160,78 @@ export default function Afiliados() {
     }
   };
 
+  const fetchMetrics = async () => {
+    setLoadingMetrics(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Count active affiliates
+      const { count: activeCount } = await supabase
+        .from("affiliates")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_active", true);
+
+      // Get monthly commissions
+      const startOfCurrentMonth = startOfMonth(new Date()).toISOString();
+      const { data: salesData } = await supabase
+        .from("product_sales")
+        .select("commission_amount, affiliate_link_id, product_affiliate_links!inner(affiliate_id, affiliates!inner(name))")
+        .gte("created_at", startOfCurrentMonth)
+        .not("commission_amount", "is", null);
+
+      const monthlyCommissions = (salesData || []).reduce((sum, sale) => sum + (sale.commission_amount || 0), 0);
+      const salesCount = salesData?.length || 0;
+      const averageTicket = salesCount > 0 ? monthlyCommissions / salesCount : 0;
+
+      // Get top 3 affiliates
+      const affiliateSales = (salesData || []).reduce((acc: any, sale: any) => {
+        const affiliateId = sale.product_affiliate_links?.affiliate_id;
+        const affiliateName = sale.product_affiliate_links?.affiliates?.name;
+        if (!affiliateId || !affiliateName) return acc;
+
+        if (!acc[affiliateId]) {
+          acc[affiliateId] = {
+            name: affiliateName,
+            sales: 0,
+            commissions: 0,
+          };
+        }
+        acc[affiliateId].sales += 1;
+        acc[affiliateId].commissions += sale.commission_amount || 0;
+        return acc;
+      }, {});
+
+      const topAffiliates = Object.values(affiliateSales)
+        .sort((a: any, b: any) => b.sales - a.sales)
+        .slice(0, 3) as { name: string; sales: number; commissions: number; }[];
+
+      setMetrics({
+        activeCount: activeCount || 0,
+        monthlyCommissions,
+        averageTicket,
+        topAffiliates,
+      });
+    } catch (error) {
+      console.error("Error fetching metrics:", error);
+    } finally {
+      setLoadingMetrics(false);
+    }
+  };
+
   const fetchAffiliateProducts = async (affiliateId: string) => {
     setLoadingProducts(true);
     try {
       const { data, error } = await supabase
         .from("product_affiliate_links")
         .select(`
+          id,
           product_id,
           commission_type,
           commission_value,
           is_active,
+          affiliate_url,
           products (name)
         `)
         .eq("affiliate_id", affiliateId);
@@ -151,9 +244,14 @@ export default function Afiliados() {
         commission_type: link.commission_type,
         commission_value: link.commission_value,
         is_active: link.is_active,
+        affiliate_url: link.affiliate_url,
+        link_id: link.id,
       }));
 
       setAffiliateProducts(productsWithNames);
+
+      // Fetch link stats for each product
+      fetchLinkStats(productsWithNames);
     } catch (error) {
       console.error("Error fetching affiliate products:", error);
       toast({
@@ -164,6 +262,115 @@ export default function Afiliados() {
     } finally {
       setLoadingProducts(false);
     }
+  };
+
+  const fetchLinkStats = async (products: AffiliateProduct[]) => {
+    setLoadingLinkStats(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const stats: Record<string, LinkStats> = {};
+
+      for (const product of products) {
+        if (!product.link_id) continue;
+
+        // Get clicks
+        const { count: clicks } = await supabase
+          .from("product_link_clicks")
+          .select("*", { count: "exact", head: true })
+          .eq("product_id", product.product_id);
+
+        // Get conversions (sales from this affiliate link)
+        const { data: salesData } = await supabase
+          .from("product_sales")
+          .select("sale_amount")
+          .eq("affiliate_link_id", product.link_id);
+
+        const conversions = salesData?.length || 0;
+        const revenue = (salesData || []).reduce((sum, sale) => sum + sale.sale_amount, 0);
+        const conversionRate = clicks ? (conversions / clicks) * 100 : 0;
+
+        stats[product.link_id] = {
+          clicks: clicks || 0,
+          conversions,
+          conversionRate,
+          revenue,
+        };
+      }
+
+      setLinkStats(stats);
+    } catch (error) {
+      console.error("Error fetching link stats:", error);
+    } finally {
+      setLoadingLinkStats(false);
+    }
+  };
+
+  const generateAffiliateLink = async (productId: string, linkId: string) => {
+    try {
+      const { data: priceData } = await supabase
+        .from("product_prices")
+        .select("unique_code")
+        .eq("product_id", productId)
+        .eq("is_default", true)
+        .single();
+
+      const { data: productData } = await supabase
+        .from("products")
+        .select("unique_code")
+        .eq("id", productId)
+        .single();
+
+      if (!priceData || !productData) {
+        toast({
+          title: "Erro",
+          description: "Não foi possível gerar o link. Produto ou preço não encontrado.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { data: linkData } = await supabase
+        .from("product_affiliate_links")
+        .select("affiliate_name")
+        .eq("id", linkId)
+        .single();
+
+      const affiliateCode = linkData?.affiliate_name?.toLowerCase().replace(/\s+/g, '-') || 'afiliado';
+      const checkoutUrl = `${window.location.origin}/checkout?product=${productData.unique_code}&price=${priceData.unique_code}&affiliate=${affiliateCode}`;
+
+      // Update the affiliate link with the generated URL
+      await supabase
+        .from("product_affiliate_links")
+        .update({ affiliate_url: checkoutUrl })
+        .eq("id", linkId);
+
+      // Refresh products to show new URL
+      if (selectedAffiliate) {
+        await fetchAffiliateProducts(selectedAffiliate.id);
+      }
+
+      toast({
+        title: "Link gerado",
+        description: "Link de afiliado gerado com sucesso!",
+      });
+    } catch (error) {
+      console.error("Error generating affiliate link:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível gerar o link de afiliado.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copiado!",
+      description: "Link copiado para a área de transferência.",
+    });
   };
 
   const applyFilters = () => {
@@ -250,6 +457,72 @@ export default function Afiliados() {
             Gerencie e visualize todos os seus afiliados
           </p>
         </div>
+      </div>
+
+      {/* Metrics Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Afiliados Ativos</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loadingMetrics ? "..." : metrics.activeCount}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Comissões do Mês</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loadingMetrics ? "..." : `R$ ${formatCurrency(metrics.monthlyCommissions)}`}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loadingMetrics ? "..." : `R$ ${formatCurrency(metrics.averageTicket)}`}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Top Afiliados</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingMetrics ? (
+              <p className="text-sm text-muted-foreground">Carregando...</p>
+            ) : metrics.topAffiliates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados</p>
+            ) : (
+              <div className="space-y-1">
+                {metrics.topAffiliates.map((affiliate, index) => (
+                  <div key={index} className="text-xs">
+                    <span className="font-medium">{index + 1}. {affiliate.name}</span>
+                    <span className="text-muted-foreground ml-2">
+                      {affiliate.sales} vendas
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex items-center justify-between">
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -482,7 +755,7 @@ export default function Afiliados() {
 
               {/* Products */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Produtos Vinculados</h3>
+                <h3 className="text-lg font-semibold mb-4">Produtos Vinculados e Links de Afiliado</h3>
                 {loadingProducts ? (
                   <div className="text-center py-8 text-muted-foreground">
                     Carregando produtos...
@@ -492,37 +765,89 @@ export default function Afiliados() {
                     Nenhum produto vinculado a este afiliado
                   </div>
                 ) : (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Produto</TableHead>
-                          <TableHead>Tipo de Comissão</TableHead>
-                          <TableHead>Valor da Comissão</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {affiliateProducts.map((product) => (
-                          <TableRow key={product.product_id}>
-                            <TableCell className="font-medium">
-                              {product.product_name}
-                            </TableCell>
-                            <TableCell className="capitalize">
-                              {product.commission_type === 'percentage' ? 'Percentual' : 'Fixo'}
-                            </TableCell>
-                            <TableCell>
-                              {formatCommission(product.commission_type, product.commission_value)}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={product.is_active ? "default" : "secondary"}>
-                                {product.is_active ? "Ativo" : "Inativo"}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="space-y-4">
+                    {affiliateProducts.map((product) => (
+                      <Card key={product.product_id}>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <CardTitle className="text-base">{product.product_name}</CardTitle>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                Comissão: {formatCommission(product.commission_type, product.commission_value)}
+                              </p>
+                            </div>
+                            <Badge variant={product.is_active ? "default" : "secondary"}>
+                              {product.is_active ? "Ativo" : "Inativo"}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* Affiliate Link */}
+                          <div>
+                            <label className="text-sm font-medium mb-2 block">Link de Afiliado</label>
+                            {product.affiliate_url ? (
+                              <div className="flex gap-2">
+                                <Input
+                                  value={product.affiliate_url}
+                                  readOnly
+                                  className="font-mono text-xs"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => copyToClipboard(product.affiliate_url!)}
+                                  title="Copiar link"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => window.open(product.affiliate_url, '_blank')}
+                                  title="Abrir link"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                onClick={() => product.link_id && generateAffiliateLink(product.product_id, product.link_id)}
+                                variant="outline"
+                                className="w-full"
+                              >
+                                Gerar Link de Afiliado
+                              </Button>
+                            )}
+                          </div>
+
+                          {/* Link Stats */}
+                          {product.link_id && linkStats[product.link_id] && !loadingLinkStats && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Cliques</p>
+                                <p className="text-lg font-bold">{linkStats[product.link_id].clicks}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Conversões</p>
+                                <p className="text-lg font-bold">{linkStats[product.link_id].conversions}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Taxa de Conversão</p>
+                                <p className="text-lg font-bold">
+                                  {linkStats[product.link_id].conversionRate.toFixed(1)}%
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Receita Gerada</p>
+                                <p className="text-lg font-bold">
+                                  R$ {formatCurrency(linkStats[product.link_id].revenue)}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 )}
               </div>
