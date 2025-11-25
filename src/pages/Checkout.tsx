@@ -49,6 +49,7 @@ export default function Checkout() {
   });
   const [cardError, setCardError] = useState<string>("");
   const [cardBrand, setCardBrand] = useState<string>("");
+  const [expiryError, setExpiryError] = useState<string>("");
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -242,6 +243,42 @@ export default function Checkout() {
     }
     
     setCardError("");
+  };
+
+  // Validar data de vencimento
+  const validateExpiryDate = (expiryDate: string) => {
+    if (!expiryDate) {
+      setExpiryError("");
+      return;
+    }
+
+    const cleanDate = expiryDate.replace(/\D/g, '');
+    
+    if (cleanDate.length < 4) {
+      setExpiryError("Data incompleta");
+      return;
+    }
+
+    const month = parseInt(cleanDate.substring(0, 2));
+    const year = parseInt(cleanDate.substring(2, 4));
+
+    // Validar mês entre 01-12
+    if (month < 1 || month > 12) {
+      setExpiryError("Mês inválido (01-12)");
+      return;
+    }
+
+    // Verificar se está expirado
+    const now = new Date();
+    const currentYear = now.getFullYear() % 100; // Últimos 2 dígitos do ano
+    const currentMonth = now.getMonth() + 1; // Mês atual (1-12)
+
+    if (year < currentYear || (year === currentYear && month < currentMonth)) {
+      setExpiryError("Cartão vencido");
+      return;
+    }
+
+    setExpiryError("");
   };
 
   useEffect(() => {
@@ -727,10 +764,21 @@ export default function Checkout() {
                             formatted = value.slice(0, 2) + '/' + value.slice(2);
                           }
                           setCardData({ ...cardData, expiryDate: formatted });
+                          validateExpiryDate(formatted);
                         }}
+                        className={expiryError ? "border-destructive focus-visible:ring-destructive" : cardData.expiryDate && !expiryError && cardData.expiryDate.length === 5 ? "border-green-500 focus-visible:ring-green-500" : ""}
                         maxLength={5}
                         required={paymentMethod === "card"}
                       />
+                      {expiryError && (
+                        <p className="text-sm text-destructive mt-1">{expiryError}</p>
+                      )}
+                      {cardData.expiryDate && !expiryError && cardData.expiryDate.length === 5 && (
+                        <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Válido
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="cvv">CVV</Label>
