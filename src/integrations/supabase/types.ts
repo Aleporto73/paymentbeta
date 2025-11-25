@@ -551,6 +551,7 @@ export type Database = {
           is_active: boolean
           price: number
           product_id: string
+          redirect_url: string | null
           title: string
           unique_code: string
           updated_at: string
@@ -565,6 +566,7 @@ export type Database = {
           is_active?: boolean
           price: number
           product_id: string
+          redirect_url?: string | null
           title: string
           unique_code?: string
           updated_at?: string
@@ -579,6 +581,7 @@ export type Database = {
           is_active?: boolean
           price?: number
           product_id?: string
+          redirect_url?: string | null
           title?: string
           unique_code?: string
           updated_at?: string
