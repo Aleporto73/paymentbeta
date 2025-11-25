@@ -1,0 +1,186 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+interface CancelSubscriptionRequest {
+  subscriptionId: string;
+  asaasSubscriptionId: string;
+  cancel: boolean;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get authenticated user
+    const authHeader = req.headers.get('Authorization')!;
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Não autorizado' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { subscriptionId, asaasSubscriptionId, cancel }: CancelSubscriptionRequest = await req.json();
+
+    console.log(`Processing subscription ${cancel ? 'cancellation' : 'reactivation'}:`, { subscriptionId, asaasSubscriptionId });
+
+    // Verify subscription belongs to user
+    const { data: subscription, error: subError } = await supabase
+      .from('subscriptions')
+      .select('*, products!inner(user_id, id, webhooks:product_webhooks(webhook_url, is_active))')
+      .eq('id', subscriptionId)
+      .single();
+
+    if (subError || !subscription) {
+      console.error('Subscription not found:', subError);
+      return new Response(
+        JSON.stringify({ error: 'Assinatura não encontrada' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if ((subscription.products as any).user_id !== user.id) {
+      console.error('User does not own this subscription');
+      return new Response(
+        JSON.stringify({ error: 'Acesso negado' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Get Asaas API key
+    const { data: integration } = await supabase
+      .from('integration_settings')
+      .select('production_api_key, sandbox_api_key, is_sandbox')
+      .eq('user_id', user.id)
+      .eq('integration_name', 'asaas')
+      .single();
+
+    if (!integration) {
+      console.error('Asaas integration not configured');
+      return new Response(
+        JSON.stringify({ error: 'Integração Asaas não configurada' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const apiKey = integration.is_sandbox ? integration.sandbox_api_key : integration.production_api_key;
+    const asaasUrl = integration.is_sandbox 
+      ? 'https://sandbox.asaas.com/api/v3'
+      : 'https://api.asaas.com/v3';
+
+    // Cancel or reactivate on Asaas
+    let asaasResponse;
+    if (cancel) {
+      asaasResponse = await fetch(`${asaasUrl}/subscriptions/${asaasSubscriptionId}`, {
+        method: 'DELETE',
+        headers: {
+          'access_token': apiKey!,
+          'Content-Type': 'application/json',
+        },
+      });
+    } else {
+      // For reactivation, we need to call the restore endpoint
+      asaasResponse = await fetch(`${asaasUrl}/subscriptions/${asaasSubscriptionId}/restore`, {
+        method: 'POST',
+        headers: {
+          'access_token': apiKey!,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+
+    if (!asaasResponse.ok) {
+      const errorData = await asaasResponse.text();
+      console.error('Asaas API error:', errorData);
+      return new Response(
+        JSON.stringify({ error: `Erro ao ${cancel ? 'cancelar' : 'reativar'} assinatura no Asaas` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Update local subscription
+    const updateData: any = {
+      status: cancel ? 'CANCELED' : 'ACTIVE',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (cancel) {
+      updateData.cancelled_at = new Date().toISOString();
+    } else {
+      updateData.cancelled_at = null;
+    }
+
+    const { error: updateError } = await supabase
+      .from('subscriptions')
+      .update(updateData)
+      .eq('id', subscriptionId);
+
+    if (updateError) {
+      console.error('Error updating subscription:', updateError);
+      return new Response(
+        JSON.stringify({ error: 'Erro ao atualizar assinatura' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Send webhooks if configured
+    const webhooks = (subscription.products as any)?.webhooks || [];
+    const activeWebhooks = webhooks.filter((w: any) => w.is_active);
+
+    if (activeWebhooks.length > 0) {
+      const webhookPayload = {
+        event: cancel ? 'subscription.cancelled' : 'subscription.reactivated',
+        subscription: {
+          id: subscription.id,
+          asaas_subscription_id: subscription.asaas_subscription_id,
+          status: cancel ? 'CANCELED' : 'ACTIVE',
+          value: subscription.value,
+          cycle: subscription.cycle,
+          cancelled_at: cancel ? updateData.cancelled_at : null,
+        },
+        product_id: subscription.product_id,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Queue webhooks for delivery
+      for (const webhook of activeWebhooks) {
+        await supabase.from('webhook_queue').insert({
+          product_id: subscription.product_id,
+          webhook_url: webhook.webhook_url,
+          payload: webhookPayload,
+          status: 'pending',
+        });
+      }
+
+      console.log(`Queued ${activeWebhooks.length} webhooks for delivery`);
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        message: `Assinatura ${cancel ? 'cancelada' : 'reativada'} com sucesso`
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Error in cancel-subscription function:', error);
+    return new Response(
+      JSON.stringify({ error: 'Erro interno do servidor' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
