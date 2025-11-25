@@ -1018,7 +1018,7 @@ export default function Checkout() {
                   />
                 )}
                 <div className="flex-1">
-                  <h1 className="text-3xl font-bold mb-1">{product.name}</h1>
+                  <h1 className="text-5xl font-bold mb-1">{product.name}</h1>
                   <div className="text-2xl font-bold text-blue-600 mb-1">
                     R$ {formatCurrency(finalPrice)}
                     {price?.subscription_period === "mensal" ? " / mês" : ""}
