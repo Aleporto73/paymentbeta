@@ -13,30 +13,25 @@ import { formatCurrency, formatCPF, formatPhone } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 interface Customer {
-  id: string;
-  asaas_customer_id: string;
+  cpf_cnpj: string;
   name: string;
-  email: string;
-  cpf_cnpj: string | null;
   phone: string | null;
   mobile_phone: string | null;
+  state: string | null;
+  city: string | null;
   address: string | null;
   address_number: string | null;
   complement: string | null;
-  city: string | null;
-  state: string | null;
-  province: string | null;
   postal_code: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface CustomerPurchase {
-  product_name: string;
-  value: number;
-  status: string;
-  created_at: string;
-  payment_method: string;
+  province: string | null;
+  first_purchase_date: string;
+  total_purchases: number;
+  emails: string[];
+  products: Array<{
+    name: string;
+    value: number;
+    purchase_date: string;
+  }>;
 }
 
 export default function Clientes() {
@@ -46,8 +41,6 @@ export default function Clientes() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
-  const [loadingPurchases, setLoadingPurchases] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   
@@ -88,13 +81,25 @@ export default function Clientes() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Buscar todas as transações aprovadas
       let query = supabase
-        .from("asaas_customers")
-        .select("*", { count: "exact" })
-        .eq("user_id", user.id);
+        .from("transactions")
+        .select(`
+          customer_cpf_cnpj,
+          customer_name,
+          customer_email,
+          customer_phone,
+          customer_state,
+          created_at,
+          value,
+          products (name)
+        `)
+        .eq("user_id", user.id)
+        .in("status", ["CONFIRMED", "RECEIVED"])
+        .not("customer_cpf_cnpj", "is", null);
 
       if (appliedFilters.state !== "all") {
-        query = query.eq("state", appliedFilters.state);
+        query = query.eq("customer_state", appliedFilters.state);
       }
 
       if (appliedFilters.period !== "all") {
@@ -119,20 +124,74 @@ export default function Clientes() {
       }
 
       if (appliedFilters.search) {
-        query = query.or(`name.ilike.%${appliedFilters.search}%,email.ilike.%${appliedFilters.search}%,cpf_cnpj.ilike.%${appliedFilters.search}%`);
+        query = query.or(`customer_name.ilike.%${appliedFilters.search}%,customer_email.ilike.%${appliedFilters.search}%,customer_cpf_cnpj.ilike.%${appliedFilters.search}%`);
       }
 
+      query = query.order("created_at", { ascending: false });
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      // Agrupar por CPF/CNPJ
+      const customerMap = new Map<string, Customer>();
+
+      (data || []).forEach((transaction: any) => {
+        const cpfCnpj = transaction.customer_cpf_cnpj;
+        
+        if (!customerMap.has(cpfCnpj)) {
+          customerMap.set(cpfCnpj, {
+            cpf_cnpj: cpfCnpj,
+            name: transaction.customer_name,
+            phone: transaction.customer_phone,
+            mobile_phone: null,
+            state: transaction.customer_state,
+            city: null,
+            address: null,
+            address_number: null,
+            complement: null,
+            postal_code: null,
+            province: null,
+            first_purchase_date: transaction.created_at,
+            total_purchases: 0,
+            emails: [],
+            products: [],
+          });
+        }
+
+        const customer = customerMap.get(cpfCnpj)!;
+        
+        // Adicionar email se não existir na lista
+        if (transaction.customer_email && !customer.emails.includes(transaction.customer_email)) {
+          customer.emails.push(transaction.customer_email);
+        }
+
+        // Adicionar produto
+        customer.products.push({
+          name: transaction.products?.name || "Produto não encontrado",
+          value: transaction.value,
+          purchase_date: transaction.created_at,
+        });
+
+        customer.total_purchases++;
+      });
+
+      // Converter para array
+      let customersArray = Array.from(customerMap.values());
+
+      // Ordenar por data da primeira compra
+      customersArray.sort((a, b) => 
+        new Date(b.first_purchase_date).getTime() - new Date(a.first_purchase_date).getTime()
+      );
+
+      // Paginação
+      const totalCustomers = customersArray.length;
       const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
+      const to = from + itemsPerPage;
+      customersArray = customersArray.slice(from, to);
 
-      query = query.order("created_at", { ascending: false }).range(from, to);
-
-      const { data, count } = await query;
-
-      if (data) {
-        setCustomers(data);
-        setTotalCount(count || 0);
-      }
+      setCustomers(customersArray);
+      setTotalCount(totalCustomers);
     } catch (error) {
       console.error("Error fetching customers:", error);
       toast({
@@ -142,48 +201,6 @@ export default function Clientes() {
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchCustomerPurchases = async (asaasCustomerId: string) => {
-    setLoadingPurchases(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from("transactions")
-        .select(`
-          value,
-          status,
-          created_at,
-          payment_method,
-          products (name)
-        `)
-        .eq("user_id", user.id)
-        .eq("asaas_customer_id", asaasCustomerId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const purchasesWithProductNames = (data || []).map(purchase => ({
-        product_name: (purchase.products as any)?.name || "Produto não encontrado",
-        value: purchase.value,
-        status: purchase.status,
-        created_at: purchase.created_at,
-        payment_method: purchase.payment_method,
-      }));
-
-      setCustomerPurchases(purchasesWithProductNames);
-    } catch (error) {
-      console.error("Error fetching customer purchases:", error);
-      toast({
-        title: "Erro ao carregar compras",
-        description: "Não foi possível carregar as compras do cliente.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingPurchases(false);
     }
   };
 
@@ -216,34 +233,22 @@ export default function Clientes() {
   const exportToCSV = () => {
     const headers = [
       "Nome",
-      "Email",
       "CPF/CNPJ",
+      "Emails Utilizados",
       "Telefone",
-      "Celular",
       "Estado",
-      "Cidade",
-      "Endereço",
-      "Número",
-      "Complemento",
-      "CEP",
-      "Bairro",
-      "Data de Cadastro"
+      "Total de Compras",
+      "Data da Primeira Compra"
     ];
 
     const csvData = customers.map(customer => [
       customer.name,
-      customer.email,
       customer.cpf_cnpj || "-",
-      customer.phone || "-",
-      customer.mobile_phone || "-",
+      customer.emails.join("; "),
+      customer.phone || customer.mobile_phone || "-",
       customer.state || "-",
-      customer.city || "-",
-      customer.address || "-",
-      customer.address_number || "-",
-      customer.complement || "-",
-      customer.postal_code || "-",
-      customer.province || "-",
-      format(new Date(customer.created_at), "dd/MM/yyyy HH:mm")
+      customer.total_purchases.toString(),
+      format(new Date(customer.first_purchase_date), "dd/MM/yyyy HH:mm")
     ]);
 
     const csvContent = [
@@ -267,23 +272,9 @@ export default function Clientes() {
     });
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-      PENDING: { label: "Pendente", variant: "secondary" },
-      CONFIRMED: { label: "Aprovado", variant: "default" },
-      RECEIVED: { label: "Recebido", variant: "default" },
-      OVERDUE: { label: "Vencido", variant: "destructive" },
-      REFUNDED: { label: "Reembolsado", variant: "outline" },
-    };
-
-    const config = statusConfig[status] || { label: status, variant: "outline" };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
-  const viewCustomerDetails = async (customer: Customer) => {
+  const viewCustomerDetails = (customer: Customer) => {
     setSelectedCustomer(customer);
     setShowDetailsModal(true);
-    await fetchCustomerPurchases(customer.asaas_customer_id);
   };
 
   return (
@@ -292,7 +283,7 @@ export default function Clientes() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
           <p className="text-muted-foreground">
-            Gerencie e visualize todos os seus clientes
+            Gerencie e visualize todos os seus clientes com compras aprovadas
           </p>
         </div>
         <div className="flex gap-2">
@@ -427,32 +418,41 @@ export default function Clientes() {
                       <TableHead>CPF/CNPJ</TableHead>
                       <TableHead>Telefone</TableHead>
                       <TableHead>Estado</TableHead>
-                      <TableHead>Data de Cadastro</TableHead>
+                      <TableHead>Total de Compras</TableHead>
+                      <TableHead>Primeira Compra</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {customers.map((customer) => (
-                      <TableRow key={customer.id}>
+                      <TableRow key={customer.cpf_cnpj}>
                         <TableCell>
                           <div className="font-medium">{customer.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            {customer.email}
+                            {customer.emails[0]}
+                            {customer.emails.length > 1 && (
+                              <span className="ml-1 text-xs">
+                                (+{customer.emails.length - 1} email{customer.emails.length > 2 ? 's' : ''})
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          {customer.cpf_cnpj ? formatCPF(customer.cpf_cnpj) : "-"}
+                          {formatCPF(customer.cpf_cnpj)}
                         </TableCell>
                         <TableCell>
-                          {customer.mobile_phone 
-                            ? formatPhone(customer.mobile_phone)
-                            : customer.phone 
-                              ? formatPhone(customer.phone)
+                          {customer.phone 
+                            ? formatPhone(customer.phone)
+                            : customer.mobile_phone 
+                              ? formatPhone(customer.mobile_phone)
                               : "-"}
                         </TableCell>
                         <TableCell>{customer.state || "-"}</TableCell>
                         <TableCell>
-                          {format(new Date(customer.created_at), "dd/MM/yyyy")}
+                          <Badge variant="secondary">{customer.total_purchases}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {format(new Date(customer.first_purchase_date), "dd/MM/yyyy")}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
@@ -519,13 +519,9 @@ export default function Clientes() {
                     <p className="text-sm mt-1">{selectedCustomer.name}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">Email</label>
-                    <p className="text-sm mt-1">{selectedCustomer.email}</p>
-                  </div>
-                  <div>
                     <label className="text-sm font-medium text-muted-foreground">CPF/CNPJ</label>
                     <p className="text-sm mt-1">
-                      {selectedCustomer.cpf_cnpj ? formatCPF(selectedCustomer.cpf_cnpj) : "-"}
+                      {formatCPF(selectedCustomer.cpf_cnpj)}
                     </p>
                   </div>
                   <div>
@@ -535,125 +531,72 @@ export default function Clientes() {
                     </p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">Celular</label>
+                    <label className="text-sm font-medium text-muted-foreground">Estado</label>
+                    <p className="text-sm mt-1">{selectedCustomer.state || "-"}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Total de Compras</label>
                     <p className="text-sm mt-1">
-                      {selectedCustomer.mobile_phone ? formatPhone(selectedCustomer.mobile_phone) : "-"}
+                      <Badge variant="secondary">{selectedCustomer.total_purchases}</Badge>
                     </p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground">Data de Cadastro</label>
+                    <label className="text-sm font-medium text-muted-foreground">Primeira Compra</label>
                     <p className="text-sm mt-1">
-                      {format(new Date(selectedCustomer.created_at), "dd/MM/yyyy HH:mm")}
+                      {format(new Date(selectedCustomer.first_purchase_date), "dd/MM/yyyy HH:mm")}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Address */}
-              {(selectedCustomer.address || selectedCustomer.city || selectedCustomer.state) && (
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Endereço</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    {selectedCustomer.postal_code && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">CEP</label>
-                        <p className="text-sm mt-1">{selectedCustomer.postal_code}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.address && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Logradouro</label>
-                        <p className="text-sm mt-1">{selectedCustomer.address}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.address_number && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Número</label>
-                        <p className="text-sm mt-1">{selectedCustomer.address_number}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.complement && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Complemento</label>
-                        <p className="text-sm mt-1">{selectedCustomer.complement}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.province && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Bairro</label>
-                        <p className="text-sm mt-1">{selectedCustomer.province}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.city && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Cidade</label>
-                        <p className="text-sm mt-1">{selectedCustomer.city}</p>
-                      </div>
-                    )}
-                    {selectedCustomer.state && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Estado</label>
-                        <p className="text-sm mt-1">{selectedCustomer.state}</p>
-                      </div>
-                    )}
+              {/* Emails utilizados */}
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Emails Utilizados nas Compras</h3>
+                <div className="rounded-md border p-4">
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCustomer.emails.map((email, index) => (
+                      <Badge key={index} variant="outline" className="text-sm">
+                        {email}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Purchase History */}
+              {/* Products Purchased */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Histórico de Compras</h3>
-                {loadingPurchases ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Carregando compras...
-                  </div>
-                ) : customerPurchases.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Nenhuma compra encontrada para este cliente
-                  </div>
-                ) : (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Data</TableHead>
-                          <TableHead>Produto</TableHead>
-                          <TableHead>Valor</TableHead>
-                          <TableHead>Método</TableHead>
-                          <TableHead>Status</TableHead>
+                <h3 className="text-lg font-semibold mb-4">Produtos Comprados</h3>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data da Compra</TableHead>
+                        <TableHead>Produto</TableHead>
+                        <TableHead>Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedCustomer.products.map((product, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <div className="text-sm">
+                              {format(new Date(product.purchase_date), "dd/MM/yyyy")}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {format(new Date(product.purchase_date), "HH:mm")}
+                            </div>
+                          </TableCell>
+                          <TableCell>{product.name}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">
+                              R$ {formatCurrency(product.value)}
+                            </div>
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {customerPurchases.map((purchase, index) => (
-                          <TableRow key={index}>
-                            <TableCell>
-                              <div className="text-sm">
-                                {format(new Date(purchase.created_at), "dd/MM/yyyy")}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {format(new Date(purchase.created_at), "HH:mm")}
-                              </div>
-                            </TableCell>
-                            <TableCell>{purchase.product_name}</TableCell>
-                            <TableCell>
-                              <div className="font-medium">
-                                R$ {formatCurrency(purchase.value)}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="text-sm capitalize">
-                                {purchase.payment_method}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {getStatusBadge(purchase.status)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </div>
           )}
