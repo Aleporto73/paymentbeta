@@ -54,6 +54,108 @@ export default function Checkout() {
     affiliateCode,
   });
 
+  // Funções de validação
+  const validateEmail = (email: string) => {
+    if (!email) {
+      setEmailError("");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setEmailError("Digite um e-mail válido");
+    } else {
+      setEmailError("");
+    }
+  };
+
+  const validateCPF = (cpf: string) => {
+    if (!cpf) {
+      setCpfError("");
+      return;
+    }
+    
+    const cleanCPF = cpf.replace(/\D/g, '');
+    
+    if (cleanCPF.length < 11) {
+      setCpfError("CPF incompleto");
+      return;
+    }
+
+    if (cleanCPF.length === 14) {
+      // É CNPJ, validação simplificada
+      setCpfError("");
+      return;
+    }
+    
+    // Validação de CPF
+    if (cleanCPF.length !== 11 || /^(\d)\1{10}$/.test(cleanCPF)) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    let sum = 0;
+    let remainder;
+    
+    for (let i = 1; i <= 9; i++) {
+      sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
+    }
+    
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCPF.substring(9, 10))) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    sum = 0;
+    for (let i = 1; i <= 10; i++) {
+      sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
+    }
+    
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11) remainder = 0;
+    if (remainder !== parseInt(cleanCPF.substring(10, 11))) {
+      setCpfError("CPF inválido");
+      return;
+    }
+    
+    setCpfError("");
+  };
+
+  const validatePhone = (phone: string) => {
+    if (!phone) {
+      setPhoneError("");
+      return;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    if (cleanPhone.length < 11) {
+      setPhoneError("Celular incompleto");
+      return;
+    }
+    
+    if (cleanPhone.length !== 11) {
+      setPhoneError("Celular inválido");
+      return;
+    }
+    
+    // Validar DDD (11-99)
+    const ddd = parseInt(cleanPhone.substring(0, 2));
+    if (ddd < 11 || ddd > 99) {
+      setPhoneError("DDD inválido");
+      return;
+    }
+    
+    // Validar se o nono dígito é 9 (celular)
+    if (cleanPhone[2] !== '9') {
+      setPhoneError("Número deve ser de celular");
+      return;
+    }
+    
+    setPhoneError("");
+  };
+
   useEffect(() => {
     // Preencher campos a partir dos parâmetros da URL
     const name = searchParams.get("name") || searchParams.get("nome");
@@ -267,107 +369,6 @@ export default function Checkout() {
     setCouponCode("");
     setShowCouponField(false);
     toast.success("Cupom removido");
-  };
-
-  const validateEmail = (email: string) => {
-    if (!email) {
-      setEmailError("");
-      return;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setEmailError("Digite um e-mail válido");
-    } else {
-      setEmailError("");
-    }
-  };
-
-  const validateCPF = (cpf: string) => {
-    if (!cpf) {
-      setCpfError("");
-      return;
-    }
-    
-    const cleanCPF = cpf.replace(/\D/g, '');
-    
-    if (cleanCPF.length < 11) {
-      setCpfError("CPF incompleto");
-      return;
-    }
-
-    if (cleanCPF.length === 14) {
-      // É CNPJ, validação simplificada
-      setCpfError("");
-      return;
-    }
-    
-    // Validação de CPF
-    if (cleanCPF.length !== 11 || /^(\d)\1{10}$/.test(cleanCPF)) {
-      setCpfError("CPF inválido");
-      return;
-    }
-    
-    let sum = 0;
-    let remainder;
-    
-    for (let i = 1; i <= 9; i++) {
-      sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
-    }
-    
-    remainder = (sum * 10) % 11;
-    if (remainder === 10 || remainder === 11) remainder = 0;
-    if (remainder !== parseInt(cleanCPF.substring(9, 10))) {
-      setCpfError("CPF inválido");
-      return;
-    }
-    
-    sum = 0;
-    for (let i = 1; i <= 10; i++) {
-      sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
-    }
-    
-    remainder = (sum * 10) % 11;
-    if (remainder === 10 || remainder === 11) remainder = 0;
-    if (remainder !== parseInt(cleanCPF.substring(10, 11))) {
-      setCpfError("CPF inválido");
-      return;
-    }
-    
-    setCpfError("");
-  };
-
-  const validatePhone = (phone: string) => {
-    if (!phone) {
-      setPhoneError("");
-      return;
-    }
-    
-    const cleanPhone = phone.replace(/\D/g, '');
-    
-    if (cleanPhone.length < 11) {
-      setPhoneError("Celular incompleto");
-      return;
-    }
-    
-    if (cleanPhone.length !== 11) {
-      setPhoneError("Celular inválido");
-      return;
-    }
-    
-    // Validar DDD (11-99)
-    const ddd = parseInt(cleanPhone.substring(0, 2));
-    if (ddd < 11 || ddd > 99) {
-      setPhoneError("DDD inválido");
-      return;
-    }
-    
-    // Validar se o nono dígito é 9 (celular)
-    if (cleanPhone[2] !== '9') {
-      setPhoneError("Número deve ser de celular");
-      return;
-    }
-    
-    setPhoneError("");
   };
 
   return (
