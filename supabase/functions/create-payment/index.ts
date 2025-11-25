@@ -23,6 +23,9 @@ serve(async (req) => {
       productId,
       priceId,
       userId,
+      affiliateCode,
+      orderBumps,
+      deviceInfo
     } = await req.json();
 
     console.log('Creating payment for product:', productId);
@@ -54,8 +57,6 @@ serve(async (req) => {
     const asaasBaseUrl = integrationSettings.is_sandbox
       ? 'https://sandbox.asaas.com/api/v3'
       : 'https://www.asaas.com/api/v3';
-
-    const { affiliateCode, orderBumps, deviceInfo } = await req.json();
 
     console.log('Creating payment with customer data');
 
