@@ -3,10 +3,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock, Filter, X } from "lucide-react";
+import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 interface WebhookStats {
@@ -41,6 +44,19 @@ interface WebhookQueueItem {
   created_at: string;
 }
 
+interface Product {
+  id: string;
+  name: string;
+}
+
+interface Filters {
+  productId: string;
+  status: string;
+  webhookUrl: string;
+  startDate: string;
+  endDate: string;
+}
+
 export default function Webhooks() {
   const [stats, setStats] = useState<WebhookStats>({
     total: 0,
@@ -54,10 +70,19 @@ export default function Webhooks() {
   const [failedQueue, setFailedQueue] = useState<WebhookQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<Filters>({
+    productId: "",
+    status: "",
+    webhookUrl: "",
+    startDate: "",
+    endDate: "",
+  });
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [filters]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -66,17 +91,24 @@ export default function Webhooks() {
       if (!user) return;
 
       // Get user's products
-      const { data: products } = await supabase
+      const { data: productsData } = await supabase
         .from("products")
-        .select("id")
+        .select("id, name")
         .eq("user_id", user.id);
 
-      if (!products || products.length === 0) {
+      if (!productsData || productsData.length === 0) {
         setLoading(false);
         return;
       }
 
-      const productIds = products.map((p) => p.id);
+      setProducts(productsData);
+
+      let productIds = productsData.map((p) => p.id);
+      
+      // Apply product filter
+      if (filters.productId) {
+        productIds = [filters.productId];
+      }
 
       // Fetch queue stats
       const { data: queueData } = await supabase
@@ -102,11 +134,35 @@ export default function Webhooks() {
         });
       }
 
-      // Fetch recent logs
-      const { data: logsData } = await supabase
+      // Fetch recent logs with filters
+      let logsQuery = supabase
         .from("webhook_logs")
         .select("*")
-        .in("product_id", productIds)
+        .in("product_id", productIds);
+
+      // Apply status filter
+      if (filters.status === "success") {
+        logsQuery = logsQuery.eq("success", true);
+      } else if (filters.status === "failed") {
+        logsQuery = logsQuery.eq("success", false);
+      }
+
+      // Apply webhook URL filter
+      if (filters.webhookUrl) {
+        logsQuery = logsQuery.ilike("webhook_url", `%${filters.webhookUrl}%`);
+      }
+
+      // Apply date filters
+      if (filters.startDate) {
+        logsQuery = logsQuery.gte("created_at", new Date(filters.startDate).toISOString());
+      }
+      if (filters.endDate) {
+        const endDate = new Date(filters.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        logsQuery = logsQuery.lte("created_at", endDate.toISOString());
+      }
+
+      const { data: logsData } = await logsQuery
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -185,6 +241,18 @@ export default function Webhooks() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
+  const clearFilters = () => {
+    setFilters({
+      productId: "",
+      status: "",
+      webhookUrl: "",
+      startDate: "",
+      endDate: "",
+    });
+  };
+
+  const hasActiveFilters = Object.values(filters).some(value => value !== "");
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -194,11 +262,122 @@ export default function Webhooks() {
             Monitore o status e histórico de envio dos webhooks
           </p>
         </div>
-        <Button onClick={fetchData} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="w-4 h-4 mr-2" />
+            Filtros
+            {hasActiveFilters && (
+              <Badge variant="secondary" className="ml-2">
+                {Object.values(filters).filter(v => v !== "").length}
+              </Badge>
+            )}
+          </Button>
+          <Button onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
+
+      {/* Filters Card */}
+      {showFilters && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Filtros Avançados</CardTitle>
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <X className="w-4 h-4 mr-2" />
+                  Limpar Filtros
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="product-filter">Produto</Label>
+                <Select
+                  value={filters.productId}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, productId: value })
+                  }
+                >
+                  <SelectTrigger id="product-filter">
+                    <SelectValue placeholder="Todos os produtos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Todos os produtos</SelectItem>
+                    {products.map((product) => (
+                      <SelectItem key={product.id} value={product.id}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="status-filter">Status</Label>
+                <Select
+                  value={filters.status}
+                  onValueChange={(value) =>
+                    setFilters({ ...filters, status: value })
+                  }
+                >
+                  <SelectTrigger id="status-filter">
+                    <SelectValue placeholder="Todos os status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Todos os status</SelectItem>
+                    <SelectItem value="success">Sucesso</SelectItem>
+                    <SelectItem value="failed">Falha</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="url-filter">URL do Webhook</Label>
+                <Input
+                  id="url-filter"
+                  placeholder="Filtrar por URL..."
+                  value={filters.webhookUrl}
+                  onChange={(e) =>
+                    setFilters({ ...filters, webhookUrl: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="start-date">Data Inicial</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={filters.startDate}
+                  onChange={(e) =>
+                    setFilters({ ...filters, startDate: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="end-date">Data Final</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={filters.endDate}
+                  onChange={(e) =>
+                    setFilters({ ...filters, endDate: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
