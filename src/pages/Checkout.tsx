@@ -1113,7 +1113,7 @@ export default function Checkout() {
 
               {/* Métodos de Pagamento */}
               {/* Métodos de Pagamento */}
-              <div className="space-y-6">
+              <div className="space-y-6 border border-gray-200">
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
