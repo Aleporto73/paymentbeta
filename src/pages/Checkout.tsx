@@ -84,12 +84,9 @@ export default function Checkout() {
   const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
     try {
       // Gerar token de transação
-      const { data: tokenData, error: tokenError } = await supabase.functions.invoke(
-        "generate-transaction-token",
-        {
-          body: { transactionId },
-        }
-      );
+      const { data: tokenData, error: tokenError } = await supabase.functions.invoke("generate-transaction-token", {
+        body: { transactionId },
+      });
 
       if (tokenError) {
         console.error("Error generating token:", tokenError);
@@ -101,7 +98,7 @@ export default function Checkout() {
       // Adicionar token à URL de redirecionamento
       const urlWithToken = new URL(redirectUrl, window.location.origin);
       urlWithToken.searchParams.set("transaction_token", tokenData.token);
-      
+
       window.location.href = urlWithToken.toString();
     } catch (error) {
       console.error("Error generating token:", error);
@@ -126,7 +123,7 @@ export default function Checkout() {
     onSuccess: async () => {
       toast.success("Pagamento confirmado! Redirecionando...");
       setPixPollingEnabled(false);
-      
+
       // Enviar evento de conversão Purchase
       if (product?.id && paymentResult?.transaction?.id) {
         await sendConversionEvent({
@@ -142,12 +139,12 @@ export default function Checkout() {
         // Disparar evento Purchase client-side
         fireClientSideEvent("Purchase", totalPrice, paymentResult.transaction.id);
       }
-      
+
       // Redirecionar para página configurada com token de transação
       setTimeout(async () => {
-        const redirectUrl = product?.approved_payment_redirect_url || '/pagamento-aprovado';
+        const redirectUrl = product?.approved_payment_redirect_url || "/pagamento-aprovado";
         const transactionId = paymentResult?.transaction?.id;
-        
+
         if (transactionId && product?.approved_payment_redirect_url) {
           await generateAndRedirectWithToken(redirectUrl, transactionId);
         } else {
@@ -160,23 +157,23 @@ export default function Checkout() {
       setPixPollingEnabled(false);
       // Redirecionar para página de erro configurada ou página padrão
       setTimeout(() => {
-        const redirectUrl = product?.rejected_payment_redirect_url || '/pagamento-recusado';
+        const redirectUrl = product?.rejected_payment_redirect_url || "/pagamento-recusado";
         window.location.href = redirectUrl;
       }, 2000);
     },
   });
 
   // Calculate pricing values
-  const MINIMUM_PAYMENT_VALUE = 5.00; // Valor mínimo exigido pelo gateway de pagamento
+  const MINIMUM_PAYMENT_VALUE = 5.0; // Valor mínimo exigido pelo gateway de pagamento
   const finalPrice = price?.price || product?.price || 0;
   const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
-    const bump = orderBumps.find(b => b.id === bumpId);
+    const bump = orderBumps.find((b) => b.id === bumpId);
     return total + (bump?.price || 0);
   }, 0);
   const subtotal = finalPrice + orderBumpsTotal;
   const calculateDiscount = () => {
     if (!appliedCoupon) return 0;
-    if (appliedCoupon.discount_type === 'percentage') {
+    if (appliedCoupon.discount_type === "percentage") {
       return subtotal * (appliedCoupon.discount_value / 100);
     } else {
       return appliedCoupon.discount_value;
@@ -373,9 +370,9 @@ export default function Checkout() {
       setCpfError("");
       return;
     }
-    
-    const cleanCPF = cpf.replace(/\D/g, '');
-    
+
+    const cleanCPF = cpf.replace(/\D/g, "");
+
     if (cleanCPF.length < 11) {
       setCpfError("CPF incompleto");
       return;
@@ -386,39 +383,39 @@ export default function Checkout() {
       setCpfError("");
       return;
     }
-    
+
     // Validação de CPF
     if (cleanCPF.length !== 11 || /^(\d)\1{10}$/.test(cleanCPF)) {
       setCpfError("CPF inválido");
       return;
     }
-    
+
     let sum = 0;
     let remainder;
-    
+
     for (let i = 1; i <= 9; i++) {
       sum += parseInt(cleanCPF.substring(i - 1, i)) * (11 - i);
     }
-    
+
     remainder = (sum * 10) % 11;
     if (remainder === 10 || remainder === 11) remainder = 0;
     if (remainder !== parseInt(cleanCPF.substring(9, 10))) {
       setCpfError("CPF inválido");
       return;
     }
-    
+
     sum = 0;
     for (let i = 1; i <= 10; i++) {
       sum += parseInt(cleanCPF.substring(i - 1, i)) * (12 - i);
     }
-    
+
     remainder = (sum * 10) % 11;
     if (remainder === 10 || remainder === 11) remainder = 0;
     if (remainder !== parseInt(cleanCPF.substring(10, 11))) {
       setCpfError("CPF inválido");
       return;
     }
-    
+
     setCpfError("");
   };
 
@@ -427,84 +424,84 @@ export default function Checkout() {
       setPhoneError("");
       return;
     }
-    
-    const cleanPhone = phone.replace(/\D/g, '');
-    
+
+    const cleanPhone = phone.replace(/\D/g, "");
+
     if (cleanPhone.length < 11) {
       setPhoneError("Celular incompleto");
       return;
     }
-    
+
     if (cleanPhone.length !== 11) {
       setPhoneError("Celular inválido");
       return;
     }
-    
+
     // Validar DDD (11-99)
     const ddd = parseInt(cleanPhone.substring(0, 2));
     if (ddd < 11 || ddd > 99) {
       setPhoneError("DDD inválido");
       return;
     }
-    
+
     // Validar se o nono dígito é 9 (celular)
-    if (cleanPhone[2] !== '9') {
+    if (cleanPhone[2] !== "9") {
       setPhoneError("Número deve ser de celular");
       return;
     }
-    
+
     setPhoneError("");
   };
 
   // Detectar bandeira do cartão
   const detectCardBrand = (cardNumber: string) => {
-    const cleanNumber = cardNumber.replace(/\s/g, '');
-    
+    const cleanNumber = cardNumber.replace(/\s/g, "");
+
     if (/^4/.test(cleanNumber)) {
-      return 'Visa';
+      return "Visa";
     } else if (/^5[1-5]/.test(cleanNumber)) {
-      return 'Mastercard';
+      return "Mastercard";
     } else if (/^3[47]/.test(cleanNumber)) {
-      return 'Amex';
+      return "Amex";
     } else if (/^6(?:011|5)/.test(cleanNumber)) {
-      return 'Discover';
+      return "Discover";
     } else if (/^(?:2131|1800|35)/.test(cleanNumber)) {
-      return 'JCB';
+      return "JCB";
     } else if (/^3(?:0[0-5]|[68])/.test(cleanNumber)) {
-      return 'Diners';
+      return "Diners";
     } else if (/^(?:5[06789]|6)/.test(cleanNumber)) {
-      return 'Elo';
+      return "Elo";
     } else if (/^(636368|438935|504175|451416|636297)/.test(cleanNumber)) {
-      return 'Hipercard';
+      return "Hipercard";
     }
-    return '';
+    return "";
   };
 
   // Validação Luhn
   const luhnValidation = (cardNumber: string) => {
-    const cleanNumber = cardNumber.replace(/\s/g, '');
-    
+    const cleanNumber = cardNumber.replace(/\s/g, "");
+
     if (cleanNumber.length < 13) {
       return false;
     }
-    
+
     let sum = 0;
     let isEven = false;
-    
+
     for (let i = cleanNumber.length - 1; i >= 0; i--) {
       let digit = parseInt(cleanNumber[i]);
-      
+
       if (isEven) {
         digit *= 2;
         if (digit > 9) {
           digit -= 9;
         }
       }
-      
+
       sum += digit;
       isEven = !isEven;
     }
-    
+
     return sum % 10 === 0;
   };
 
@@ -515,30 +512,30 @@ export default function Checkout() {
       setCardBrand("");
       return;
     }
-    
-    const cleanNumber = cardNumber.replace(/\s/g, '');
-    
+
+    const cleanNumber = cardNumber.replace(/\s/g, "");
+
     if (cleanNumber.length < 13) {
       setCardError("Número incompleto");
       const brand = detectCardBrand(cardNumber);
       setCardBrand(brand);
       return;
     }
-    
+
     const brand = detectCardBrand(cardNumber);
     setCardBrand(brand);
-    
+
     if (!brand) {
       setCardError("Bandeira não identificada");
       return;
     }
-    
+
     // Validar com algoritmo de Luhn
     if (!luhnValidation(cardNumber)) {
       setCardError("Número de cartão inválido");
       return;
     }
-    
+
     setCardError("");
   };
 
@@ -549,8 +546,8 @@ export default function Checkout() {
       return;
     }
 
-    const cleanDate = expiryDate.replace(/\D/g, '');
-    
+    const cleanDate = expiryDate.replace(/\D/g, "");
+
     if (cleanDate.length < 4) {
       setExpiryError("Data incompleta");
       return;
@@ -579,15 +576,15 @@ export default function Checkout() {
   };
 
   const handleCepChange = async (value: string) => {
-    const cleanedCep = value.replace(/\D/g, '');
-    const formattedCep = cleanedCep.replace(/^(\d{5})(\d)/, '$1-$2').slice(0, 9);
+    const cleanedCep = value.replace(/\D/g, "");
+    const formattedCep = cleanedCep.replace(/^(\d{5})(\d)/, "$1-$2").slice(0, 9);
     setCep(formattedCep);
 
     if (cleanedCep.length === 8) {
       try {
         const response = await fetch(`https://viacep.com.br/ws/${cleanedCep}/json/`);
         const data = await response.json();
-        
+
         if (!data.erro) {
           setAddress({
             street: data.logradouro || "",
@@ -608,14 +605,14 @@ export default function Checkout() {
     // Preencher campos a partir dos parâmetros da URL
     const name = searchParams.get("name") || searchParams.get("nome");
     const email = searchParams.get("email");
-    
+
     if (name || email) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         fullName: name || prev.fullName,
         email: email || prev.email,
       }));
-      
+
       if (email) {
         validateEmail(email);
       }
@@ -652,15 +649,12 @@ export default function Checkout() {
         if (!orderBumpsError && orderBumpsData) {
           // Buscar imagens dos produtos dos order bumps
           if (orderBumpsData.length > 0) {
-            const productIds = orderBumpsData.map(ob => ob.order_bump_product_id);
-            const { data: productsData } = await supabase
-              .from("products")
-              .select("id, image_url")
-              .in("id", productIds);
+            const productIds = orderBumpsData.map((ob) => ob.order_bump_product_id);
+            const { data: productsData } = await supabase.from("products").select("id, image_url").in("id", productIds);
 
-            const orderBumpsWithImages = orderBumpsData.map(ob => ({
+            const orderBumpsWithImages = orderBumpsData.map((ob) => ({
               ...ob,
-              product_image_url: productsData?.find(p => p.id === ob.order_bump_product_id)?.image_url || null
+              product_image_url: productsData?.find((p) => p.id === ob.order_bump_product_id)?.image_url || null,
             }));
 
             setOrderBumps(orderBumpsWithImages as ProductOrderBump[]);
@@ -720,7 +714,7 @@ export default function Checkout() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.fullName || !formData.email || !formData.cpf) {
       toast.error("Por favor, preencha todos os campos obrigatórios");
       return;
@@ -728,7 +722,13 @@ export default function Checkout() {
 
     // Validar campos adicionais baseado no método de pagamento
     if (paymentMethod === "card") {
-      if (!cardData.cardholderName || !cardData.cardNumber || !cardData.expiryDate || !cardData.cvv || !cardData.zipCode) {
+      if (
+        !cardData.cardholderName ||
+        !cardData.cardNumber ||
+        !cardData.expiryDate ||
+        !cardData.cvv ||
+        !cardData.zipCode
+      ) {
         toast.error("Por favor, preencha todos os dados do cartão");
         return;
       }
@@ -751,10 +751,10 @@ export default function Checkout() {
       const customerData = {
         name: formData.fullName,
         email: formData.email,
-        cpfCnpj: formData.cpf.replace(/\D/g, ''),
-        mobilePhone: formData.phone.replace(/\D/g, ''),
-        phone: formData.phone.replace(/\D/g, ''),
-        postalCode: address.state ? cardData.zipCode.replace(/\D/g, '') : undefined,
+        cpfCnpj: formData.cpf.replace(/\D/g, ""),
+        mobilePhone: formData.phone.replace(/\D/g, ""),
+        phone: formData.phone.replace(/\D/g, ""),
+        postalCode: address.state ? cardData.zipCode.replace(/\D/g, "") : undefined,
         address: address.street || undefined,
         addressNumber: "S/N",
         province: address.neighborhood || undefined,
@@ -770,17 +770,17 @@ export default function Checkout() {
       const paymentData: any = {
         billingType,
         value: totalPrice,
-        dueDate: dueDate.toISOString().split('T')[0],
-        description: `${product.name}${price?.name ? ` - ${price.name}` : ''}`,
+        dueDate: dueDate.toISOString().split("T")[0],
+        description: `${product.name}${price?.name ? ` - ${price.name}` : ""}`,
         externalReference: `${product.unique_code}-${Date.now()}`,
       };
 
       // Adicionar dados do cartão se for pagamento com cartão
       if (paymentMethod === "card") {
-        const [month, year] = cardData.expiryDate.split('/');
+        const [month, year] = cardData.expiryDate.split("/");
         paymentData.creditCard = {
           holderName: cardData.cardholderName,
-          number: cardData.cardNumber.replace(/\s/g, ''),
+          number: cardData.cardNumber.replace(/\s/g, ""),
           expiryMonth: month,
           expiryYear: `20${year}`,
           ccv: cardData.cvv,
@@ -794,24 +794,24 @@ export default function Checkout() {
       }
 
       // Preparar order bumps selecionados
-      const selectedBumps = Array.from(selectedOrderBumps).map(bumpId => {
-        const bump = orderBumps.find(b => b.id === bumpId);
+      const selectedBumps = Array.from(selectedOrderBumps).map((bumpId) => {
+        const bump = orderBumps.find((b) => b.id === bumpId);
         return {
           id: bumpId,
           price: bump?.price || 0,
-          title: bump?.title || '',
+          title: bump?.title || "",
         };
       });
 
       // Obter informações do dispositivo
       const deviceInfo = {
-        deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+        deviceType: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? "mobile" : "desktop",
         userAgent: navigator.userAgent,
         ip: undefined, // Será preenchido no backend
       };
 
       // Chamar edge function
-      const { data, error } = await supabase.functions.invoke('create-payment', {
+      const { data, error } = await supabase.functions.invoke("create-payment", {
         body: {
           customerData,
           paymentData,
@@ -827,15 +827,11 @@ export default function Checkout() {
       if (error) throw error;
 
       if (!data.success) {
-        throw new Error(data.error || 'Erro ao processar pagamento');
+        throw new Error(data.error || "Erro ao processar pagamento");
       }
 
       // Track conversion
-      trackConversion(
-        Array.from(selectedOrderBumps),
-        totalPrice,
-        orderBumpsTotal
-      );
+      trackConversion(Array.from(selectedOrderBumps), totalPrice, orderBumpsTotal);
 
       setPaymentResult(data);
 
@@ -856,12 +852,12 @@ export default function Checkout() {
 
         // Disparar evento Purchase client-side
         fireClientSideEvent("Purchase", totalPrice, data?.transaction?.id);
-        
+
         toast.success("Pagamento processado com sucesso! Redirecionando...");
         setTimeout(async () => {
-          const redirectUrl = product.approved_payment_redirect_url || '/pagamento-aprovado';
+          const redirectUrl = product.approved_payment_redirect_url || "/pagamento-aprovado";
           const transactionId = data?.transaction?.id;
-          
+
           if (transactionId && product.approved_payment_redirect_url) {
             await generateAndRedirectWithToken(redirectUrl, transactionId);
           } else {
@@ -869,15 +865,14 @@ export default function Checkout() {
           }
         }, 2000);
       }
-
     } catch (error: any) {
       console.error("Erro ao processar pagamento:", error);
       toast.error(error.message || "Erro ao processar pagamento. Tente novamente.");
       setShowPixModal(false);
-      
+
       // Redirecionar para página de erro se configurada
       setTimeout(() => {
-        const redirectUrl = product?.rejected_payment_redirect_url || '/pagamento-recusado';
+        const redirectUrl = product?.rejected_payment_redirect_url || "/pagamento-recusado";
         window.location.href = redirectUrl;
       }, 3000);
     } finally {
@@ -905,7 +900,7 @@ export default function Checkout() {
               <span className="text-4xl text-destructive-foreground font-bold">!</span>
             </div>
           </div>
-          
+
           <h1 className="text-3xl font-bold mb-3">Ops! Oferta Não Encontrada</h1>
           <p className="text-muted-foreground mb-8">
             A oferta que você está procurando não foi encontrada ou não está mais disponível.
@@ -931,9 +926,9 @@ export default function Checkout() {
             </CardContent>
           </Card>
 
-          <Button 
+          <Button
             className="w-full md:w-auto px-12 h-12 bg-[#157347] hover:bg-[#157347]/90 text-white font-semibold"
-            onClick={() => window.location.href = '/'}
+            onClick={() => (window.location.href = "/")}
           >
             Voltar para a Página Inicial
           </Button>
@@ -947,7 +942,7 @@ export default function Checkout() {
   }
 
   const toggleOrderBump = (orderBumpId: string) => {
-    setSelectedOrderBumps(prev => {
+    setSelectedOrderBumps((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(orderBumpId)) {
         newSet.delete(orderBumpId);
@@ -1001,9 +996,9 @@ export default function Checkout() {
         {/* Imagem personalizada do topo (se configurada) */}
         {product.checkout_header_image_url && (
           <div className="mb-8 rounded-lg overflow-hidden">
-            <img 
-              src={product.checkout_header_image_url} 
-              alt="Header do checkout" 
+            <img
+              src={product.checkout_header_image_url}
+              alt="Header do checkout"
               className="w-full h-auto object-cover"
             />
           </div>
@@ -1016,8 +1011,8 @@ export default function Checkout() {
             <div className="mb-8 pb-8 border-b">
               <div className="flex items-start gap-4">
                 {product.image_url && (
-                  <img 
-                    src={product.image_url} 
+                  <img
+                    src={product.image_url}
                     alt={product.name}
                     className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
                   />
@@ -1025,10 +1020,11 @@ export default function Checkout() {
                 <div className="flex-1">
                   <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
                   <p className="text-sm text-muted-foreground mb-3">
-                    Autor: {product.user_id?.split('-')[0] || 'PsiForm Tecnologia'}
+                    Autor: {product.user_id?.split("-")[0] || "PsiForm Tecnologia"}
                   </p>
                   <div className="text-4xl font-bold text-blue-600 mb-1">
-                    R$ {formatCurrency(finalPrice)}{price?.subscription_period === 'mensal' ? ' / mês' : ''}
+                    R$ {formatCurrency(finalPrice)}
+                    {price?.subscription_period === "mensal" ? " / mês" : ""}
                   </div>
                   {price?.name && (
                     <p className="text-sm text-muted-foreground">
@@ -1042,10 +1038,11 @@ export default function Checkout() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Identificação */}
               <div>
-                <h2 className="text-xl font-bold mb-4">Identificação</h2>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="fullName" className="text-sm font-medium">Nome completo</Label>
+                    <Label htmlFor="fullName" className="text-sm font-medium">
+                      Nome completo
+                    </Label>
                     <Input
                       id="fullName"
                       placeholder="Seu nome completo"
@@ -1057,7 +1054,9 @@ export default function Checkout() {
                   </div>
 
                   <div>
-                    <Label htmlFor="email" className="text-sm font-medium">E-mail</Label>
+                    <Label htmlFor="email" className="text-sm font-medium">
+                      E-mail
+                    </Label>
                     <Input
                       id="email"
                       type="email"
@@ -1070,14 +1069,14 @@ export default function Checkout() {
                       className={`mt-1 ${emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                       required
                     />
-                    {emailError && (
-                      <p className="text-sm text-destructive mt-1">{emailError}</p>
-                    )}
+                    {emailError && <p className="text-sm text-destructive mt-1">{emailError}</p>}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="cpf" className="text-sm font-medium">CPF/CNPJ</Label>
+                      <Label htmlFor="cpf" className="text-sm font-medium">
+                        CPF/CNPJ
+                      </Label>
                       <Input
                         id="cpf"
                         placeholder="Digite seu CPF/CNPJ"
@@ -1087,16 +1086,16 @@ export default function Checkout() {
                           setFormData({ ...formData, cpf: formatted });
                           validateCPF(formatted);
                         }}
-                        className={`mt-1 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        className={`mt-1 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, "").length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                         maxLength={18}
                         required
                       />
-                      {cpfError && (
-                        <p className="text-sm text-destructive mt-1">{cpfError}</p>
-                      )}
+                      {cpfError && <p className="text-sm text-destructive mt-1">{cpfError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="phone" className="text-sm font-medium">Celular</Label>
+                      <Label htmlFor="phone" className="text-sm font-medium">
+                        Celular
+                      </Label>
                       <Input
                         id="phone"
                         placeholder="Digite seu celular"
@@ -1106,12 +1105,10 @@ export default function Checkout() {
                           setFormData({ ...formData, phone: formatted });
                           validatePhone(formatted);
                         }}
-                        className={`mt-1 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        className={`mt-1 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, "").length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
                         maxLength={15}
                       />
-                      {phoneError && (
-                        <p className="text-sm text-destructive mt-1">{phoneError}</p>
-                      )}
+                      {phoneError && <p className="text-sm text-destructive mt-1">{phoneError}</p>}
                     </div>
                   </div>
                 </div>
@@ -1124,8 +1121,8 @@ export default function Checkout() {
                   <button
                     type="button"
                     className={`relative flex items-center gap-3 px-4 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "pix" 
-                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
+                      paymentMethod === "pix"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
                         : "border-gray-300 bg-white dark:bg-background hover:border-gray-400"
                     }`}
                     onClick={() => setPaymentMethod("pix")}
@@ -1138,8 +1135,8 @@ export default function Checkout() {
                   <button
                     type="button"
                     className={`relative flex items-center gap-3 px-4 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "card" 
-                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
+                      paymentMethod === "card"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
                         : "border-gray-300 bg-white dark:bg-background hover:border-gray-400"
                     }`}
                     onClick={() => setPaymentMethod("card")}
@@ -1162,7 +1159,8 @@ export default function Checkout() {
                           O pagamento é instantâneo e liberação imediata.
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-300">
-                          Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro, onde encontrará o passo a passo para realizar o pagamento.
+                          Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro, onde encontrará o
+                          passo a passo para realizar o pagamento.
                         </p>
                       </div>
                     </div>
@@ -1174,7 +1172,9 @@ export default function Checkout() {
               {paymentMethod === "card" && (
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="cardholderName" className="text-sm font-medium">Nome do titular</Label>
+                    <Label htmlFor="cardholderName" className="text-sm font-medium">
+                      Nome do titular
+                    </Label>
                     <Input
                       id="cardholderName"
                       placeholder="Digite o nome do titular"
@@ -1187,19 +1187,27 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="cardNumber" className="text-sm font-medium">Número do cartão</Label>
+                      <Label htmlFor="cardNumber" className="text-sm font-medium">
+                        Número do cartão
+                      </Label>
                       <div className="relative mt-1">
                         <Input
                           id="cardNumber"
                           placeholder="0000 0000 0000 0000"
                           value={cardData.cardNumber}
                           onChange={(e) => {
-                            const value = e.target.value.replace(/\D/g, '').slice(0, 16);
-                            const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
+                            const value = e.target.value.replace(/\D/g, "").slice(0, 16);
+                            const formatted = value.replace(/(\d{4})(?=\d)/g, "$1 ");
                             setCardData({ ...cardData, cardNumber: formatted });
                             validateCard(formatted);
                           }}
-                          className={cardError ? "border-destructive pr-20" : cardData.cardNumber && !cardError ? "border-green-500 pr-20" : "pr-20"}
+                          className={
+                            cardError
+                              ? "border-destructive pr-20"
+                              : cardData.cardNumber && !cardError
+                                ? "border-green-500 pr-20"
+                                : "pr-20"
+                          }
                           maxLength={19}
                           required={paymentMethod === "card"}
                         />
@@ -1212,14 +1220,16 @@ export default function Checkout() {
                       {cardError && <p className="text-sm text-destructive mt-1">{cardError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="zipCode" className="text-sm font-medium">CEP</Label>
+                      <Label htmlFor="zipCode" className="text-sm font-medium">
+                        CEP
+                      </Label>
                       <Input
                         id="zipCode"
                         placeholder="00000-000"
                         value={cardData.zipCode}
                         onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 8);
-                          const formatted = value.replace(/(\d{5})(\d)/, '$1-$2');
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 8);
+                          const formatted = value.replace(/(\d{5})(\d)/, "$1-$2");
                           setCardData({ ...cardData, zipCode: formatted });
                           handleCepChange(formatted);
                         }}
@@ -1232,16 +1242,18 @@ export default function Checkout() {
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="expiryDate" className="text-sm font-medium">Vencimento</Label>
+                      <Label htmlFor="expiryDate" className="text-sm font-medium">
+                        Vencimento
+                      </Label>
                       <Input
                         id="expiryDate"
                         placeholder="MM/AA"
                         value={cardData.expiryDate}
                         onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                          const value = e.target.value.replace(/\D/g, "").slice(0, 4);
                           let formatted = value;
                           if (value.length >= 2) {
-                            formatted = value.slice(0, 2) + '/' + value.slice(2);
+                            formatted = value.slice(0, 2) + "/" + value.slice(2);
                           }
                           setCardData({ ...cardData, expiryDate: formatted });
                           validateExpiryDate(formatted);
@@ -1253,23 +1265,27 @@ export default function Checkout() {
                       {expiryError && <p className="text-sm text-destructive mt-1">{expiryError}</p>}
                     </div>
                     <div>
-                      <Label htmlFor="cvv" className="text-sm font-medium">CVV</Label>
+                      <Label htmlFor="cvv" className="text-sm font-medium">
+                        CVV
+                      </Label>
                       <Input
                         id="cvv"
-                        placeholder={cardBrand === 'Amex' ? '0000' : '000'}
+                        placeholder={cardBrand === "Amex" ? "0000" : "000"}
                         value={cardData.cvv}
                         onChange={(e) => {
-                          const maxLength = cardBrand === 'Amex' ? 4 : 3;
-                          const value = e.target.value.replace(/\D/g, '').slice(0, maxLength);
+                          const maxLength = cardBrand === "Amex" ? 4 : 3;
+                          const value = e.target.value.replace(/\D/g, "").slice(0, maxLength);
                           setCardData({ ...cardData, cvv: value });
                         }}
                         className="mt-1"
-                        maxLength={cardBrand === 'Amex' ? 4 : 3}
+                        maxLength={cardBrand === "Amex" ? 4 : 3}
                         required={paymentMethod === "card"}
                       />
                     </div>
                     <div>
-                      <Label htmlFor="installments" className="text-sm font-medium">Parcelas</Label>
+                      <Label htmlFor="installments" className="text-sm font-medium">
+                        Parcelas
+                      </Label>
                       <Input
                         id="installments"
                         value={`${cardData.installments}x`}
@@ -1294,8 +1310,8 @@ export default function Checkout() {
                       <Card
                         key={orderBump.id}
                         className={`cursor-pointer transition-all ${
-                          isSelected 
-                            ? "border-2 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20" 
+                          isSelected
+                            ? "border-2 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
                             : "border-border hover:border-muted-foreground"
                         }`}
                         onClick={() => toggleOrderBump(orderBump.id)}
@@ -1303,13 +1319,13 @@ export default function Checkout() {
                         <CardContent className="p-4">
                           <div className="flex items-start gap-3">
                             {orderBump.product_image_url && (
-                              <img 
-                                src={orderBump.product_image_url} 
+                              <img
+                                src={orderBump.product_image_url}
                                 alt={orderBump.title}
                                 className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
                               />
                             )}
-                            
+
                             <div className="flex-1">
                               <div className="flex items-start gap-2">
                                 {isSelected ? (
@@ -1322,17 +1338,17 @@ export default function Checkout() {
                                 <div className="flex-1">
                                   <h3 className="font-semibold text-base mb-1">{orderBump.title}</h3>
                                   {orderBump.description && (
-                                    <p className="text-sm text-muted-foreground mb-3">
-                                      {orderBump.description}
-                                    </p>
+                                    <p className="text-sm text-muted-foreground mb-3">{orderBump.description}</p>
                                   )}
                                 </div>
                               </div>
-                              
+
                               <div className="flex items-center justify-between mt-2">
                                 <div>
                                   <p className="text-xs text-muted-foreground">Adicione por apenas</p>
-                                  <p className="text-xl font-bold text-blue-600">R$ {formatCurrency(orderBump.price)}</p>
+                                  <p className="text-xl font-bold text-blue-600">
+                                    R$ {formatCurrency(orderBump.price)}
+                                  </p>
                                 </div>
                                 <Button
                                   type="button"
@@ -1361,11 +1377,6 @@ export default function Checkout() {
                   <span className="text-xl">🛒</span>
                   <h2 className="text-lg font-bold">Sua Compra</h2>
                 </div>
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-xl">🛒</span>
-                <h2 className="text-lg font-bold">Sua Compra</h2>
-              </div>
-
                 <div className="space-y-4">
                   {/* Lista de itens */}
                   <div className="space-y-3 pb-4">
@@ -1373,9 +1384,9 @@ export default function Checkout() {
                       <span className="text-sm">{product.name}</span>
                       <span className="font-semibold">R$ {formatCurrency(finalPrice)}</span>
                     </div>
-                    
-                    {Array.from(selectedOrderBumps).map(bumpId => {
-                      const bump = orderBumps.find(b => b.id === bumpId);
+
+                    {Array.from(selectedOrderBumps).map((bumpId) => {
+                      const bump = orderBumps.find((b) => b.id === bumpId);
                       if (!bump) return null;
                       return (
                         <div key={bumpId} className="flex items-center justify-between">
@@ -1394,11 +1405,7 @@ export default function Checkout() {
                       onClick={() => setShowCoupon(!showCoupon)}
                     >
                       Você tem um cupom?
-                      {showCoupon ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
+                      {showCoupon ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
 
                     {showCoupon && (
@@ -1409,15 +1416,10 @@ export default function Checkout() {
                               placeholder="Digite o código"
                               value={couponCode}
                               onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                              onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), validateCoupon())}
+                              onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), validateCoupon())}
                               disabled={validatingCoupon}
                             />
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={validateCoupon}
-                              disabled={validatingCoupon}
-                            >
+                            <Button type="button" size="sm" onClick={validateCoupon} disabled={validatingCoupon}>
                               {validatingCoupon ? "..." : "Aplicar"}
                             </Button>
                           </div>
@@ -1449,14 +1451,14 @@ export default function Checkout() {
                       <span className="text-muted-foreground">Subtotal:</span>
                       <span>R$ {formatCurrency(subtotal)}</span>
                     </div>
-                    
+
                     {appliedCoupon && (
                       <div className="flex items-center justify-between text-sm text-green-600">
                         <span>Desconto:</span>
                         <span>- R$ {formatCurrency(discount)}</span>
                       </div>
                     )}
-                    
+
                     <div className="flex items-center justify-between text-lg font-bold pt-2">
                       <span>Total:</span>
                       <span className="text-blue-600">R$ {formatCurrency(totalPrice)}</span>
@@ -1483,8 +1485,8 @@ export default function Checkout() {
                   )}
 
                   {/* Botão Principal */}
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
                     disabled={processing || isBelowMinimum}
                   >
@@ -1519,9 +1521,7 @@ export default function Checkout() {
         <Dialog open={showPixModal} onOpenChange={setShowPixModal}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>
-                {processing ? "Gerando PIX..." : "Pagamento via PIX"}
-              </DialogTitle>
+              <DialogTitle>{processing ? "Gerando PIX..." : "Pagamento via PIX"}</DialogTitle>
             </DialogHeader>
 
             {processing ? (
@@ -1534,9 +1534,9 @@ export default function Checkout() {
                 <p className="text-sm text-muted-foreground text-center">
                   Escaneie o QR Code abaixo para realizar o pagamento via PIX:
                 </p>
-                
+
                 <div className="bg-white p-4 rounded-lg flex justify-center border">
-                  <img 
+                  <img
                     src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
                     alt="QR Code PIX"
                     className="max-w-[250px] w-full"
@@ -1588,12 +1588,13 @@ export default function Checkout() {
 
               <div className="space-y-4">
                 <p className="text-green-800 dark:text-green-200">
-                  Seu pagamento foi processado e está sendo analisado. Você receberá uma confirmação por e-mail em breve.
+                  Seu pagamento foi processado e está sendo analisado. Você receberá uma confirmação por e-mail em
+                  breve.
                 </p>
                 {paymentResult.invoiceUrl && (
                   <Button
                     type="button"
-                    onClick={() => window.open(paymentResult.invoiceUrl, '_blank')}
+                    onClick={() => window.open(paymentResult.invoiceUrl, "_blank")}
                     className="w-full"
                     variant="outline"
                   >
