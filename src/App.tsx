@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Produtos from "./pages/Produtos";
 import ProductDetail from "./pages/ProductDetail";
 import Vendas from "./pages/Vendas";
+import Assinaturas from "./pages/Assinaturas";
 import Afiliados from "./pages/Afiliados";
 import AffiliateDashboard from "./pages/AffiliateDashboard";
 import Relatorios from "./pages/Relatorios";
@@ -41,7 +42,7 @@ const App = () => {
             <Route path="/produtos" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
             <Route path="/produtos/:id" element={<ProtectedRoute><Layout><ProductDetail /></Layout></ProtectedRoute>} />
             <Route path="/vendas" element={<ProtectedRoute><Layout><Vendas /></Layout></ProtectedRoute>} />
-            <Route path="/assinaturas" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+            <Route path="/assinaturas" element={<ProtectedRoute><Layout><Assinaturas /></Layout></ProtectedRoute>} />
             <Route path="/clientes" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
             <Route path="/afiliados" element={<ProtectedRoute><Layout><Afiliados /></Layout></ProtectedRoute>} />
             <Route path="/dashboard-afiliado" element={<ProtectedRoute><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
