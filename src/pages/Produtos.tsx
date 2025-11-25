@@ -46,7 +46,11 @@ export default function Produtos() {
 
       let query = supabase
         .from("products")
-        .select("*")
+        .select(`
+          *,
+          product_prices!inner(price, installments)
+        `)
+        .eq("product_prices.is_default", true)
         .order("created_at", { ascending: false });
 
       if (category !== "all") {
@@ -64,7 +68,16 @@ export default function Produtos() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setProducts((data || []) as Product[]);
+      
+      // Map the data to include the default price from product_prices
+      const productsWithDefaultPrice = (data || []).map((item: any) => ({
+        ...item,
+        price: item.product_prices[0]?.price || item.price,
+        installments: item.product_prices[0]?.installments || item.installments,
+        product_prices: undefined, // Remove the nested object
+      }));
+      
+      setProducts(productsWithDefaultPrice as Product[]);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar produtos",
