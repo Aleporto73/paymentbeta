@@ -541,6 +541,66 @@ export type Database = {
           },
         ]
       }
+      product_upsells: {
+        Row: {
+          created_at: string
+          description: string | null
+          discount_percentage: number | null
+          display_order: number
+          id: string
+          is_active: boolean
+          price: number
+          product_id: string
+          title: string
+          unique_code: string
+          updated_at: string
+          upsell_product_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          discount_percentage?: number | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          price: number
+          product_id: string
+          title: string
+          unique_code?: string
+          updated_at?: string
+          upsell_product_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          discount_percentage?: number | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          price?: number
+          product_id?: string
+          title?: string
+          unique_code?: string
+          updated_at?: string
+          upsell_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_upsells_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_upsells_upsell_product_id_fkey"
+            columns: ["upsell_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_webhooks: {
         Row: {
           created_at: string
@@ -731,6 +791,50 @@ export type Database = {
           },
         ]
       }
+      transaction_tokens: {
+        Row: {
+          asaas_customer_id: string
+          created_at: string
+          customer_email: string
+          customer_name: string
+          expires_at: string
+          id: string
+          token: string
+          transaction_id: string
+          used: boolean
+        }
+        Insert: {
+          asaas_customer_id: string
+          created_at?: string
+          customer_email: string
+          customer_name: string
+          expires_at: string
+          id?: string
+          token: string
+          transaction_id: string
+          used?: boolean
+        }
+        Update: {
+          asaas_customer_id?: string
+          created_at?: string
+          customer_email?: string
+          customer_name?: string
+          expires_at?: string
+          id?: string
+          token?: string
+          transaction_id?: string
+          used?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transaction_tokens_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           affiliate_code: string | null
@@ -847,6 +951,55 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      upsell_transactions: {
+        Row: {
+          created_at: string
+          id: string
+          original_transaction_id: string
+          token_used: string
+          transaction_id: string
+          upsell_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          original_transaction_id: string
+          token_used: string
+          transaction_id: string
+          upsell_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          original_transaction_id?: string
+          token_used?: string
+          transaction_id?: string
+          upsell_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upsell_transactions_original_transaction_id_fkey"
+            columns: ["original_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "upsell_transactions_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "upsell_transactions_upsell_id_fkey"
+            columns: ["upsell_id"]
+            isOneToOne: false
+            referencedRelation: "product_upsells"
             referencedColumns: ["id"]
           },
         ]
