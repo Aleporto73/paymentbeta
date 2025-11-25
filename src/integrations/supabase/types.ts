@@ -197,6 +197,47 @@ export type Database = {
         }
         Relationships: []
       }
+      product_ads_configs: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          pixel_id: string | null
+          platform: string
+          product_id: string
+          token: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          pixel_id?: string | null
+          platform: string
+          product_id: string
+          token?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          pixel_id?: string | null
+          platform?: string
+          product_id?: string
+          token?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_ads_configs_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_affiliate_links: {
         Row: {
           affiliate_id: string | null
