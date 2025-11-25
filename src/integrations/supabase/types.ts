@@ -101,6 +101,42 @@ export type Database = {
           },
         ]
       }
+      integration_settings: {
+        Row: {
+          created_at: string
+          id: string
+          integration_name: string
+          is_active: boolean
+          is_sandbox: boolean
+          production_api_key: string | null
+          sandbox_api_key: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          integration_name: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          production_api_key?: string | null
+          sandbox_api_key?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          integration_name?: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          production_api_key?: string | null
+          sandbox_api_key?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       product_affiliate_links: {
         Row: {
           affiliate_id: string | null
