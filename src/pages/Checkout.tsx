@@ -449,10 +449,49 @@ export default function Checkout() {
 
   if (!product) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Produto não encontrado</h1>
-          <p className="text-muted-foreground">O produto solicitado não existe ou não está disponível.</p>
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="max-w-2xl w-full text-center">
+          <div className="mb-6 flex justify-center">
+            <div className="w-24 h-24 rounded-full bg-destructive flex items-center justify-center">
+              <span className="text-4xl text-destructive-foreground font-bold">!</span>
+            </div>
+          </div>
+          
+          <h1 className="text-3xl font-bold mb-3">Ops! Oferta Não Encontrada</h1>
+          <p className="text-muted-foreground mb-8">
+            A oferta que você está procurando não foi encontrada ou não está mais disponível.
+          </p>
+
+          <Card className="mb-8">
+            <CardContent className="pt-6">
+              <h2 className="text-xl font-semibold mb-4 text-left">O que você pode fazer?</h2>
+              <ul className="text-left space-y-2 text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Verifique se o link está correto.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Volte para a nossa página inicial e explore outras ofertas.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Caso tenha dúvidas, entre em contato com nosso suporte.</span>
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Button 
+            className="w-full md:w-auto px-12 h-12 bg-[#157347] hover:bg-[#157347]/90 text-white font-semibold"
+            onClick={() => window.location.href = '/'}
+          >
+            Voltar para a Página Inicial
+          </Button>
+
+          <footer className="mt-12 text-sm text-muted-foreground">
+            Tecnologia Payment App © 2025 - Todos os direitos reservados
+          </footer>
         </div>
       </div>
     );
@@ -613,19 +652,6 @@ export default function Checkout() {
                       E-mail válido
                     </p>
                   )}
-                </div>
-
-                <div>
-                  <Label htmlFor="cep">CEP *</Label>
-                  <Input
-                    id="cep"
-                    type="text"
-                    required
-                    value={cep}
-                    onChange={(e) => handleCepChange(e.target.value)}
-                    placeholder="00000-000"
-                    maxLength={9}
-                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -797,6 +823,7 @@ export default function Checkout() {
                           const value = e.target.value.replace(/\D/g, '').slice(0, 8);
                           const formatted = value.replace(/(\d{5})(\d)/, '$1-$2');
                           setCardData({ ...cardData, zipCode: formatted });
+                          handleCepChange(formatted);
                         }}
                         maxLength={9}
                         required={paymentMethod === "card"}
