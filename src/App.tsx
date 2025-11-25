@@ -21,6 +21,9 @@ import Webhooks from "./pages/Webhooks";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import Checkout from "./pages/Checkout";
+import PaymentApproved from "./pages/PaymentApproved";
+import PaymentPending from "./pages/PaymentPending";
+import PaymentRejected from "./pages/PaymentRejected";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +43,9 @@ const App = () => {
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/pagamento-aprovado" element={<PaymentApproved />} />
+            <Route path="/pagamento-em-analise" element={<PaymentPending />} />
+            <Route path="/pagamento-recusado" element={<PaymentRejected />} />
             <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
             <Route path="/produtos" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
             <Route path="/produtos/:id" element={<ProtectedRoute><Layout><ProductDetail /></Layout></ProtectedRoute>} />
