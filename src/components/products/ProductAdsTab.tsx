@@ -6,7 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Edit, Facebook, Chrome } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,18 +32,42 @@ interface ProductAdsTabProps {
 }
 
 type AdsConfig = Tables<"product_ads_configs">;
-type NewAdsConfig = Omit<AdsConfig, "created_at" | "updated_at" | "product_id">;
 
-const platformLabels = {
-  meta: "Meta Ads (Facebook/Instagram)",
-  google: "Google Ads",
-  tiktok: "TikTok Ads",
-  taboola: "Taboola Ads",
+const platformInfo = {
+  meta: {
+    name: "Meta Ads (Facebook/Instagram)",
+    icon: Facebook,
+    color: "text-blue-600",
+  },
+  google: {
+    name: "Google Ads",
+    icon: Chrome,
+    color: "text-red-600",
+  },
+  tiktok: {
+    name: "TikTok Ads",
+    icon: Plus,
+    color: "text-black",
+  },
+  taboola: {
+    name: "Taboola Ads",
+    icon: Plus,
+    color: "text-blue-700",
+  },
 };
 
 export function ProductAdsTab({ productId }: ProductAdsTabProps) {
-  const [configs, setConfigs] = useState<(AdsConfig | NewAdsConfig)[]>([]);
+  const [configs, setConfigs] = useState<AdsConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDialog, setShowDialog] = useState(false);
+  const [showPlatformSelector, setShowPlatformSelector] = useState(true);
+  const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof platformInfo | null>(null);
+  const [editingConfig, setEditingConfig] = useState<AdsConfig | null>(null);
+  const [formData, setFormData] = useState({
+    pixel_id: "",
+    token: "",
+    is_active: true,
+  });
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -66,9 +98,17 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
     }
   };
 
-  const handleAddPlatform = (platform: "meta" | "google" | "tiktok" | "taboola") => {
-    const exists = configs.some((c) => c.platform === platform);
-    if (exists) {
+  const handleOpenDialog = () => {
+    setShowDialog(true);
+    setShowPlatformSelector(true);
+    setSelectedPlatform(null);
+    setEditingConfig(null);
+    setFormData({ pixel_id: "", token: "", is_active: true });
+  };
+
+  const handleSelectPlatform = (platform: keyof typeof platformInfo) => {
+    const exists = configs.find((c) => c.platform === platform);
+    if (exists && !editingConfig) {
       toast({
         title: "Atenção",
         description: "Esta plataforma já está configurada",
@@ -76,47 +116,49 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
       });
       return;
     }
-
-    setConfigs([
-      ...configs,
-      {
-        id: crypto.randomUUID(),
-        platform,
-        pixel_id: null,
-        token: null,
-        is_active: true,
-      },
-    ]);
+    setSelectedPlatform(platform);
+    setShowPlatformSelector(false);
   };
 
-  const handleUpdateConfig = (id: string, field: string, value: any) => {
-    setConfigs(
-      configs.map((config) =>
-        config.id === id ? { ...config, [field]: value } : config
-      )
-    );
+  const handleEdit = (config: AdsConfig) => {
+    setEditingConfig(config);
+    setSelectedPlatform(config.platform as keyof typeof platformInfo);
+    setFormData({
+      pixel_id: config.pixel_id || "",
+      token: config.token || "",
+      is_active: config.is_active,
+    });
+    setShowPlatformSelector(false);
+    setShowDialog(true);
   };
 
-  const handleSaveConfig = async (config: AdsConfig | NewAdsConfig) => {
+  const handleSave = async () => {
+    if (!selectedPlatform) return;
+
     setSaving(true);
     try {
+      const dataToSave = {
+        id: editingConfig?.id,
+        product_id: productId,
+        platform: selectedPlatform,
+        pixel_id: formData.pixel_id || null,
+        token: formData.token || null,
+        is_active: formData.is_active,
+      };
+
       const { error } = await supabase
         .from("product_ads_configs")
-        .upsert({
-          id: config.id,
-          product_id: productId,
-          platform: config.platform,
-          pixel_id: config.pixel_id,
-          token: config.token,
-          is_active: config.is_active,
-        });
+        .upsert(dataToSave);
 
       if (error) throw error;
 
       toast({
         title: "Sucesso",
-        description: "Configuração salva com sucesso",
+        description: editingConfig
+          ? "Configuração atualizada com sucesso"
+          : "Configuração criada com sucesso",
       });
+      setShowDialog(false);
       fetchConfigs();
     } catch (error) {
       console.error("Error saving ads config:", error);
@@ -130,7 +172,7 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
     }
   };
 
-  const handleDeleteConfig = async () => {
+  const handleDelete = async () => {
     if (!deleteId) return;
 
     try {
@@ -158,9 +200,13 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
     }
   };
 
-  const availablePlatforms = (
-    Object.keys(platformLabels) as Array<keyof typeof platformLabels>
-  ).filter((platform) => !configs.some((c) => c.platform === platform));
+  const handleCloseDialog = () => {
+    setShowDialog(false);
+    setShowPlatformSelector(true);
+    setSelectedPlatform(null);
+    setEditingConfig(null);
+    setFormData({ pixel_id: "", token: "", is_active: true });
+  };
 
   if (loading) {
     return <div className="p-6">Carregando...</div>;
@@ -175,21 +221,10 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
             Configure Pixels e Tokens para suas plataformas de anúncios
           </p>
         </div>
-        {availablePlatforms.length > 0 && (
-          <div className="flex gap-2">
-            {availablePlatforms.map((platform) => (
-              <Button
-                key={platform}
-                onClick={() => handleAddPlatform(platform)}
-                size="sm"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {platformLabels[platform]}
-              </Button>
-            ))}
-          </div>
-        )}
+        <Button onClick={handleOpenDialog}>
+          <Plus className="h-4 w-4 mr-2" />
+          Adicionar Plataforma
+        </Button>
       </div>
 
       {configs.length === 0 ? (
@@ -202,90 +237,169 @@ export function ProductAdsTab({ productId }: ProductAdsTabProps) {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {configs.map((config) => (
-            <Card key={config.id}>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>{platformLabels[config.platform]}</CardTitle>
-                    <CardDescription>
-                      Configure o Pixel ID e Token para esta plataforma
-                    </CardDescription>
+          {configs.map((config) => {
+            const PlatformIcon = platformInfo[config.platform as keyof typeof platformInfo]?.icon || Plus;
+            return (
+              <Card key={config.id}>
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3">
+                      <PlatformIcon className={`h-6 w-6 ${platformInfo[config.platform as keyof typeof platformInfo]?.color}`} />
+                      <div>
+                        <CardTitle>{platformInfo[config.platform as keyof typeof platformInfo]?.name}</CardTitle>
+                        <CardDescription className="mt-1">
+                          {config.pixel_id ? `Pixel ID: ${config.pixel_id}` : "Pixel ID não configurado"}
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleEdit(config)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteId(config.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setDeleteId(config.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor={`pixel-${config.id}`}>Pixel ID</Label>
-                    <Input
-                      id={`pixel-${config.id}`}
-                      placeholder="Digite o Pixel ID"
-                      value={config.pixel_id || ""}
-                      onChange={(e) =>
-                        handleUpdateConfig(config.id, "pixel_id", e.target.value)
-                      }
-                    />
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm ${config.is_active ? "text-green-600" : "text-muted-foreground"}`}>
+                      {config.is_active ? "Ativo" : "Inativo"}
+                    </span>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`token-${config.id}`}>Token</Label>
-                    <Input
-                      id={`token-${config.id}`}
-                      type="password"
-                      placeholder="Digite o Token"
-                      value={config.token || ""}
-                      onChange={(e) =>
-                        handleUpdateConfig(config.id, "token", e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id={`active-${config.id}`}
-                      checked={config.is_active}
-                      onCheckedChange={(checked) =>
-                        handleUpdateConfig(config.id, "is_active", checked)
-                      }
-                    />
-                    <Label htmlFor={`active-${config.id}`}>Ativo</Label>
-                  </div>
-                  <Button
-                    onClick={() => handleSaveConfig(config)}
-                    disabled={saving}
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    Salvar
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
+
+      <Dialog open={showDialog} onOpenChange={handleCloseDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>
+              {showPlatformSelector
+                ? "Selecione a Plataforma"
+                : editingConfig
+                ? "Editar Configuração"
+                : "Configurar Plataforma"}
+            </DialogTitle>
+            <DialogDescription>
+              {showPlatformSelector
+                ? "Escolha qual plataforma de anúncios você deseja configurar"
+                : "Configure o Pixel ID e Token para esta plataforma"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {showPlatformSelector ? (
+            <div className="grid grid-cols-2 gap-4 py-4">
+              {(Object.keys(platformInfo) as Array<keyof typeof platformInfo>).map((platform) => {
+                const PlatformIcon = platformInfo[platform].icon;
+                const isConfigured = configs.some((c) => c.platform === platform);
+                return (
+                  <Button
+                    key={platform}
+                    variant="outline"
+                    className="h-24 flex flex-col items-center justify-center gap-2"
+                    onClick={() => handleSelectPlatform(platform)}
+                    disabled={isConfigured && !editingConfig}
+                  >
+                    <PlatformIcon className={`h-8 w-8 ${platformInfo[platform].color}`} />
+                    <span className="text-sm text-center">{platformInfo[platform].name}</span>
+                    {isConfigured && (
+                      <span className="text-xs text-muted-foreground">(Configurado)</span>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
+                {selectedPlatform && (
+                  <>
+                    {(() => {
+                      const PlatformIcon = platformInfo[selectedPlatform].icon;
+                      return <PlatformIcon className={`h-6 w-6 ${platformInfo[selectedPlatform].color}`} />;
+                    })()}
+                    <span className="font-medium">{selectedPlatform && platformInfo[selectedPlatform].name}</span>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pixel_id">Pixel ID</Label>
+                <Input
+                  id="pixel_id"
+                  placeholder="Digite o Pixel ID"
+                  value={formData.pixel_id}
+                  onChange={(e) => setFormData({ ...formData, pixel_id: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="token">Token</Label>
+                <Input
+                  id="token"
+                  type="password"
+                  placeholder="Digite o Token"
+                  value={formData.token}
+                  onChange={(e) => setFormData({ ...formData, token: e.target.value })}
+                />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                />
+                <Label htmlFor="is_active">Configuração ativa</Label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {!showPlatformSelector && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPlatformSelector(true);
+                    setSelectedPlatform(null);
+                  }}
+                >
+                  Voltar
+                </Button>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? "Salvando..." : "Salvar Configuração"}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja remover esta configuração? Esta ação não
-              pode ser desfeita.
+              Tem certeza que deseja remover esta configuração? Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfig}>
-              Confirmar
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete}>Confirmar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
