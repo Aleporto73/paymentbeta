@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock, Filter, X } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -68,10 +68,13 @@ export default function Webhooks() {
   });
   const [logs, setLogs] = useState<WebhookLog[]>([]);
   const [failedQueue, setFailedQueue] = useState<WebhookQueueItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [tempFilters, setTempFilters] = useState<Filters>({
     productId: "all",
     status: "all",
@@ -93,8 +96,13 @@ export default function Webhooks() {
   }, []);
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchData();
   }, [appliedFilters]);
+
+  useEffect(() => {
+    fetchData();
+  }, [currentPage, itemsPerPage]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -175,9 +183,46 @@ export default function Webhooks() {
         logsQuery = logsQuery.lte("created_at", endDate.toISOString());
       }
 
+      // Get total count for pagination (separate query)
+      let countQuery = supabase
+        .from("webhook_logs")
+        .select("*", { count: "exact", head: true })
+        .in("product_id", productIds);
+
+      // Apply same filters to count query
+      if (appliedFilters.status === "success") {
+        countQuery = countQuery.eq("success", true);
+      } else if (appliedFilters.status === "failed") {
+        countQuery = countQuery.eq("success", false);
+      }
+
+      if (appliedFilters.webhookUrl) {
+        countQuery = countQuery.ilike("webhook_url", `%${appliedFilters.webhookUrl}%`);
+      }
+
+      if (appliedFilters.startDate) {
+        countQuery = countQuery.gte("created_at", new Date(appliedFilters.startDate).toISOString());
+      }
+      
+      if (appliedFilters.endDate) {
+        const endDate = new Date(appliedFilters.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        countQuery = countQuery.lte("created_at", endDate.toISOString());
+      }
+
+      const { count } = await countQuery;
+      
+      if (count !== null) {
+        setTotalCount(count);
+      }
+
+      // Fetch paginated data
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
       const { data: logsData } = await logsQuery
         .order("created_at", { ascending: false })
-        .limit(50);
+        .range(from, to);
 
       if (logsData) {
         setLogs(logsData);
@@ -255,6 +300,7 @@ export default function Webhooks() {
   };
 
   const applyFilters = () => {
+    setCurrentPage(1);
     setAppliedFilters(tempFilters);
   };
 
@@ -268,6 +314,14 @@ export default function Webhooks() {
     };
     setTempFilters(emptyFilters);
     setAppliedFilters(emptyFilters);
+    setCurrentPage(1);
+  };
+
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
+
+  const handleItemsPerPageChange = (value: string) => {
+    setItemsPerPage(Number(value));
+    setCurrentPage(1);
   };
 
   const hasActiveFilters = appliedFilters.productId !== "all" || 
@@ -535,7 +589,9 @@ export default function Webhooks() {
       <Card>
         <CardHeader>
           <CardTitle>Histórico de Entregas</CardTitle>
-          <CardDescription>Últimas 50 entregas de webhook</CardDescription>
+          <CardDescription>
+            {totalCount > 0 ? `${totalCount} ${totalCount === 1 ? 'entrega registrada' : 'entregas registradas'}` : 'Nenhuma entrega registrada'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -545,25 +601,26 @@ export default function Webhooks() {
               Nenhum webhook foi enviado ainda
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>URL</TableHead>
-                  <TableHead>Código HTTP</TableHead>
-                  <TableHead>Resposta</TableHead>
-                  <TableHead>Data</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>{getStatusBadge(log.success)}</TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {log.webhook_url.length > 40
-                        ? `${log.webhook_url.substring(0, 40)}...`
-                        : log.webhook_url}
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>URL</TableHead>
+                    <TableHead>Código HTTP</TableHead>
+                    <TableHead>Resposta</TableHead>
+                    <TableHead>Data</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell>{getStatusBadge(log.success)}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {log.webhook_url.length > 40
+                          ? `${log.webhook_url.substring(0, 40)}...`
+                          : log.webhook_url}
+                      </TableCell>
                     <TableCell>
                       {log.response_status ? (
                         <Badge variant="outline">{log.response_status}</Badge>
@@ -586,6 +643,55 @@ export default function Webhooks() {
                 ))}
               </TableBody>
             </Table>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between pt-4 border-t mt-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Itens por página:
+                </span>
+                <Select value={itemsPerPage.toString()} onValueChange={handleItemsPerPageChange}>
+                  <SelectTrigger className="w-20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-muted-foreground ml-4">
+                  Mostrando {((currentPage - 1) * itemsPerPage) + 1} até{" "}
+                  {Math.min(currentPage * itemsPerPage, totalCount)} de {totalCount} entregas
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  Próxima
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </>
           )}
         </CardContent>
       </Card>
