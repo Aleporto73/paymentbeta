@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { Filter, X } from "lucide-react";
+import { startOfDay, subDays } from "date-fns";
 
 interface Sale {
   id: string;
@@ -12,23 +17,60 @@ interface Sale {
   status: string;
   created_at: string;
   product_name?: string;
+  product_id?: string;
+}
+
+interface Product {
+  id: string;
+  name: string;
 }
 
 export function RecentSales() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filters, setFilters] = useState({
+    search: "",
+    status: "all",
+    period: "all",
+    productId: "all",
+  });
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
   useEffect(() => {
     fetchRecentSales();
-  }, []);
+  }, [filters]);
+
+  const fetchProducts = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("products")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .order("name");
+
+      if (data) {
+        setProducts(data);
+      }
+    } catch (error) {
+      console.error("Error fetching products:", error);
+    }
+  };
 
   const fetchRecentSales = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch recent transactions with product info
-      const { data: transactions } = await supabase
+      // Build query with filters
+      let query = supabase
         .from("transactions")
         .select(`
           id,
@@ -37,14 +79,55 @@ export function RecentSales() {
           value,
           status,
           created_at,
+          product_id,
           products (name)
         `)
-        .eq("user_id", user.id)
+        .eq("user_id", user.id);
+
+      // Apply status filter
+      if (filters.status !== "all") {
+        if (filters.status === "approved") {
+          query = query.in("status", ["RECEIVED", "CONFIRMED"]);
+        } else if (filters.status === "pending") {
+          query = query.eq("status", "PENDING");
+        } else if (filters.status === "overdue") {
+          query = query.eq("status", "OVERDUE");
+        }
+      }
+
+      // Apply period filter
+      if (filters.period !== "all") {
+        const now = new Date();
+        let startDate: Date;
+
+        switch (filters.period) {
+          case "today":
+            startDate = startOfDay(now);
+            break;
+          case "7days":
+            startDate = subDays(now, 7);
+            break;
+          case "30days":
+            startDate = subDays(now, 30);
+            break;
+          default:
+            startDate = subDays(now, 365);
+        }
+
+        query = query.gte("created_at", startDate.toISOString());
+      }
+
+      // Apply product filter
+      if (filters.productId !== "all") {
+        query = query.eq("product_id", filters.productId);
+      }
+
+      const { data: transactions } = await query
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(50);
 
       if (transactions) {
-        const formattedSales = transactions.map((t: any) => ({
+        let formattedSales = transactions.map((t: any) => ({
           id: t.id,
           customer_name: t.customer_name,
           customer_email: t.customer_email,
@@ -52,7 +135,19 @@ export function RecentSales() {
           status: t.status,
           created_at: t.created_at,
           product_name: t.products?.name || "Produto sem nome",
+          product_id: t.product_id,
         }));
+
+        // Apply search filter (client-side)
+        if (filters.search) {
+          const searchLower = filters.search.toLowerCase();
+          formattedSales = formattedSales.filter((sale) =>
+            sale.customer_name.toLowerCase().includes(searchLower) ||
+            sale.customer_email.toLowerCase().includes(searchLower) ||
+            sale.product_name?.toLowerCase().includes(searchLower)
+          );
+        }
+
         setSales(formattedSales);
       }
     } catch (error) {
@@ -101,12 +196,118 @@ export function RecentSales() {
     );
   };
 
+  const clearFilters = () => {
+    setFilters({
+      search: "",
+      status: "all",
+      period: "all",
+      productId: "all",
+    });
+  };
+
+  const hasActiveFilters =
+    filters.search !== "" ||
+    filters.status !== "all" ||
+    filters.period !== "all" ||
+    filters.productId !== "all";
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Vendas Recentes</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xl">Vendas Recentes</CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="w-4 h-4 mr-2" />
+              Filtros
+              {hasActiveFilters && (
+                <Badge variant="secondary" className="ml-2">
+                  {[filters.search, filters.status, filters.period, filters.productId].filter(
+                    (v) => v !== "" && v !== "all"
+                  ).length}
+                </Badge>
+              )}
+            </Button>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
+        {showFilters && (
+          <div className="mb-6 p-4 border border-border rounded-lg space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Input
+                  placeholder="Buscar cliente ou produto..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Select
+                  value={filters.status}
+                  onValueChange={(value) => setFilters({ ...filters, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os status</SelectItem>
+                    <SelectItem value="approved">Aprovado</SelectItem>
+                    <SelectItem value="pending">Pendente</SelectItem>
+                    <SelectItem value="overdue">Atrasado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Select
+                  value={filters.period}
+                  onValueChange={(value) => setFilters({ ...filters, period: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Período" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os períodos</SelectItem>
+                    <SelectItem value="today">Hoje</SelectItem>
+                    <SelectItem value="7days">Últimos 7 dias</SelectItem>
+                    <SelectItem value="30days">Últimos 30 dias</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Select
+                  value={filters.productId}
+                  onValueChange={(value) => setFilters({ ...filters, productId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Produto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os produtos</SelectItem>
+                    {products.map((product) => (
+                      <SelectItem key={product.id} value={product.id}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="space-y-4">
             {[...Array(4)].map((_, i) => (
