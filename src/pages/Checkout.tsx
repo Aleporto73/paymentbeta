@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, CreditCard, Info } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CreditCard, Info } from "lucide-react";
 import { formatCurrency, formatCPF, formatPhone } from "@/lib/utils";
 import { toast } from "sonner";
 import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
@@ -50,6 +50,14 @@ export default function Checkout() {
   const [cardError, setCardError] = useState<string>("");
   const [cardBrand, setCardBrand] = useState<string>("");
   const [expiryError, setExpiryError] = useState<string>("");
+  const [cep, setCep] = useState("");
+  const [address, setAddress] = useState({
+    street: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+  });
+  const [showCoupon, setShowCoupon] = useState(false);
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
@@ -281,6 +289,32 @@ export default function Checkout() {
     setExpiryError("");
   };
 
+  const handleCepChange = async (value: string) => {
+    const cleanedCep = value.replace(/\D/g, '');
+    const formattedCep = cleanedCep.replace(/^(\d{5})(\d)/, '$1-$2').slice(0, 9);
+    setCep(formattedCep);
+
+    if (cleanedCep.length === 8) {
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cleanedCep}/json/`);
+        const data = await response.json();
+        
+        if (!data.erro) {
+          setAddress({
+            street: data.logradouro || "",
+            neighborhood: data.bairro || "",
+            city: data.localidade || "",
+            state: data.uf || "",
+          });
+        } else {
+          toast.error("CEP não encontrado");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP");
+      }
+    }
+  };
+
   useEffect(() => {
     // Preencher campos a partir dos parâmetros da URL
     const name = searchParams.get("name") || searchParams.get("nome");
@@ -492,7 +526,6 @@ export default function Checkout() {
   const removeCoupon = () => {
     setAppliedCoupon(null);
     setCouponCode("");
-    setShowCouponField(false);
     toast.success("Cupom removido");
   };
 
@@ -582,6 +615,19 @@ export default function Checkout() {
                   )}
                 </div>
 
+                <div>
+                  <Label htmlFor="cep">CEP *</Label>
+                  <Input
+                    id="cep"
+                    type="text"
+                    required
+                    value={cep}
+                    onChange={(e) => handleCepChange(e.target.value)}
+                    placeholder="00000-000"
+                    maxLength={9}
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="cpf">CPF/CNPJ</Label>
@@ -651,7 +697,11 @@ export default function Checkout() {
                 <Button
                   type="button"
                   variant="outline"
-                  className={`flex-1 ${paymentMethod === "pix" ? "bg-muted" : ""}`}
+                  className={`flex-1 transition-all ${
+                    paymentMethod === "pix" 
+                      ? "bg-primary/10 border-primary border-2 font-semibold" 
+                      : "hover:bg-muted/50"
+                  }`}
                   onClick={() => setPaymentMethod("pix")}
                 >
                   <svg className="w-6 h-6 mr-2" viewBox="0 0 512 512" fill="currentColor">
@@ -662,7 +712,11 @@ export default function Checkout() {
                 <Button
                   type="button"
                   variant="outline"
-                  className={`flex-1 ${paymentMethod === "card" ? "bg-muted" : ""}`}
+                  className={`flex-1 transition-all ${
+                    paymentMethod === "card" 
+                      ? "bg-primary/10 border-primary border-2 font-semibold" 
+                      : "hover:bg-muted/50"
+                  }`}
                   onClick={() => setPaymentMethod("card")}
                 >
                   <CreditCard className="w-5 h-5 mr-2" />
@@ -865,19 +919,21 @@ export default function Checkout() {
 
                 {/* Cupom de Desconto */}
                 <div className="border-t pt-4">
-                  {!showCouponField && !appliedCoupon ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowCouponField(true)}
-                      className="text-sm text-primary hover:underline"
-                    >
-                      Você tem um cupom?
-                    </button>
-                  ) : (
-                    <>
-                      <Label htmlFor="coupon" className="text-sm font-semibold mb-2 block">
-                        Cupom de Desconto
-                      </Label>
+                  <button
+                    type="button"
+                    className="text-primary hover:underline text-sm mb-3 flex items-center gap-2"
+                    onClick={() => setShowCoupon(!showCoupon)}
+                  >
+                    Você tem um cupom?
+                    {showCoupon ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
+
+                  {showCoupon && (
+                    <div className="space-y-3">
                       {!appliedCoupon ? (
                         <div className="flex gap-2">
                           <Input
@@ -918,7 +974,7 @@ export default function Checkout() {
                           </div>
                         </div>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
 
