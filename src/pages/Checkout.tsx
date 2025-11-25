@@ -1009,506 +1009,513 @@ export default function Checkout() {
           </div>
         )}
 
-        {/* Header com produto - Sem card, conteúdo direto */}
-        <div className="mb-8">
-          <div className="flex items-start gap-4">
-            {product.image_url && (
-              <img 
-                src={product.image_url} 
-                alt={product.name}
-                className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
-              />
-            )}
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
-              <p className="text-sm text-muted-foreground mb-3">
-                Autor: {product.user_id?.split('-')[0] || 'PsiForm Tecnologia'}
-              </p>
-              <div className="text-4xl font-bold text-blue-600 mb-1">
-                R$ {formatCurrency(finalPrice)}{price?.subscription_period === 'mensal' ? ' / mês' : ''}
-              </div>
-              {price?.name && (
-                <p className="text-sm text-muted-foreground">
-                  {product.name} - {price.name}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Identificação - Layout clean sem card */}
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="fullName" className="text-sm font-semibold">Nome completo</Label>
-              <Input
-                id="fullName"
-                placeholder="Seu nome completo"
-                value={formData.fullName}
-                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                className="mt-2 h-12"
-                required
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="email" className="text-sm font-semibold">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="Seu e-mail"
-                value={formData.email}
-                onChange={(e) => {
-                  setFormData({ ...formData, email: e.target.value });
-                  validateEmail(e.target.value);
-                }}
-                className={`mt-2 h-12 ${emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}`}
-                required
-              />
-              {emailError && (
-                <p className="text-sm text-destructive mt-1">{emailError}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="cpf" className="text-sm font-semibold">CPF/CNPJ</Label>
-                <Input
-                  id="cpf"
-                  placeholder="Digite seu CPF/CNPJ"
-                  value={formData.cpf}
-                  onChange={(e) => {
-                    const formatted = formatCPF(e.target.value);
-                    setFormData({ ...formData, cpf: formatted });
-                    validateCPF(formatted);
-                  }}
-                  className={`mt-2 h-12 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
-                  maxLength={18}
-                  required
-                />
-                {cpfError && (
-                  <p className="text-sm text-destructive mt-1">{cpfError}</p>
+        {/* Todo conteúdo dentro de um único Card com background branco */}
+        <Card>
+          <CardContent className="p-8">
+            {/* Header com produto */}
+            <div className="mb-8 pb-8 border-b">
+              <div className="flex items-start gap-4">
+                {product.image_url && (
+                  <img 
+                    src={product.image_url} 
+                    alt={product.name}
+                    className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
+                  />
                 )}
-              </div>
-              <div>
-                <Label htmlFor="phone" className="text-sm font-semibold">Celular</Label>
-                <Input
-                  id="phone"
-                  placeholder="Digite seu celular"
-                  value={formData.phone}
-                  onChange={(e) => {
-                    const formatted = formatPhone(e.target.value);
-                    setFormData({ ...formData, phone: formatted });
-                    validatePhone(formatted);
-                  }}
-                  className={`mt-2 h-12 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
-                  maxLength={15}
-                />
-                {phoneError && (
-                  <p className="text-sm text-destructive mt-1">{phoneError}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Métodos de Pagamento - Layout igual à imagem */}
-          <div className="flex gap-4">
-            <Button
-              type="button"
-              variant="outline"
-              className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
-                paymentMethod === "pix" 
-                  ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
-                  : "border-gray-300"
-              }`}
-              onClick={() => setPaymentMethod("pix")}
-            >
-              <svg className="w-6 h-6 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
-                <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
-              </svg>
-              <span className="font-semibold">Pix</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
-                paymentMethod === "card" 
-                  ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
-                  : "border-gray-300"
-              }`}
-              onClick={() => setPaymentMethod("card")}
-            >
-              <CreditCard className="w-5 h-5" />
-              <span className="font-semibold">Cartão de crédito</span>
-            </Button>
-          </div>
-
-          {/* Informações PIX - Card separado como na imagem */}
-          {paymentMethod === "pix" && (
-            <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-base mb-2">Informações sobre o pagamento via PIX</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                      O pagamento é instantâneo e liberação imediata.
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro, onde encontrará o passo a passo para realizar o pagamento.
-                    </p>
+                <div className="flex-1">
+                  <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Autor: {product.user_id?.split('-')[0] || 'PsiForm Tecnologia'}
+                  </p>
+                  <div className="text-4xl font-bold text-blue-600 mb-1">
+                    R$ {formatCurrency(finalPrice)}{price?.subscription_period === 'mensal' ? ' / mês' : ''}
                   </div>
+                  {price?.name && (
+                    <p className="text-sm text-muted-foreground">
+                      {product.name} - {price.name}
+                    </p>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Formulário do Cartão */}
-          {paymentMethod === "card" && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="cardholderName" className="text-sm font-medium">Nome do titular</Label>
-                <Input
-                  id="cardholderName"
-                  placeholder="Digite o nome do titular"
-                  value={cardData.cardholderName}
-                  onChange={(e) => setCardData({ ...cardData, cardholderName: e.target.value })}
-                  className="mt-1"
-                  required={paymentMethod === "card"}
-                />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="cardNumber" className="text-sm font-medium">Número do cartão</Label>
-                  <div className="relative mt-1">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Identificação */}
+              <div>
+                <h2 className="text-xl font-bold mb-4">Identificação</h2>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="fullName" className="text-sm font-semibold">Nome completo</Label>
                     <Input
-                      id="cardNumber"
-                      placeholder="0000 0000 0000 0000"
-                      value={cardData.cardNumber}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, '').slice(0, 16);
-                        const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
-                        setCardData({ ...cardData, cardNumber: formatted });
-                        validateCard(formatted);
-                      }}
-                      className={cardError ? "border-destructive pr-20" : cardData.cardNumber && !cardError ? "border-green-500 pr-20" : "pr-20"}
-                      maxLength={19}
-                      required={paymentMethod === "card"}
+                      id="fullName"
+                      placeholder="Seu nome completo"
+                      value={formData.fullName}
+                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                      className="mt-2 h-12"
+                      required
                     />
-                    {cardBrand && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded">
-                        {cardBrand}
-                      </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="email" className="text-sm font-semibold">E-mail</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Seu e-mail"
+                      value={formData.email}
+                      onChange={(e) => {
+                        setFormData({ ...formData, email: e.target.value });
+                        validateEmail(e.target.value);
+                      }}
+                      className={`mt-2 h-12 ${emailError ? "border-destructive focus-visible:ring-destructive" : formData.email && !emailError ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                      required
+                    />
+                    {emailError && (
+                      <p className="text-sm text-destructive mt-1">{emailError}</p>
                     )}
                   </div>
-                  {cardError && <p className="text-sm text-destructive mt-1">{cardError}</p>}
-                </div>
-                <div>
-                  <Label htmlFor="zipCode" className="text-sm font-medium">CEP</Label>
-                  <Input
-                    id="zipCode"
-                    placeholder="00000-000"
-                    value={cardData.zipCode}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 8);
-                      const formatted = value.replace(/(\d{5})(\d)/, '$1-$2');
-                      setCardData({ ...cardData, zipCode: formatted });
-                      handleCepChange(formatted);
-                    }}
-                    className="mt-1"
-                    maxLength={9}
-                    required={paymentMethod === "card"}
-                  />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="cpf" className="text-sm font-semibold">CPF/CNPJ</Label>
+                      <Input
+                        id="cpf"
+                        placeholder="Digite seu CPF/CNPJ"
+                        value={formData.cpf}
+                        onChange={(e) => {
+                          const formatted = formatCPF(e.target.value);
+                          setFormData({ ...formData, cpf: formatted });
+                          validateCPF(formatted);
+                        }}
+                        className={`mt-2 h-12 ${cpfError ? "border-destructive focus-visible:ring-destructive" : formData.cpf && !cpfError && formData.cpf.replace(/\D/g, '').length >= 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        maxLength={18}
+                        required
+                      />
+                      {cpfError && (
+                        <p className="text-sm text-destructive mt-1">{cpfError}</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="phone" className="text-sm font-semibold">Celular</Label>
+                      <Input
+                        id="phone"
+                        placeholder="Digite seu celular"
+                        value={formData.phone}
+                        onChange={(e) => {
+                          const formatted = formatPhone(e.target.value);
+                          setFormData({ ...formData, phone: formatted });
+                          validatePhone(formatted);
+                        }}
+                        className={`mt-2 h-12 ${phoneError ? "border-destructive focus-visible:ring-destructive" : formData.phone && !phoneError && formData.phone.replace(/\D/g, '').length === 11 ? "border-green-500 focus-visible:ring-green-500" : ""}`}
+                        maxLength={15}
+                      />
+                      {phoneError && (
+                        <p className="text-sm text-destructive mt-1">{phoneError}</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="expiryDate" className="text-sm font-medium">Vencimento</Label>
-                  <Input
-                    id="expiryDate"
-                    placeholder="MM/AA"
-                    value={cardData.expiryDate}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                      let formatted = value;
-                      if (value.length >= 2) {
-                        formatted = value.slice(0, 2) + '/' + value.slice(2);
-                      }
-                      setCardData({ ...cardData, expiryDate: formatted });
-                      validateExpiryDate(formatted);
-                    }}
-                    className={`mt-1 ${expiryError ? "border-destructive" : cardData.expiryDate && !expiryError ? "border-green-500" : ""}`}
-                    maxLength={5}
-                    required={paymentMethod === "card"}
-                  />
-                  {expiryError && <p className="text-sm text-destructive mt-1">{expiryError}</p>}
-                </div>
-                <div>
-                  <Label htmlFor="cvv" className="text-sm font-medium">CVV</Label>
-                  <Input
-                    id="cvv"
-                    placeholder={cardBrand === 'Amex' ? '0000' : '000'}
-                    value={cardData.cvv}
-                    onChange={(e) => {
-                      const maxLength = cardBrand === 'Amex' ? 4 : 3;
-                      const value = e.target.value.replace(/\D/g, '').slice(0, maxLength);
-                      setCardData({ ...cardData, cvv: value });
-                    }}
-                    className="mt-1"
-                    maxLength={cardBrand === 'Amex' ? 4 : 3}
-                    required={paymentMethod === "card"}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="installments" className="text-sm font-medium">Parcelas</Label>
-                  <Input
-                    id="installments"
-                    value={`${cardData.installments}x`}
-                    readOnly
-                    className="mt-1 cursor-not-allowed"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Order Bumps - Exatamente como na imagem */}
-          {orderBumps.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🎁</span>
-                <h2 className="text-lg font-bold">Aproveite esta oferta especial!</h2>
-              </div>
-              {orderBumps.map((orderBump) => {
-                const isSelected = selectedOrderBumps.has(orderBump.id);
-                return (
-                  <Card
-                    key={orderBump.id}
-                    className={`cursor-pointer transition-all ${
-                      isSelected 
-                        ? "border-2 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20" 
-                        : "border-border hover:border-muted-foreground"
+              {/* Métodos de Pagamento */}
+              <div>
+                <h2 className="text-xl font-bold mb-4">Forma de pagamento</h2>
+                <div className="flex gap-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
+                      paymentMethod === "pix" 
+                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
+                        : "border-gray-300"
                     }`}
-                    onClick={() => toggleOrderBump(orderBump.id)}
+                    onClick={() => setPaymentMethod("pix")}
                   >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        {/* Imagem do produto */}
-                        {orderBump.product_image_url && (
-                          <img 
-                            src={orderBump.product_image_url} 
-                            alt={orderBump.title}
-                            className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                          />
-                        )}
-                        
-                        {/* Conteúdo */}
-                        <div className="flex-1">
-                          <div className="flex items-start gap-2">
-                            {isSelected ? (
-                              <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <CheckCircle2 className="w-3 h-3 text-white" />
-                              </div>
-                            ) : (
-                              <div className="w-5 h-5 rounded-full border-2 border-border flex-shrink-0 mt-0.5" />
-                            )}
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-base mb-1">{orderBump.title}</h3>
-                              {orderBump.description && (
-                                <p className="text-sm text-muted-foreground mb-3">
-                                  {orderBump.description}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center justify-between mt-2">
-                            <div>
-                              <p className="text-xs text-muted-foreground">Adicione por apenas</p>
-                              <p className="text-xl font-bold text-blue-600">R$ {formatCurrency(orderBump.price)}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className={`${
-                                isSelected
-                                  ? "bg-blue-600 hover:bg-blue-700 text-white"
-                                  : "bg-blue-600 hover:bg-blue-700 text-white"
-                              }`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleOrderBump(orderBump.id);
-                              }}
-                            >
-                              {isSelected ? "✓ Adicionado" : "Clique para adicionar"}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+                    <svg className="w-6 h-6 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
+                      <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
+                    </svg>
+                    <span className="font-semibold">Pix</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`flex-1 h-14 justify-start gap-3 transition-all border-2 ${
+                      paymentMethod === "card" 
+                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30" 
+                        : "border-gray-300"
+                    }`}
+                    onClick={() => setPaymentMethod("card")}
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    <span className="font-semibold">Cartão de crédito</span>
+                  </Button>
+                </div>
+              </div>
 
-          {/* Resumo da Compra - Exatamente como na imagem */}
-          <Card>
-            <CardContent className="p-6">
+              {/* Informações PIX */}
+              {paymentMethod === "pix" && (
+                <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-base mb-2">Informações sobre o pagamento via PIX</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                          O pagamento é instantâneo e liberação imediata.
+                        </p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro, onde encontrará o passo a passo para realizar o pagamento.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Formulário do Cartão */}
+              {paymentMethod === "card" && (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="cardholderName" className="text-sm font-medium">Nome do titular</Label>
+                    <Input
+                      id="cardholderName"
+                      placeholder="Digite o nome do titular"
+                      value={cardData.cardholderName}
+                      onChange={(e) => setCardData({ ...cardData, cardholderName: e.target.value })}
+                      className="mt-1"
+                      required={paymentMethod === "card"}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="cardNumber" className="text-sm font-medium">Número do cartão</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          id="cardNumber"
+                          placeholder="0000 0000 0000 0000"
+                          value={cardData.cardNumber}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/\D/g, '').slice(0, 16);
+                            const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
+                            setCardData({ ...cardData, cardNumber: formatted });
+                            validateCard(formatted);
+                          }}
+                          className={cardError ? "border-destructive pr-20" : cardData.cardNumber && !cardError ? "border-green-500 pr-20" : "pr-20"}
+                          maxLength={19}
+                          required={paymentMethod === "card"}
+                        />
+                        {cardBrand && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded">
+                            {cardBrand}
+                          </div>
+                        )}
+                      </div>
+                      {cardError && <p className="text-sm text-destructive mt-1">{cardError}</p>}
+                    </div>
+                    <div>
+                      <Label htmlFor="zipCode" className="text-sm font-medium">CEP</Label>
+                      <Input
+                        id="zipCode"
+                        placeholder="00000-000"
+                        value={cardData.zipCode}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 8);
+                          const formatted = value.replace(/(\d{5})(\d)/, '$1-$2');
+                          setCardData({ ...cardData, zipCode: formatted });
+                          handleCepChange(formatted);
+                        }}
+                        className="mt-1"
+                        maxLength={9}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="expiryDate" className="text-sm font-medium">Vencimento</Label>
+                      <Input
+                        id="expiryDate"
+                        placeholder="MM/AA"
+                        value={cardData.expiryDate}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                          let formatted = value;
+                          if (value.length >= 2) {
+                            formatted = value.slice(0, 2) + '/' + value.slice(2);
+                          }
+                          setCardData({ ...cardData, expiryDate: formatted });
+                          validateExpiryDate(formatted);
+                        }}
+                        className={`mt-1 ${expiryError ? "border-destructive" : cardData.expiryDate && !expiryError ? "border-green-500" : ""}`}
+                        maxLength={5}
+                        required={paymentMethod === "card"}
+                      />
+                      {expiryError && <p className="text-sm text-destructive mt-1">{expiryError}</p>}
+                    </div>
+                    <div>
+                      <Label htmlFor="cvv" className="text-sm font-medium">CVV</Label>
+                      <Input
+                        id="cvv"
+                        placeholder={cardBrand === 'Amex' ? '0000' : '000'}
+                        value={cardData.cvv}
+                        onChange={(e) => {
+                          const maxLength = cardBrand === 'Amex' ? 4 : 3;
+                          const value = e.target.value.replace(/\D/g, '').slice(0, maxLength);
+                          setCardData({ ...cardData, cvv: value });
+                        }}
+                        className="mt-1"
+                        maxLength={cardBrand === 'Amex' ? 4 : 3}
+                        required={paymentMethod === "card"}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="installments" className="text-sm font-medium">Parcelas</Label>
+                      <Input
+                        id="installments"
+                        value={`${cardData.installments}x`}
+                        readOnly
+                        className="mt-1 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Order Bumps */}
+              {orderBumps.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🎁</span>
+                    <h2 className="text-lg font-bold">Aproveite esta oferta especial!</h2>
+                  </div>
+                  {orderBumps.map((orderBump) => {
+                    const isSelected = selectedOrderBumps.has(orderBump.id);
+                    return (
+                      <Card
+                        key={orderBump.id}
+                        className={`cursor-pointer transition-all ${
+                          isSelected 
+                            ? "border-2 border-blue-500 bg-blue-50/50 dark:bg-blue-950/20" 
+                            : "border-border hover:border-muted-foreground"
+                        }`}
+                        onClick={() => toggleOrderBump(orderBump.id)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            {orderBump.product_image_url && (
+                              <img 
+                                src={orderBump.product_image_url} 
+                                alt={orderBump.title}
+                                className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                              />
+                            )}
+                            
+                            <div className="flex-1">
+                              <div className="flex items-start gap-2">
+                                {isSelected ? (
+                                  <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <CheckCircle2 className="w-3 h-3 text-white" />
+                                  </div>
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full border-2 border-border flex-shrink-0 mt-0.5" />
+                                )}
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-base mb-1">{orderBump.title}</h3>
+                                  {orderBump.description && (
+                                    <p className="text-sm text-muted-foreground mb-3">
+                                      {orderBump.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center justify-between mt-2">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Adicione por apenas</p>
+                                  <p className="text-xl font-bold text-blue-600">R$ {formatCurrency(orderBump.price)}</p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleOrderBump(orderBump.id);
+                                  }}
+                                >
+                                  {isSelected ? "✓ Adicionado" : "Clique para adicionar"}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Resumo da Compra */}
+              <div className="border-t pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-xl">🛒</span>
+                  <h2 className="text-lg font-bold">Sua Compra</h2>
+                </div>
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-xl">🛒</span>
                 <h2 className="text-lg font-bold">Sua Compra</h2>
               </div>
 
-              <div className="space-y-4">
-                {/* Lista de itens */}
-                <div className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">{product.name}</span>
-                    <span className="font-semibold">R$ {formatCurrency(finalPrice)}</span>
-                  </div>
-                  
-                  {Array.from(selectedOrderBumps).map(bumpId => {
-                    const bump = orderBumps.find(b => b.id === bumpId);
-                    if (!bump) return null;
-                    return (
-                      <div key={bumpId} className="flex items-center justify-between">
-                        <span className="text-sm">{bump.title}</span>
-                        <span className="font-semibold">R$ {formatCurrency(bump.price)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Cupom */}
-                <div className="border-t pt-4">
-                  <button
-                    type="button"
-                    className="text-blue-600 hover:underline text-sm flex items-center gap-1"
-                    onClick={() => setShowCoupon(!showCoupon)}
-                  >
-                    Você tem um cupom?
-                    {showCoupon ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    )}
-                  </button>
-
-                  {showCoupon && (
-                    <div className="mt-3">
-                      {!appliedCoupon ? (
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Digite o código"
-                            value={couponCode}
-                            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), validateCoupon())}
-                            disabled={validatingCoupon}
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={validateCoupon}
-                            disabled={validatingCoupon}
-                          >
-                            {validatingCoupon ? "..." : "Aplicar"}
-                          </Button>
+                <div className="space-y-4">
+                  {/* Lista de itens */}
+                  <div className="space-y-3 pb-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">{product.name}</span>
+                      <span className="font-semibold">R$ {formatCurrency(finalPrice)}</span>
+                    </div>
+                    
+                    {Array.from(selectedOrderBumps).map(bumpId => {
+                      const bump = orderBumps.find(b => b.id === bumpId);
+                      if (!bump) return null;
+                      return (
+                        <div key={bumpId} className="flex items-center justify-between">
+                          <span className="text-sm">{bump.title}</span>
+                          <span className="font-semibold">R$ {formatCurrency(bump.price)}</span>
                         </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Cupom */}
+                  <div className="border-t pt-4">
+                    <button
+                      type="button"
+                      className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                      onClick={() => setShowCoupon(!showCoupon)}
+                    >
+                      Você tem um cupom?
+                      {showCoupon ? (
+                        <ChevronUp className="w-4 h-4" />
                       ) : (
-                        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 rounded-lg p-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-green-700 dark:text-green-300">
-                              Cupom {appliedCoupon.code}
-                            </span>
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    {showCoupon && (
+                      <div className="mt-3">
+                        {!appliedCoupon ? (
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Digite o código"
+                              value={couponCode}
+                              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                              onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), validateCoupon())}
+                              disabled={validatingCoupon}
+                            />
                             <Button
                               type="button"
-                              variant="ghost"
                               size="sm"
-                              onClick={removeCoupon}
-                              className="h-auto p-1"
+                              onClick={validateCoupon}
+                              disabled={validatingCoupon}
                             >
-                              Remover
+                              {validatingCoupon ? "..." : "Aplicar"}
                             </Button>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Totais */}
-                <div className="border-t pt-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal:</span>
-                    <span>R$ {formatCurrency(subtotal)}</span>
-                  </div>
-                  
-                  {appliedCoupon && (
-                    <div className="flex items-center justify-between text-sm text-green-600">
-                      <span>Desconto:</span>
-                      <span>- R$ {formatCurrency(discount)}</span>
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center justify-between text-lg font-bold pt-2">
-                    <span>Total:</span>
-                    <span className="text-blue-600">R$ {formatCurrency(totalPrice)}</span>
-                  </div>
-                </div>
-
-                {/* Alerta valor mínimo - Exatamente como na imagem */}
-                {isBelowMinimum && (
-                  <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800">
-                    <CardContent className="p-3">
-                      <div className="flex items-start gap-2">
-                        <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                            Valor mínimo não atingido
-                          </p>
-                          <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                            O valor total da compra deve ser de pelo menos R$ 5,00 para processar o pagamento.
-                          </p>
-                        </div>
+                        ) : (
+                          <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 rounded-lg p-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-green-700 dark:text-green-300">
+                                Cupom {appliedCoupon.code}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={removeCoupon}
+                                className="h-auto p-1"
+                              >
+                                Remover
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
+                    )}
+                  </div>
 
-                {/* Botão Principal */}
-                <Button 
-                  type="submit" 
-                  className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
-                  disabled={processing || isBelowMinimum}
-                >
-                  {processing ? "Processando..." : paymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
-                </Button>
+                  {/* Totais */}
+                  <div className="border-t pt-4 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal:</span>
+                      <span>R$ {formatCurrency(subtotal)}</span>
+                    </div>
+                    
+                    {appliedCoupon && (
+                      <div className="flex items-center justify-between text-sm text-green-600">
+                        <span>Desconto:</span>
+                        <span>- R$ {formatCurrency(discount)}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center justify-between text-lg font-bold pt-2">
+                      <span>Total:</span>
+                      <span className="text-blue-600">R$ {formatCurrency(totalPrice)}</span>
+                    </div>
+                  </div>
 
-                {/* Termos */}
-                <p className="text-center text-xs text-muted-foreground">
-                  Ao clicar em "Comprar agora", você concorda com os{" "}
-                  <a href="#" className="text-blue-600 hover:underline">
-                    Termos de Compra
-                  </a>{" "}
-                  e está ciente da{" "}
-                  <a href="#" className="text-blue-600 hover:underline">
-                    Política de Privacidade
-                  </a>
-                  .
-                </p>
+                  {/* Alerta valor mínimo */}
+                  {isBelowMinimum && (
+                    <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800">
+                      <CardContent className="p-3">
+                        <div className="flex items-start gap-2">
+                          <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                              Valor mínimo não atingido
+                            </p>
+                            <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                              O valor total da compra deve ser de pelo menos R$ 5,00 para processar o pagamento.
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {/* Compra Segura */}
-                <div className="flex items-center justify-center gap-2 text-sm text-green-600 font-medium">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Compra 100% segura</span>
+                  {/* Botão Principal */}
+                  <Button 
+                    type="submit" 
+                    className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
+                    disabled={processing || isBelowMinimum}
+                  >
+                    {processing ? "Processando..." : paymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
+                  </Button>
+
+                  {/* Termos */}
+                  <p className="text-center text-xs text-muted-foreground">
+                    Ao clicar em "Comprar agora", você concorda com os{" "}
+                    <a href="#" className="text-blue-600 hover:underline">
+                      Termos de Compra
+                    </a>{" "}
+                    e está ciente da{" "}
+                    <a href="#" className="text-blue-600 hover:underline">
+                      Política de Privacidade
+                    </a>
+                    .
+                  </p>
+
+                  {/* Compra Segura */}
+                  <div className="flex items-center justify-center gap-2 text-sm text-green-600 font-medium">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Compra 100% segura</span>
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </form>
+            </form>
+          </CardContent>
+        </Card>
 
         {/* PIX Modal */}
         <Dialog open={showPixModal} onOpenChange={setShowPixModal}>
