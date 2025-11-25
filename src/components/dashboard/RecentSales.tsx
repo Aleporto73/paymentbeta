@@ -30,7 +30,14 @@ export function RecentSales() {
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
-  const [filters, setFilters] = useState({
+  const [tempFilters, setTempFilters] = useState({
+    search: "",
+    status: "all",
+    period: "all",
+    productId: "all",
+  });
+  
+  const [appliedFilters, setAppliedFilters] = useState({
     search: "",
     status: "all",
     period: "all",
@@ -39,11 +46,12 @@ export function RecentSales() {
 
   useEffect(() => {
     fetchProducts();
+    fetchRecentSales();
   }, []);
 
   useEffect(() => {
     fetchRecentSales();
-  }, [filters]);
+  }, [appliedFilters]);
 
   const fetchProducts = async () => {
     try {
@@ -85,22 +93,22 @@ export function RecentSales() {
         .eq("user_id", user.id);
 
       // Apply status filter
-      if (filters.status !== "all") {
-        if (filters.status === "approved") {
+      if (appliedFilters.status !== "all") {
+        if (appliedFilters.status === "approved") {
           query = query.in("status", ["RECEIVED", "CONFIRMED"]);
-        } else if (filters.status === "pending") {
+        } else if (appliedFilters.status === "pending") {
           query = query.eq("status", "PENDING");
-        } else if (filters.status === "overdue") {
+        } else if (appliedFilters.status === "overdue") {
           query = query.eq("status", "OVERDUE");
         }
       }
 
       // Apply period filter
-      if (filters.period !== "all") {
+      if (appliedFilters.period !== "all") {
         const now = new Date();
         let startDate: Date;
 
-        switch (filters.period) {
+        switch (appliedFilters.period) {
           case "today":
             startDate = startOfDay(now);
             break;
@@ -118,8 +126,8 @@ export function RecentSales() {
       }
 
       // Apply product filter
-      if (filters.productId !== "all") {
-        query = query.eq("product_id", filters.productId);
+      if (appliedFilters.productId !== "all") {
+        query = query.eq("product_id", appliedFilters.productId);
       }
 
       const { data: transactions } = await query
@@ -139,8 +147,8 @@ export function RecentSales() {
         }));
 
         // Apply search filter (client-side)
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase();
+        if (appliedFilters.search) {
+          const searchLower = appliedFilters.search.toLowerCase();
           formattedSales = formattedSales.filter((sale) =>
             sale.customer_name.toLowerCase().includes(searchLower) ||
             sale.customer_email.toLowerCase().includes(searchLower) ||
@@ -196,20 +204,26 @@ export function RecentSales() {
     );
   };
 
+  const applyFilters = () => {
+    setAppliedFilters(tempFilters);
+  };
+
   const clearFilters = () => {
-    setFilters({
+    const emptyFilters = {
       search: "",
       status: "all",
       period: "all",
       productId: "all",
-    });
+    };
+    setTempFilters(emptyFilters);
+    setAppliedFilters(emptyFilters);
   };
 
   const hasActiveFilters =
-    filters.search !== "" ||
-    filters.status !== "all" ||
-    filters.period !== "all" ||
-    filters.productId !== "all";
+    appliedFilters.search !== "" ||
+    appliedFilters.status !== "all" ||
+    appliedFilters.period !== "all" ||
+    appliedFilters.productId !== "all";
 
   return (
     <Card>
@@ -226,7 +240,7 @@ export function RecentSales() {
               Filtros
               {hasActiveFilters && (
                 <Badge variant="secondary" className="ml-2">
-                  {[filters.search, filters.status, filters.period, filters.productId].filter(
+                  {[appliedFilters.search, appliedFilters.status, appliedFilters.period, appliedFilters.productId].filter(
                     (v) => v !== "" && v !== "all"
                   ).length}
                 </Badge>
@@ -247,15 +261,15 @@ export function RecentSales() {
               <div className="space-y-2">
                 <Input
                   placeholder="Buscar cliente ou produto..."
-                  value={filters.search}
-                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  value={tempFilters.search}
+                  onChange={(e) => setTempFilters({ ...tempFilters, search: e.target.value })}
                 />
               </div>
 
               <div className="space-y-2">
                 <Select
-                  value={filters.status}
-                  onValueChange={(value) => setFilters({ ...filters, status: value })}
+                  value={tempFilters.status}
+                  onValueChange={(value) => setTempFilters({ ...tempFilters, status: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Status" />
@@ -271,8 +285,8 @@ export function RecentSales() {
 
               <div className="space-y-2">
                 <Select
-                  value={filters.period}
-                  onValueChange={(value) => setFilters({ ...filters, period: value })}
+                  value={tempFilters.period}
+                  onValueChange={(value) => setTempFilters({ ...tempFilters, period: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Período" />
@@ -288,8 +302,8 @@ export function RecentSales() {
 
               <div className="space-y-2">
                 <Select
-                  value={filters.productId}
-                  onValueChange={(value) => setFilters({ ...filters, productId: value })}
+                  value={tempFilters.productId}
+                  onValueChange={(value) => setTempFilters({ ...tempFilters, productId: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Produto" />
@@ -304,6 +318,15 @@ export function RecentSales() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={clearFilters}>
+                Limpar
+              </Button>
+              <Button onClick={applyFilters}>
+                Buscar
+              </Button>
             </div>
           </div>
         )}
