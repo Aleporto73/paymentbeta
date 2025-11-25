@@ -1112,11 +1112,12 @@ export default function Checkout() {
               </div>
 
               {/* Métodos de Pagamento */}
+              {/* Métodos de Pagamento */}
               <div className="space-y-6">
-                <div className="flex gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "pix"
                         ? "border-blue-500 bg-white"
                         : "border-gray-200 bg-white hover:border-gray-300"
@@ -1131,14 +1132,14 @@ export default function Checkout() {
 
                   <button
                     type="button"
-                    className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "card"
                         ? "border-blue-500 bg-white"
                         : "border-gray-200 bg-white hover:border-gray-300"
                     }`}
                     onClick={() => setPaymentMethod("card")}
                   >
-                    <CreditCard className="w-5 h-5 text-gray-500" />
+                    <CreditCard className="w-5 h-5 text-emerald-500" />
                     <span className="font-medium text-sm text-gray-700">Cartão de crédito</span>
                   </button>
                 </div>
