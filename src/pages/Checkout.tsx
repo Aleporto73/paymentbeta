@@ -13,6 +13,7 @@ import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
 import { ProductOrderBump } from "@/types/product";
 import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
 import { usePixPaymentPolling } from "@/hooks/usePixPaymentPolling";
+import { useConversionTracking } from "@/hooks/useConversionTracking";
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
@@ -65,6 +66,7 @@ export default function Checkout() {
   const [showPixModal, setShowPixModal] = useState(false);
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
   const [productOwnerId, setProductOwnerId] = useState<string | null>(null);
+  const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
 
   // Função para gerar token e redirecionar
   const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
@@ -102,14 +104,30 @@ export default function Checkout() {
     affiliateCode,
   });
 
+  const { sendConversionEvent } = useConversionTracking();
+
   // Hook de polling inteligente para PIX
   const { isPolling, checkCount } = usePixPaymentPolling({
     paymentId: paymentResult?.payment?.id || null,
     userId: productOwnerId,
     enabled: pixPollingEnabled,
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Pagamento confirmado! Redirecionando...");
       setPixPollingEnabled(false);
+      
+      // Enviar evento de conversão Purchase
+      if (product?.id && paymentResult?.transaction?.id) {
+        await sendConversionEvent({
+          productId: product.id,
+          eventType: "Purchase",
+          value: totalPrice,
+          currency: "BRL",
+          transactionId: paymentResult.transaction.id,
+          customerEmail: formData.email,
+          customerName: formData.fullName,
+        });
+      }
+      
       // Redirecionar para página configurada com token de transação
       setTimeout(async () => {
         const redirectUrl = product?.approved_payment_redirect_url || '/confirmacao';
@@ -611,7 +629,17 @@ export default function Checkout() {
         // Modal já está aberto, iniciar polling
         setPixPollingEnabled(true);
       } else {
-        // Para cartão de crédito, redirecionar imediatamente
+        // Para cartão de crédito, enviar evento Purchase e redirecionar
+        await sendConversionEvent({
+          productId: product.id,
+          eventType: "Purchase",
+          value: totalPrice,
+          currency: "BRL",
+          transactionId: data?.transaction?.id,
+          customerEmail: formData.email,
+          customerName: formData.fullName,
+        });
+        
         toast.success("Pagamento processado com sucesso! Redirecionando...");
         setTimeout(async () => {
           const redirectUrl = product.approved_payment_redirect_url || '/confirmacao';
@@ -735,6 +763,20 @@ export default function Checkout() {
 
   const discount = calculateDiscount();
   const totalPrice = Math.max(0, subtotal - discount);
+
+  // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
+  useEffect(() => {
+    if (product && price && !loading && !hasTrackedInitCheckout && totalPrice > 0) {
+      sendConversionEvent({
+        productId: product.id,
+        eventType: "InitiateCheckout",
+        value: totalPrice,
+        currency: "BRL",
+        customerEmail: formData.email || undefined,
+      });
+      setHasTrackedInitCheckout(true);
+    }
+  }, [product, price, loading, totalPrice, hasTrackedInitCheckout]);
 
   const validateCoupon = async () => {
     if (!couponCode.trim()) {
