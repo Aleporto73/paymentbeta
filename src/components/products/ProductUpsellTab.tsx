@@ -34,6 +34,7 @@ interface Upsell {
   display_order: number;
   unique_code: string;
   created_at: string;
+  redirect_url?: string | null;
 }
 
 export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
@@ -52,6 +53,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
   const [discountPercentage, setDiscountPercentage] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [displayOrder, setDisplayOrder] = useState("1");
+  const [redirectUrl, setRedirectUrl] = useState("");
 
   useEffect(() => {
     fetchData();
@@ -102,6 +104,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
     setDiscountPercentage("");
     setIsActive(true);
     setDisplayOrder("1");
+    setRedirectUrl("");
     setEditingUpsell(null);
     setShowForm(false);
   };
@@ -119,6 +122,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
         discount_percentage: discountPercentage ? parseFloat(discountPercentage) : null,
         is_active: isActive,
         display_order: parseInt(displayOrder),
+        redirect_url: redirectUrl || null,
       };
 
       if (editingUpsell) {
@@ -158,6 +162,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
     setDiscountPercentage(upsell.discount_percentage?.toString() || "");
     setIsActive(upsell.is_active);
     setDisplayOrder(upsell.display_order.toString());
+    setRedirectUrl(upsell.redirect_url || "");
     setShowForm(true);
   };
 
@@ -181,17 +186,18 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
   };
 
   const getWidgetCode = (upsellCode: string) => {
-    return `<!-- Widget de Upsell - Cole este código na sua página de obrigado -->
-<div id="upsell-widget-${upsellCode}"></div>
+    return `<!-- Widget de Upsell Modal -->
 <script>
 (function() {
   const script = document.createElement('script');
   script.src = '${window.location.origin}/upsell-widget.js';
   script.dataset.upsellId = '${upsellCode}';
-  script.dataset.containerId = 'upsell-widget-${upsellCode}';
   document.body.appendChild(script);
 })();
-</script>`;
+</script>
+
+<!-- Adicione este código no seu botão CTA -->
+<button onclick="openUpsellModal()">🎁 Ver Oferta Especial!</button>`;
   };
 
   if (loading) {
@@ -288,7 +294,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="order">Ordem de Exibição</Label>
                   <Input
@@ -308,6 +314,20 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
                   />
                   <Label htmlFor="active">Upsell ativo</Label>
                 </div>
+              </div>
+
+              <div>
+                <Label htmlFor="redirectUrl">URL de Redirecionamento (após pagamento aprovado)</Label>
+                <Input
+                  id="redirectUrl"
+                  type="url"
+                  value={redirectUrl}
+                  onChange={(e) => setRedirectUrl(e.target.value)}
+                  placeholder="https://seusite.com/obrigado-upsell"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Deixe em branco para apenas fechar o modal após o pagamento
+                </p>
               </div>
             </div>
 
@@ -359,17 +379,27 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
                           <Code className="h-4 w-4" />
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-2xl">
+                       <DialogContent className="max-w-2xl">
                         <DialogHeader>
                           <DialogTitle>Código do Widget</DialogTitle>
                           <DialogDescription>
-                            Cole este código na sua página de obrigado (após pagamento aprovado)
+                            Cole este código na sua página de obrigado (precisa ter transaction_token na URL)
                           </DialogDescription>
                         </DialogHeader>
-                        <div className="bg-muted p-4 rounded-lg">
-                          <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
-                            {getWidgetCode(upsell.unique_code)}
-                          </pre>
+                        <div className="space-y-4">
+                          <div>
+                            <h4 className="font-semibold mb-2">Como usar:</h4>
+                            <ol className="text-sm space-y-1 list-decimal list-inside text-muted-foreground">
+                              <li>Cole o código do script na sua página de obrigado</li>
+                              <li>Adicione um botão CTA que chama <code className="bg-muted px-1 rounded">openUpsellModal()</code></li>
+                              <li>O cliente verá um modal com a oferta e poderá comprar com One-Click</li>
+                            </ol>
+                          </div>
+                          <div className="bg-muted p-4 rounded-lg">
+                            <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
+                              {getWidgetCode(upsell.unique_code)}
+                            </pre>
+                          </div>
                         </div>
                         <Button
                           onClick={() => {

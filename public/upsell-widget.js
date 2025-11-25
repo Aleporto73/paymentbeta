@@ -4,19 +4,9 @@
   // Get configuration from script tag
   const currentScript = document.currentScript || document.querySelector('script[data-upsell-id]');
   const upsellId = currentScript?.dataset.upsellId;
-  const containerId = currentScript?.dataset.containerId;
 
-  if (!upsellId || !containerId) {
-    console.error('[Upsell Widget] Missing upsellId or containerId');
-    return;
-  }
-
-  // Get transaction token from URL
-  const urlParams = new URLSearchParams(window.location.search);
-  const transactionToken = urlParams.get('transaction_token');
-
-  if (!transactionToken) {
-    console.error('[Upsell Widget] Missing transaction_token in URL');
+  if (!upsellId) {
+    console.error('[Upsell Widget] Missing upsellId');
     return;
   }
 
@@ -26,23 +16,89 @@
   let upsellData = null;
   let customerData = null;
   let isProcessing = false;
+  let transactionToken = null;
 
   // Create widget styles
   const styles = `
-    .upsell-widget {
+    .upsell-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 999999;
+      animation: fadeIn 0.3s ease;
+    }
+    .upsell-modal-overlay.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .upsell-modal {
       max-width: 600px;
-      margin: 2rem auto;
-      padding: 2rem;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: white;
       border-radius: 1rem;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      animation: slideUp 0.3s ease;
+      position: relative;
+    }
+    .upsell-modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: rgba(0, 0, 0, 0.1);
+      border: none;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+      color: #333;
+      transition: background 0.2s;
+      z-index: 10;
+    }
+    .upsell-modal-close:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .upsell-modal-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 2rem;
+      border-radius: 1rem 1rem 0 0;
+    }
+    .upsell-modal-title {
+      font-size: 1.75rem;
+      font-weight: bold;
+      margin: 0 0 0.5rem 0;
+      padding-right: 2rem;
+    }
+    .upsell-modal-subtitle {
+      font-size: 1rem;
+      opacity: 0.95;
+      margin: 0;
+    }
+    .upsell-modal-body {
+      padding: 2rem;
     }
     .upsell-content {
       display: flex;
       gap: 1.5rem;
-      align-items: center;
+      align-items: flex-start;
       margin-bottom: 1.5rem;
     }
     .upsell-image {
@@ -50,76 +106,124 @@
       height: 120px;
       object-fit: cover;
       border-radius: 0.5rem;
-      border: 3px solid rgba(255, 255, 255, 0.3);
+      border: 3px solid #f0f0f0;
+      flex-shrink: 0;
     }
     .upsell-details {
       flex: 1;
     }
-    .upsell-title {
-      font-size: 1.5rem;
-      font-weight: bold;
+    .upsell-product-name {
+      font-size: 0.875rem;
+      color: #666;
       margin: 0 0 0.5rem 0;
+      font-weight: 500;
     }
     .upsell-description {
       font-size: 0.95rem;
-      opacity: 0.95;
+      color: #333;
       margin: 0 0 1rem 0;
-      line-height: 1.5;
+      line-height: 1.6;
+    }
+    .upsell-price-container {
+      background: #f8f9fa;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1.5rem;
     }
     .upsell-price {
       display: flex;
       align-items: baseline;
-      gap: 0.5rem;
+      gap: 0.75rem;
+    }
+    .upsell-price-label {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 0.25rem;
     }
     .upsell-price-value {
       font-size: 2rem;
       font-weight: bold;
+      color: #10b981;
     }
     .upsell-price-discount {
       font-size: 1rem;
       text-decoration: line-through;
-      opacity: 0.7;
+      color: #999;
+    }
+    .upsell-discount-badge {
+      display: inline-block;
+      background: #10b981;
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    .upsell-buttons {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
     }
     .upsell-button {
-      width: 100%;
+      flex: 1;
       padding: 1rem 2rem;
       font-size: 1.1rem;
       font-weight: bold;
-      background: white;
-      color: #667eea;
       border: none;
       border-radius: 0.5rem;
       cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
+      transition: all 0.2s;
+      font-family: inherit;
     }
-    .upsell-button:hover:not(:disabled) {
+    .upsell-button-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .upsell-button-primary:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+    .upsell-button-secondary {
+      background: #f3f4f6;
+      color: #666;
+    }
+    .upsell-button-secondary:hover:not(:disabled) {
+      background: #e5e7eb;
     }
     .upsell-button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
-    .upsell-error {
-      background: #ef4444;
+    .upsell-message {
+      margin-top: 1rem;
       padding: 1rem;
       border-radius: 0.5rem;
-      margin-top: 1rem;
       text-align: center;
     }
+    .upsell-error {
+      background: #fee;
+      color: #c00;
+    }
     .upsell-success {
-      background: #10b981;
-      padding: 1rem;
-      border-radius: 0.5rem;
-      margin-top: 1rem;
-      text-align: center;
+      background: #efe;
+      color: #060;
     }
     .upsell-loading {
       text-align: center;
       padding: 2rem;
+      color: #666;
     }
     @media (max-width: 640px) {
-      .upsell-widget {
+      .upsell-modal {
+        max-height: 100vh;
+        border-radius: 0;
+      }
+      .upsell-modal-header {
+        border-radius: 0;
+        padding: 1.5rem;
+      }
+      .upsell-modal-body {
         padding: 1.5rem;
       }
       .upsell-content {
@@ -129,6 +233,10 @@
       .upsell-image {
         width: 100px;
         height: 100px;
+        margin: 0 auto;
+      }
+      .upsell-buttons {
+        flex-direction: column;
       }
     }
   `;
@@ -138,92 +246,141 @@
   styleElement.textContent = styles;
   document.head.appendChild(styleElement);
 
-  // Get container
-  const container = document.getElementById(containerId);
-  if (!container) {
-    console.error('[Upsell Widget] Container not found:', containerId);
-    return;
-  }
-
-  // Show loading
-  container.innerHTML = `
-    <div class="upsell-widget">
-      <div class="upsell-loading">
-        <p>Carregando oferta especial...</p>
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'upsell-modal-overlay';
+  overlay.innerHTML = `
+    <div class="upsell-modal">
+      <button class="upsell-modal-close" onclick="closeUpsellModal()">&times;</button>
+      <div id="upsell-modal-content">
+        <div class="upsell-loading">
+          <p>Carregando oferta especial...</p>
+        </div>
       </div>
     </div>
   `;
+  document.body.appendChild(overlay);
 
-  // Fetch upsell data
-  fetch(`${API_URL}/functions/v1/get-upsell-data`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      upsellCode: upsellId,
-      transactionToken: transactionToken,
-    }),
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.error) {
-        throw new Error(data.error);
-      }
+  // Close modal on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeUpsellModal();
+    }
+  });
 
-      upsellData = data.upsell;
-      customerData = data.customer;
+  // Global functions
+  window.openUpsellModal = function() {
+    // Get transaction token from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    transactionToken = urlParams.get('transaction_token');
 
-      renderWidget();
+    if (!transactionToken) {
+      alert('Token de transação não encontrado. Este upsell só funciona em páginas de confirmação de pagamento.');
+      return;
+    }
+
+    overlay.classList.add('active');
+    
+    if (!upsellData) {
+      loadUpsellData();
+    }
+  };
+
+  window.closeUpsellModal = function() {
+    overlay.classList.remove('active');
+  };
+
+  function loadUpsellData() {
+    const contentDiv = document.getElementById('upsell-modal-content');
+    
+    fetch(`${API_URL}/functions/v1/get-upsell-data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        upsellCode: upsellId,
+        transactionToken: transactionToken,
+      }),
     })
-    .catch(error => {
-      console.error('[Upsell Widget] Error loading data:', error);
-      container.innerHTML = `
-        <div class="upsell-widget">
-          <div class="upsell-error">
-            Não foi possível carregar a oferta. Por favor, tente novamente.
-          </div>
-        </div>
-      `;
-    });
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
+        }
 
-  function renderWidget() {
+        upsellData = data.upsell;
+        customerData = data.customer;
+
+        renderModal();
+      })
+      .catch(error => {
+        console.error('[Upsell Widget] Error loading data:', error);
+        contentDiv.innerHTML = `
+          <div class="upsell-modal-body">
+            <div class="upsell-message upsell-error">
+              Não foi possível carregar a oferta. Por favor, tente novamente.
+            </div>
+          </div>
+        `;
+      });
+  }
+
+  function renderModal() {
+    const contentDiv = document.getElementById('upsell-modal-content');
     const discountHtml = upsellData.discount_percentage
-      ? `<span class="upsell-price-discount">R$ ${(upsellData.price / (1 - upsellData.discount_percentage / 100)).toFixed(2)}</span>`
+      ? `<span class="upsell-price-discount">R$ ${(upsellData.price / (1 - upsellData.discount_percentage / 100)).toFixed(2)}</span>
+         <div class="upsell-discount-badge">-${upsellData.discount_percentage}% OFF</div>`
       : '';
 
-    container.innerHTML = `
-      <div class="upsell-widget">
+    contentDiv.innerHTML = `
+      <div class="upsell-modal-header">
+        <h2 class="upsell-modal-title">${upsellData.title}</h2>
+        <p class="upsell-modal-subtitle">Oferta exclusiva para você, ${customerData.name}!</p>
+      </div>
+      <div class="upsell-modal-body">
         <div class="upsell-content">
           ${upsellData.product.image_url ? `<img src="${upsellData.product.image_url}" alt="${upsellData.title}" class="upsell-image" />` : ''}
           <div class="upsell-details">
-            <h2 class="upsell-title">${upsellData.title}</h2>
+            <p class="upsell-product-name">${upsellData.product.name}</p>
             ${upsellData.description ? `<p class="upsell-description">${upsellData.description}</p>` : ''}
-            <div class="upsell-price">
-              <span class="upsell-price-value">R$ ${upsellData.price.toFixed(2)}</span>
-              ${discountHtml}
-            </div>
           </div>
         </div>
-        <button id="upsell-buy-button" class="upsell-button">
-          ✨ Sim, quero aproveitar essa oferta! (One-Click)
-        </button>
+        
+        <div class="upsell-price-container">
+          <div class="upsell-price-label">Preço especial:</div>
+          <div class="upsell-price">
+            <span class="upsell-price-value">R$ ${upsellData.price.toFixed(2)}</span>
+            ${discountHtml}
+          </div>
+        </div>
+
+        <div class="upsell-buttons">
+          <button id="upsell-decline-button" class="upsell-button upsell-button-secondary" onclick="closeUpsellModal()">
+            Não, obrigado
+          </button>
+          <button id="upsell-accept-button" class="upsell-button upsell-button-primary">
+            ✨ Sim, quero aproveitar! (One-Click)
+          </button>
+        </div>
         <div id="upsell-message"></div>
       </div>
     `;
 
     // Add click handler
-    document.getElementById('upsell-buy-button').addEventListener('click', handlePurchase);
+    document.getElementById('upsell-accept-button').addEventListener('click', handlePurchase);
   }
 
   function handlePurchase() {
     if (isProcessing) return;
 
     isProcessing = true;
-    const button = document.getElementById('upsell-buy-button');
+    const button = document.getElementById('upsell-accept-button');
+    const declineButton = document.getElementById('upsell-decline-button');
     const messageDiv = document.getElementById('upsell-message');
 
     button.disabled = true;
+    declineButton.disabled = true;
     button.textContent = 'Processando pagamento...';
     messageDiv.innerHTML = '';
 
@@ -244,23 +401,32 @@
         }
 
         messageDiv.innerHTML = `
-          <div class="upsell-success">
+          <div class="upsell-message upsell-success">
             <strong>🎉 Pagamento processado com sucesso!</strong><br>
-            Você receberá os detalhes por e-mail em breve.
+            Redirecionando...
           </div>
         `;
-        button.style.display = 'none';
+        
+        // Redirect after success
+        setTimeout(() => {
+          if (upsellData.redirect_url) {
+            window.location.href = upsellData.redirect_url;
+          } else {
+            closeUpsellModal();
+          }
+        }, 2000);
       })
       .catch(error => {
         console.error('[Upsell Widget] Payment error:', error);
         messageDiv.innerHTML = `
-          <div class="upsell-error">
+          <div class="upsell-message upsell-error">
             <strong>Erro ao processar pagamento</strong><br>
             ${error.message || 'Por favor, tente novamente.'}
           </div>
         `;
         button.disabled = false;
-        button.textContent = '✨ Sim, quero aproveitar essa oferta! (One-Click)';
+        declineButton.disabled = false;
+        button.textContent = '✨ Sim, quero aproveitar! (One-Click)';
         isProcessing = false;
       });
   }
