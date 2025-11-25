@@ -578,7 +578,9 @@ export type Database = {
       }
       products: {
         Row: {
+          approved_payment_redirect_url: string | null
           category: Database["public"]["Enums"]["product_category"]
+          checkout_header_image_url: string | null
           created_at: string
           default_commission_type: string | null
           default_commission_value: number | null
@@ -592,12 +594,15 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"]
           price: number
           product_type: Database["public"]["Enums"]["product_type"]
+          rejected_payment_redirect_url: string | null
           unique_code: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          approved_payment_redirect_url?: string | null
           category: Database["public"]["Enums"]["product_category"]
+          checkout_header_image_url?: string | null
           created_at?: string
           default_commission_type?: string | null
           default_commission_value?: number | null
@@ -611,12 +616,15 @@ export type Database = {
           payment_method: Database["public"]["Enums"]["payment_method"]
           price?: number
           product_type: Database["public"]["Enums"]["product_type"]
+          rejected_payment_redirect_url?: string | null
           unique_code: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          approved_payment_redirect_url?: string | null
           category?: Database["public"]["Enums"]["product_category"]
+          checkout_header_image_url?: string | null
           created_at?: string
           default_commission_type?: string | null
           default_commission_value?: number | null
@@ -630,6 +638,7 @@ export type Database = {
           payment_method?: Database["public"]["Enums"]["payment_method"]
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"]
+          rejected_payment_redirect_url?: string | null
           unique_code?: string
           updated_at?: string
           user_id?: string

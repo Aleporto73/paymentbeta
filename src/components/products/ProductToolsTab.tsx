@@ -1,5 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductWebhookTab } from "./ProductWebhookTab";
+import { ProductCheckoutCustomizationTab } from "./ProductCheckoutCustomizationTab";
+import { ProductRedirectPagesTab } from "./ProductRedirectPagesTab";
 
 interface ProductToolsTabProps {
   productId: string;
@@ -11,6 +13,7 @@ export function ProductToolsTab({ productId }: ProductToolsTabProps) {
       <TabsList>
         <TabsTrigger value="webhook">Webhook</TabsTrigger>
         <TabsTrigger value="checkout">Personalização</TabsTrigger>
+        <TabsTrigger value="pages">Páginas</TabsTrigger>
       </TabsList>
       
       <TabsContent value="webhook">
@@ -18,17 +21,11 @@ export function ProductToolsTab({ productId }: ProductToolsTabProps) {
       </TabsContent>
       
       <TabsContent value="checkout">
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Personalização do Checkout</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Configure uma imagem personalizada para o topo da página de checkout.
-            </p>
-            <p className="text-sm text-muted-foreground italic">
-              Em desenvolvimento...
-            </p>
-          </div>
-        </div>
+        <ProductCheckoutCustomizationTab productId={productId} />
+      </TabsContent>
+      
+      <TabsContent value="pages">
+        <ProductRedirectPagesTab productId={productId} />
       </TabsContent>
     </Tabs>
   );
