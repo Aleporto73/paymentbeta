@@ -1018,11 +1018,8 @@ export default function Checkout() {
                   />
                 )}
                 <div className="flex-1">
-                  <h1 className="text-2xl font-bold mb-1">{product.name}</h1>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Autor: {product.user_id?.split("-")[0] || "PsiForm Tecnologia"}
-                  </p>
-                  <div className="text-4xl font-bold text-blue-600 mb-1">
+                  <h1 className="text-1xl font-bold mb-1">{product.name}</h1>
+                  <div className="text-2xl font-bold text-blue-600 mb-1">
                     R$ {formatCurrency(finalPrice)}
                     {price?.subscription_period === "mensal" ? " / mês" : ""}
                   </div>
@@ -1115,7 +1112,7 @@ export default function Checkout() {
               </div>
 
               {/* Métodos de Pagamento */}
-              <div>
+              <div class="space-y-6">
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
