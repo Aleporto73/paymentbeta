@@ -1032,7 +1032,7 @@ export default function Checkout() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} className="space-y-6">
               {/* Identificação */}
               <div className="space-y-6 border-b">
                 <div className="space-y-4">
