@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
 import { ProductOrderBump } from "@/types/product";
 import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
+import { usePixPaymentPolling } from "@/hooks/usePixPaymentPolling";
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
@@ -62,11 +63,32 @@ export default function Checkout() {
   const [processing, setProcessing] = useState(false);
   const [paymentResult, setPaymentResult] = useState<any>(null);
   const [showPixModal, setShowPixModal] = useState(false);
+  const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
+  const [productOwnerId, setProductOwnerId] = useState<string | null>(null);
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
     priceId: price?.id,
     affiliateCode,
+  });
+
+  // Hook de polling inteligente para PIX
+  const { isPolling, checkCount } = usePixPaymentPolling({
+    paymentId: paymentResult?.payment?.id || null,
+    userId: productOwnerId,
+    enabled: pixPollingEnabled,
+    onSuccess: () => {
+      toast.success("Pagamento confirmado! Redirecionando...");
+      setPixPollingEnabled(false);
+      // Redirecionar para página de confirmação ou dar acesso ao produto
+      setTimeout(() => {
+        window.location.href = '/confirmacao';
+      }, 2000);
+    },
+    onError: (error) => {
+      toast.error(error);
+      setPixPollingEnabled(false);
+    },
   });
 
   // Funções de validação
@@ -552,9 +574,11 @@ export default function Checkout() {
       );
 
       setPaymentResult(data);
+      setProductOwnerId(productData.user_id);
 
       if (paymentMethod === "pix") {
-        // Modal já está aberto, apenas manter
+        // Modal já está aberto, iniciar polling
+        setPixPollingEnabled(true);
       } else {
         toast.success("Pagamento processado com sucesso!");
       }
@@ -1228,6 +1252,17 @@ export default function Checkout() {
                   <Copy className="w-4 h-4 mr-2" />
                   Copiar código PIX
                 </Button>
+
+                {isPolling && (
+                  <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        Verificando pagamento automaticamente... ({checkCount} verificações)
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <p className="text-xs text-muted-foreground text-center">
                   O pagamento será confirmado automaticamente após a compensação.

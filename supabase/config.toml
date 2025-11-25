@@ -3,5 +3,8 @@ project_id = "vjpbsgqvmgrxohapxukn"
 [functions.create-payment]
 verify_jwt = false
 
+[functions.check-payment-status]
+verify_jwt = false
+
 [functions.asaas-webhook]
 verify_jwt = false
