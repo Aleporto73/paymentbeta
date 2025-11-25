@@ -1008,7 +1008,7 @@ export default function Checkout() {
         <Card>
           <CardContent className="p-8">
             {/* Header com produto */}
-            <div className="mb-8 pb-8 border-b">
+            <div className="mb-6 pb-8 border-b">
               <div className="flex items-start gap-4">
                 {product.image_url && (
                   <img
@@ -1034,7 +1034,7 @@ export default function Checkout() {
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Identificação */}
-              <div className="space-y-6 border-b">
+              <div className="mb-8 border-b">
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="fullName" className="text-sm">
