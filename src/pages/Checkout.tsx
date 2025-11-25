@@ -1037,7 +1037,7 @@ export default function Checkout() {
               <div>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="fullName" className="text-sm font-medium">
+                    <Label htmlFor="fullName" className="text-sm font-sm">
                       Nome completo
                     </Label>
                     <Input
