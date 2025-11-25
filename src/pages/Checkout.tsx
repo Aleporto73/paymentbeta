@@ -145,7 +145,7 @@ export default function Checkout() {
       
       // Redirecionar para página configurada com token de transação
       setTimeout(async () => {
-        const redirectUrl = product?.approved_payment_redirect_url || '/confirmacao';
+        const redirectUrl = product?.approved_payment_redirect_url || '/pagamento-aprovado';
         const transactionId = paymentResult?.transaction?.id;
         
         if (transactionId && product?.approved_payment_redirect_url) {
@@ -857,7 +857,7 @@ export default function Checkout() {
         
         toast.success("Pagamento processado com sucesso! Redirecionando...");
         setTimeout(async () => {
-          const redirectUrl = product.approved_payment_redirect_url || '/confirmacao';
+          const redirectUrl = product.approved_payment_redirect_url || '/pagamento-aprovado';
           const transactionId = data?.transaction?.id;
           
           if (transactionId && product.approved_payment_redirect_url) {
@@ -874,11 +874,10 @@ export default function Checkout() {
       setShowPixModal(false);
       
       // Redirecionar para página de erro se configurada
-      if (product?.rejected_payment_redirect_url) {
-        setTimeout(() => {
-          window.location.href = product.rejected_payment_redirect_url;
-        }, 3000);
-      }
+      setTimeout(() => {
+        const redirectUrl = product?.rejected_payment_redirect_url || '/pagamento-recusado';
+        window.location.href = redirectUrl;
+      }, 3000);
     } finally {
       setProcessing(false);
     }
