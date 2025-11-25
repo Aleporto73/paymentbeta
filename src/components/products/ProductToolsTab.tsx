@@ -1,4 +1,5 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProductWebhookTab } from "./ProductWebhookTab";
 
 interface ProductToolsTabProps {
   productId: string;
@@ -6,12 +7,17 @@ interface ProductToolsTabProps {
 
 export function ProductToolsTab({ productId }: ProductToolsTabProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Ferramentas</CardTitle>
-        <CardDescription>Ferramentas e integrações do produto</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <Tabs defaultValue="webhook" className="w-full">
+      <TabsList>
+        <TabsTrigger value="webhook">Webhook</TabsTrigger>
+        <TabsTrigger value="checkout">Personalização</TabsTrigger>
+      </TabsList>
+      
+      <TabsContent value="webhook">
+        <ProductWebhookTab productId={productId} />
+      </TabsContent>
+      
+      <TabsContent value="checkout">
         <div className="space-y-4">
           <div>
             <h3 className="text-sm font-semibold mb-2">Personalização do Checkout</h3>
@@ -23,7 +29,7 @@ export function ProductToolsTab({ productId }: ProductToolsTabProps) {
             </p>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
