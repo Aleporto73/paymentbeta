@@ -166,6 +166,192 @@ export default function Checkout() {
     },
   });
 
+  // Calculate pricing values
+  const finalPrice = price?.price || product?.price || 0;
+  const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
+    const bump = orderBumps.find(b => b.id === bumpId);
+    return total + (bump?.price || 0);
+  }, 0);
+  const subtotal = finalPrice + orderBumpsTotal;
+  const calculateDiscount = () => {
+    if (!appliedCoupon) return 0;
+    if (appliedCoupon.discount_type === 'percentage') {
+      return subtotal * (appliedCoupon.discount_value / 100);
+    } else {
+      return appliedCoupon.discount_value;
+    }
+  };
+  const discount = calculateDiscount();
+  const totalPrice = Math.max(0, subtotal - discount);
+
+  // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
+  useEffect(() => {
+    if (product && price && !loading && !hasTrackedInitCheckout && totalPrice > 0) {
+      sendConversionEvent({
+        productId: product.id,
+        eventType: "InitiateCheckout",
+        value: totalPrice,
+        currency: "BRL",
+        customerEmail: formData.email || undefined,
+      });
+      setHasTrackedInitCheckout(true);
+
+      // Disparar eventos client-side
+      fireClientSideEvent("InitiateCheckout", totalPrice);
+    }
+  }, [product, price, loading, totalPrice, hasTrackedInitCheckout]);
+
+  // Carregar scripts de tracking client-side
+  useEffect(() => {
+    if (adsConfigs.length === 0) return;
+
+    adsConfigs.forEach((config) => {
+      try {
+        switch (config.platform) {
+          case "meta":
+            loadMetaPixel(config.pixel_id);
+            break;
+          case "google":
+            loadGoogleAds(config.pixel_id);
+            break;
+          case "tiktok":
+            loadTikTokPixel(config.pixel_id);
+            break;
+          case "taboola":
+            loadTaboolaPixel(config.pixel_id);
+            break;
+        }
+      } catch (error) {
+        console.error(`Error loading ${config.platform} pixel:`, error);
+      }
+    });
+  }, [adsConfigs]);
+
+  // Funções para carregar scripts de tracking
+  const loadMetaPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="meta-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `meta-${pixelId}`);
+    script.innerHTML = `
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '${pixelId}');
+    `;
+    document.head.appendChild(script);
+  };
+
+  const loadGoogleAds = (conversionId: string) => {
+    if (document.querySelector(`script[data-pixel="google-${conversionId}"]`)) return;
+
+    const script1 = document.createElement("script");
+    script1.async = true;
+    script1.src = `https://www.googletagmanager.com/gtag/js?id=${conversionId}`;
+    document.head.appendChild(script1);
+
+    const script2 = document.createElement("script");
+    script2.setAttribute("data-pixel", `google-${conversionId}`);
+    script2.innerHTML = `
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '${conversionId}');
+    `;
+    document.head.appendChild(script2);
+  };
+
+  const loadTikTokPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="tiktok-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `tiktok-${pixelId}`);
+    script.innerHTML = `
+      !function (w, d, t) {
+        w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript",o.async=!0,o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
+        ttq.load('${pixelId}');
+        ttq.page();
+      }(window, document, 'ttq');
+    `;
+    document.head.appendChild(script);
+  };
+
+  const loadTaboolaPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="taboola-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `taboola-${pixelId}`);
+    script.innerHTML = `
+      window._tfa = window._tfa || [];
+      window._tfa.push({notify: 'event', name: 'page_view', id: ${pixelId}});
+      !function (t, f, a, x) {
+        if (!document.getElementById(x)) {
+          t.async = 1;t.src = a;t.id=x;f.parentNode.insertBefore(t, f);
+        }
+      }(document.createElement('script'),
+      document.getElementsByTagName('script')[0],
+      '//cdn.taboola.com/libtrc/unip/${pixelId}/tfa.js',
+      'tb_tfa_script');
+    `;
+    document.head.appendChild(script);
+  };
+
+  // Função para disparar eventos client-side
+  const fireClientSideEvent = (eventName: string, value: number, transactionId?: string) => {
+    adsConfigs.forEach((config) => {
+      try {
+        switch (config.platform) {
+          case "meta":
+            if (typeof (window as any).fbq !== "undefined") {
+              (window as any).fbq("track", eventName, {
+                value: value,
+                currency: "BRL",
+                content_type: "product",
+              });
+            }
+            break;
+          case "google":
+            if (typeof (window as any).gtag !== "undefined") {
+              const gtagEvent = eventName === "InitiateCheckout" ? "begin_checkout" : "purchase";
+              (window as any).gtag("event", gtagEvent, {
+                value: value,
+                currency: "BRL",
+                transaction_id: transactionId,
+              });
+            }
+            break;
+          case "tiktok":
+            if (typeof (window as any).ttq !== "undefined") {
+              const ttqEvent = eventName === "InitiateCheckout" ? "InitiateCheckout" : "CompletePayment";
+              (window as any).ttq.track(ttqEvent, {
+                value: value,
+                currency: "BRL",
+              });
+            }
+            break;
+          case "taboola":
+            if (typeof (window as any)._tfa !== "undefined") {
+              const taboolaEvent = eventName === "InitiateCheckout" ? "make_purchase" : "purchase";
+              (window as any)._tfa.push({
+                notify: "event",
+                name: taboolaEvent,
+                id: config.pixel_id,
+                revenue: value,
+              });
+            }
+            break;
+        }
+      } catch (error) {
+        console.error(`Error firing ${config.platform} event:`, error);
+      }
+    });
+  };
+
   // Funções de validação
   const validateEmail = (email: string) => {
     if (!email) {
@@ -759,8 +945,6 @@ export default function Checkout() {
     );
   }
 
-  const finalPrice = price?.price || product.price;
-  
   const toggleOrderBump = (orderBumpId: string) => {
     setSelectedOrderBumps(prev => {
       const newSet = new Set(prev);
@@ -770,194 +954,6 @@ export default function Checkout() {
         newSet.add(orderBumpId);
       }
       return newSet;
-    });
-  };
-
-  const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
-    const bump = orderBumps.find(b => b.id === bumpId);
-    return total + (bump?.price || 0);
-  }, 0);
-
-  const subtotal = finalPrice + orderBumpsTotal;
-  
-  const calculateDiscount = () => {
-    if (!appliedCoupon) return 0;
-    
-    if (appliedCoupon.discount_type === 'percentage') {
-      return subtotal * (appliedCoupon.discount_value / 100);
-    } else {
-      return appliedCoupon.discount_value;
-    }
-  };
-
-  const discount = calculateDiscount();
-  const totalPrice = Math.max(0, subtotal - discount);
-
-  // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
-  useEffect(() => {
-    if (product && price && !loading && !hasTrackedInitCheckout && totalPrice > 0) {
-      sendConversionEvent({
-        productId: product.id,
-        eventType: "InitiateCheckout",
-        value: totalPrice,
-        currency: "BRL",
-        customerEmail: formData.email || undefined,
-      });
-      setHasTrackedInitCheckout(true);
-
-      // Disparar eventos client-side
-      fireClientSideEvent("InitiateCheckout", totalPrice);
-    }
-  }, [product, price, loading, totalPrice, hasTrackedInitCheckout]);
-
-  // Carregar scripts de tracking client-side
-  useEffect(() => {
-    if (adsConfigs.length === 0) return;
-
-    adsConfigs.forEach((config) => {
-      try {
-        switch (config.platform) {
-          case "meta":
-            loadMetaPixel(config.pixel_id);
-            break;
-          case "google":
-            loadGoogleAds(config.pixel_id);
-            break;
-          case "tiktok":
-            loadTikTokPixel(config.pixel_id);
-            break;
-          case "taboola":
-            loadTaboolaPixel(config.pixel_id);
-            break;
-        }
-      } catch (error) {
-        console.error(`Error loading ${config.platform} pixel:`, error);
-      }
-    });
-  }, [adsConfigs]);
-
-  // Funções para carregar scripts de tracking
-  const loadMetaPixel = (pixelId: string) => {
-    if (document.querySelector(`script[data-pixel="meta-${pixelId}"]`)) return;
-
-    const script = document.createElement("script");
-    script.setAttribute("data-pixel", `meta-${pixelId}`);
-    script.innerHTML = `
-      !function(f,b,e,v,n,t,s)
-      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-      n.queue=[];t=b.createElement(e);t.async=!0;
-      t.src=v;s=b.getElementsByTagName(e)[0];
-      s.parentNode.insertBefore(t,s)}(window, document,'script',
-      'https://connect.facebook.net/en_US/fbevents.js');
-      fbq('init', '${pixelId}');
-    `;
-    document.head.appendChild(script);
-  };
-
-  const loadGoogleAds = (conversionId: string) => {
-    if (document.querySelector(`script[data-pixel="google-${conversionId}"]`)) return;
-
-    const script1 = document.createElement("script");
-    script1.async = true;
-    script1.src = `https://www.googletagmanager.com/gtag/js?id=${conversionId}`;
-    document.head.appendChild(script1);
-
-    const script2 = document.createElement("script");
-    script2.setAttribute("data-pixel", `google-${conversionId}`);
-    script2.innerHTML = `
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', '${conversionId}');
-    `;
-    document.head.appendChild(script2);
-  };
-
-  const loadTikTokPixel = (pixelId: string) => {
-    if (document.querySelector(`script[data-pixel="tiktok-${pixelId}"]`)) return;
-
-    const script = document.createElement("script");
-    script.setAttribute("data-pixel", `tiktok-${pixelId}`);
-    script.innerHTML = `
-      !function (w, d, t) {
-        w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript",o.async=!0,o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
-        ttq.load('${pixelId}');
-        ttq.page();
-      }(window, document, 'ttq');
-    `;
-    document.head.appendChild(script);
-  };
-
-  const loadTaboolaPixel = (pixelId: string) => {
-    if (document.querySelector(`script[data-pixel="taboola-${pixelId}"]`)) return;
-
-    const script = document.createElement("script");
-    script.setAttribute("data-pixel", `taboola-${pixelId}`);
-    script.innerHTML = `
-      window._tfa = window._tfa || [];
-      window._tfa.push({notify: 'event', name: 'page_view', id: ${pixelId}});
-      !function (t, f, a, x) {
-        if (!document.getElementById(x)) {
-          t.async = 1;t.src = a;t.id=x;f.parentNode.insertBefore(t, f);
-        }
-      }(document.createElement('script'),
-      document.getElementsByTagName('script')[0],
-      '//cdn.taboola.com/libtrc/unip/${pixelId}/tfa.js',
-      'tb_tfa_script');
-    `;
-    document.head.appendChild(script);
-  };
-
-  // Função para disparar eventos client-side
-  const fireClientSideEvent = (eventName: string, value: number, transactionId?: string) => {
-    adsConfigs.forEach((config) => {
-      try {
-        switch (config.platform) {
-          case "meta":
-            if (typeof (window as any).fbq !== "undefined") {
-              (window as any).fbq("track", eventName, {
-                value: value,
-                currency: "BRL",
-                content_type: "product",
-              });
-            }
-            break;
-          case "google":
-            if (typeof (window as any).gtag !== "undefined") {
-              const gtagEvent = eventName === "InitiateCheckout" ? "begin_checkout" : "purchase";
-              (window as any).gtag("event", gtagEvent, {
-                value: value,
-                currency: "BRL",
-                transaction_id: transactionId,
-              });
-            }
-            break;
-          case "tiktok":
-            if (typeof (window as any).ttq !== "undefined") {
-              const ttqEvent = eventName === "InitiateCheckout" ? "InitiateCheckout" : "CompletePayment";
-              (window as any).ttq.track(ttqEvent, {
-                value: value,
-                currency: "BRL",
-              });
-            }
-            break;
-          case "taboola":
-            if (typeof (window as any)._tfa !== "undefined") {
-              const taboolaEvent = eventName === "InitiateCheckout" ? "make_purchase" : "purchase";
-              (window as any)._tfa.push({
-                notify: "event",
-                name: taboolaEvent,
-                id: config.pixel_id,
-                revenue: value,
-              });
-            }
-            break;
-        }
-      } catch (error) {
-        console.error(`Error firing ${config.platform} event:`, error);
-      }
     });
   };
 
