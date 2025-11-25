@@ -7,7 +7,8 @@ import {
   UserCog,
   Ticket,
   BarChart3,
-  Plug
+  Plug,
+  Webhook
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -39,6 +40,7 @@ const mainItems = [
 
 const managementItems = [
   { title: "Integrações", url: "/integracoes", icon: Plug },
+  { title: "Webhooks", url: "/webhooks", icon: Webhook },
 ];
 
 export function AppSidebar() {
