@@ -12,6 +12,7 @@ import ProductDetail from "./pages/ProductDetail";
 import Afiliados from "./pages/Afiliados";
 import AffiliateDashboard from "./pages/AffiliateDashboard";
 import Relatorios from "./pages/Relatorios";
+import Integracoes from "./pages/Integracoes";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import Checkout from "./pages/Checkout";
@@ -44,7 +45,7 @@ const App = () => {
             <Route path="/dashboard-afiliado" element={<ProtectedRoute><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
             <Route path="/cupons" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
             <Route path="/relatorios" element={<ProtectedRoute><Layout><Relatorios /></Layout></ProtectedRoute>} />
-            <Route path="/integracoes" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+            <Route path="/integracoes" element={<ProtectedRoute><Layout><Integracoes /></Layout></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
