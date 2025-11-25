@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import logo from "@/assets/logo_pay.png";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -100,15 +101,24 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">
-            {isLogin ? "Login" : "Criar Conta"}
-          </CardTitle>
-          <CardDescription>
-            {isLogin
-              ? "Entre com suas credenciais para acessar o sistema"
-              : "Preencha os dados para criar sua conta"}
-          </CardDescription>
+        <CardHeader className="space-y-4">
+          <div className="flex justify-center">
+            <img 
+              src={logo} 
+              alt="Payment Logo" 
+              className="h-10 object-contain"
+            />
+          </div>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl font-bold">
+              {isLogin ? "Login" : "Criar Conta"}
+            </CardTitle>
+            <CardDescription>
+              {isLogin
+                ? "Entre com suas credenciais para acessar o sistema"
+                : "Preencha os dados para criar sua conta"}
+            </CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={isLogin ? handleSignIn : handleSignUp} className="space-y-4">
