@@ -15,6 +15,17 @@ import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
 import { usePixPaymentPolling } from "@/hooks/usePixPaymentPolling";
 import { useConversionTracking } from "@/hooks/useConversionTracking";
 
+// Declarar tipos para scripts de tracking client-side
+declare global {
+  interface Window {
+    fbq?: (...args: any[]) => void;
+    gtag?: (...args: any[]) => void;
+    ttq?: any;
+    _tfa?: any[];
+    dataLayer?: any[];
+  }
+}
+
 export default function Checkout() {
   const [searchParams] = useSearchParams();
   const productCode = searchParams.get("product");
@@ -67,6 +78,7 @@ export default function Checkout() {
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
   const [productOwnerId, setProductOwnerId] = useState<string | null>(null);
   const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
+  const [adsConfigs, setAdsConfigs] = useState<any[]>([]);
 
   // Função para gerar token e redirecionar
   const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
@@ -126,6 +138,9 @@ export default function Checkout() {
           customerEmail: formData.email,
           customerName: formData.fullName,
         });
+
+        // Disparar evento Purchase client-side
+        fireClientSideEvent("Purchase", totalPrice, paymentResult.transaction.id);
       }
       
       // Redirecionar para página configurada com token de transação
@@ -493,6 +508,17 @@ export default function Checkout() {
             setPrice(defaultPrice);
           }
         }
+
+        // Buscar configurações de pixels ativos
+        const { data: adsConfigsData, error: adsError } = await supabase
+          .from("product_ads_configs")
+          .select("*")
+          .eq("product_id", productData.id)
+          .eq("is_active", true);
+
+        if (!adsError && adsConfigsData) {
+          setAdsConfigs(adsConfigsData);
+        }
       } catch (error) {
         console.error("Erro ao carregar dados:", error);
         toast.error("Erro ao carregar informações do produto");
@@ -639,6 +665,9 @@ export default function Checkout() {
           customerEmail: formData.email,
           customerName: formData.fullName,
         });
+
+        // Disparar evento Purchase client-side
+        fireClientSideEvent("Purchase", totalPrice, data?.transaction?.id);
         
         toast.success("Pagamento processado com sucesso! Redirecionando...");
         setTimeout(async () => {
@@ -775,8 +804,162 @@ export default function Checkout() {
         customerEmail: formData.email || undefined,
       });
       setHasTrackedInitCheckout(true);
+
+      // Disparar eventos client-side
+      fireClientSideEvent("InitiateCheckout", totalPrice);
     }
   }, [product, price, loading, totalPrice, hasTrackedInitCheckout]);
+
+  // Carregar scripts de tracking client-side
+  useEffect(() => {
+    if (adsConfigs.length === 0) return;
+
+    adsConfigs.forEach((config) => {
+      try {
+        switch (config.platform) {
+          case "meta":
+            loadMetaPixel(config.pixel_id);
+            break;
+          case "google":
+            loadGoogleAds(config.pixel_id);
+            break;
+          case "tiktok":
+            loadTikTokPixel(config.pixel_id);
+            break;
+          case "taboola":
+            loadTaboolaPixel(config.pixel_id);
+            break;
+        }
+      } catch (error) {
+        console.error(`Error loading ${config.platform} pixel:`, error);
+      }
+    });
+  }, [adsConfigs]);
+
+  // Funções para carregar scripts de tracking
+  const loadMetaPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="meta-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `meta-${pixelId}`);
+    script.innerHTML = `
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '${pixelId}');
+    `;
+    document.head.appendChild(script);
+  };
+
+  const loadGoogleAds = (conversionId: string) => {
+    if (document.querySelector(`script[data-pixel="google-${conversionId}"]`)) return;
+
+    const script1 = document.createElement("script");
+    script1.async = true;
+    script1.src = `https://www.googletagmanager.com/gtag/js?id=${conversionId}`;
+    document.head.appendChild(script1);
+
+    const script2 = document.createElement("script");
+    script2.setAttribute("data-pixel", `google-${conversionId}`);
+    script2.innerHTML = `
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '${conversionId}');
+    `;
+    document.head.appendChild(script2);
+  };
+
+  const loadTikTokPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="tiktok-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `tiktok-${pixelId}`);
+    script.innerHTML = `
+      !function (w, d, t) {
+        w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript",o.async=!0,o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
+        ttq.load('${pixelId}');
+        ttq.page();
+      }(window, document, 'ttq');
+    `;
+    document.head.appendChild(script);
+  };
+
+  const loadTaboolaPixel = (pixelId: string) => {
+    if (document.querySelector(`script[data-pixel="taboola-${pixelId}"]`)) return;
+
+    const script = document.createElement("script");
+    script.setAttribute("data-pixel", `taboola-${pixelId}`);
+    script.innerHTML = `
+      window._tfa = window._tfa || [];
+      window._tfa.push({notify: 'event', name: 'page_view', id: ${pixelId}});
+      !function (t, f, a, x) {
+        if (!document.getElementById(x)) {
+          t.async = 1;t.src = a;t.id=x;f.parentNode.insertBefore(t, f);
+        }
+      }(document.createElement('script'),
+      document.getElementsByTagName('script')[0],
+      '//cdn.taboola.com/libtrc/unip/${pixelId}/tfa.js',
+      'tb_tfa_script');
+    `;
+    document.head.appendChild(script);
+  };
+
+  // Função para disparar eventos client-side
+  const fireClientSideEvent = (eventName: string, value: number, transactionId?: string) => {
+    adsConfigs.forEach((config) => {
+      try {
+        switch (config.platform) {
+          case "meta":
+            if (typeof (window as any).fbq !== "undefined") {
+              (window as any).fbq("track", eventName, {
+                value: value,
+                currency: "BRL",
+                content_type: "product",
+              });
+            }
+            break;
+          case "google":
+            if (typeof (window as any).gtag !== "undefined") {
+              const gtagEvent = eventName === "InitiateCheckout" ? "begin_checkout" : "purchase";
+              (window as any).gtag("event", gtagEvent, {
+                value: value,
+                currency: "BRL",
+                transaction_id: transactionId,
+              });
+            }
+            break;
+          case "tiktok":
+            if (typeof (window as any).ttq !== "undefined") {
+              const ttqEvent = eventName === "InitiateCheckout" ? "InitiateCheckout" : "CompletePayment";
+              (window as any).ttq.track(ttqEvent, {
+                value: value,
+                currency: "BRL",
+              });
+            }
+            break;
+          case "taboola":
+            if (typeof (window as any)._tfa !== "undefined") {
+              const taboolaEvent = eventName === "InitiateCheckout" ? "make_purchase" : "purchase";
+              (window as any)._tfa.push({
+                notify: "event",
+                name: taboolaEvent,
+                id: config.pixel_id,
+                revenue: value,
+              });
+            }
+            break;
+        }
+      } catch (error) {
+        console.error(`Error firing ${config.platform} event:`, error);
+      }
+    });
+  };
 
   const validateCoupon = async () => {
     if (!couponCode.trim()) {
