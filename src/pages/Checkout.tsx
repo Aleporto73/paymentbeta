@@ -1112,35 +1112,42 @@ export default function Checkout() {
               </div>
 
               {/* Métodos de Pagamento */}
-              {/* Métodos de Pagamento */}
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "pix"
-                        ? "border-blue-500 bg-white"
-                        : "border-gray-200 bg-white hover:border-gray-300"
+                    className={`flex items-center justify-center gap-3 px-6 py-4 rounded-lg border transition-all ${
+                      paymentMethod === "card"
+                        ? "border-blue-500 bg-blue-500 text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
                     }`}
-                    onClick={() => setPaymentMethod("pix")}
+                    onClick={() => setPaymentMethod("card")}
                   >
-                    <svg className="w-5 h-5 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
-                      <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
-                    </svg>
-                    <span className="font-medium text-sm text-gray-700">Pix</span>
+                    <CreditCard className="w-5 h-5 flex-shrink-0" />
+                    <span className="font-medium text-sm leading-tight">
+                      Cartão de
+                      <br />
+                      crédito
+                    </span>
                   </button>
 
                   <button
                     type="button"
-                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "card"
-                        ? "border-blue-500 bg-white"
-                        : "border-gray-200 bg-white hover:border-gray-300"
+                    className={`flex items-center justify-center gap-3 px-6 py-4 rounded-lg border transition-all ${
+                      paymentMethod === "pix"
+                        ? "border-blue-500 bg-blue-500 text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
                     }`}
-                    onClick={() => setPaymentMethod("card")}
+                    onClick={() => setPaymentMethod("pix")}
                   >
-                    <CreditCard className="w-5 h-5 text-emerald-500" />
-                    <span className="font-medium text-sm text-gray-700">Cartão de crédito</span>
+                    <svg
+                      className={`w-5 h-5 flex-shrink-0 ${paymentMethod === "pix" ? "text-white" : "text-gray-500"}`}
+                      viewBox="0 0 512 512"
+                      fill="currentColor"
+                    >
+                      <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
+                    </svg>
+                    <span className="font-medium text-sm">Pix</span>
                   </button>
                 </div>
               </div>
