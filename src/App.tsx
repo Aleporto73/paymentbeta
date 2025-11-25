@@ -13,6 +13,7 @@ import Vendas from "./pages/Vendas";
 import Assinaturas from "./pages/Assinaturas";
 import Clientes from "./pages/Clientes";
 import Afiliados from "./pages/Afiliados";
+import Cupons from "./pages/Cupons";
 import AffiliateDashboard from "./pages/AffiliateDashboard";
 import Relatorios from "./pages/Relatorios";
 import Integracoes from "./pages/Integracoes";
@@ -47,7 +48,7 @@ const App = () => {
             <Route path="/clientes" element={<ProtectedRoute><Layout><Clientes /></Layout></ProtectedRoute>} />
             <Route path="/afiliados" element={<ProtectedRoute><Layout><Afiliados /></Layout></ProtectedRoute>} />
             <Route path="/dashboard-afiliado" element={<ProtectedRoute><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
-            <Route path="/cupons" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
+            <Route path="/cupons" element={<ProtectedRoute><Layout><Cupons /></Layout></ProtectedRoute>} />
             <Route path="/relatorios" element={<ProtectedRoute><Layout><Relatorios /></Layout></ProtectedRoute>} />
             <Route path="/integracoes" element={<ProtectedRoute><Layout><Integracoes /></Layout></ProtectedRoute>} />
             <Route path="/webhooks" element={<ProtectedRoute><Layout><Webhooks /></Layout></ProtectedRoute>} />
