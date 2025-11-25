@@ -66,6 +66,36 @@ export default function Checkout() {
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
   const [productOwnerId, setProductOwnerId] = useState<string | null>(null);
 
+  // Função para gerar token e redirecionar
+  const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
+    try {
+      // Gerar token de transação
+      const { data: tokenData, error: tokenError } = await supabase.functions.invoke(
+        "generate-transaction-token",
+        {
+          body: { transactionId },
+        }
+      );
+
+      if (tokenError) {
+        console.error("Error generating token:", tokenError);
+        // Redirecionar sem token em caso de erro
+        window.location.href = redirectUrl;
+        return;
+      }
+
+      // Adicionar token à URL de redirecionamento
+      const urlWithToken = new URL(redirectUrl, window.location.origin);
+      urlWithToken.searchParams.set("transaction_token", tokenData.token);
+      
+      window.location.href = urlWithToken.toString();
+    } catch (error) {
+      console.error("Error generating token:", error);
+      // Redirecionar sem token em caso de erro
+      window.location.href = redirectUrl;
+    }
+  };
+
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
     priceId: price?.id,
@@ -80,10 +110,16 @@ export default function Checkout() {
     onSuccess: () => {
       toast.success("Pagamento confirmado! Redirecionando...");
       setPixPollingEnabled(false);
-      // Redirecionar para página configurada ou página padrão
-      setTimeout(() => {
+      // Redirecionar para página configurada com token de transação
+      setTimeout(async () => {
         const redirectUrl = product?.approved_payment_redirect_url || '/confirmacao';
-        window.location.href = redirectUrl;
+        const transactionId = paymentResult?.transaction?.id;
+        
+        if (transactionId && product?.approved_payment_redirect_url) {
+          await generateAndRedirectWithToken(redirectUrl, transactionId);
+        } else {
+          window.location.href = redirectUrl;
+        }
       }, 2000);
     },
     onError: (error) => {
@@ -577,9 +613,15 @@ export default function Checkout() {
       } else {
         // Para cartão de crédito, redirecionar imediatamente
         toast.success("Pagamento processado com sucesso! Redirecionando...");
-        setTimeout(() => {
+        setTimeout(async () => {
           const redirectUrl = product.approved_payment_redirect_url || '/confirmacao';
-          window.location.href = redirectUrl;
+          const transactionId = data?.transaction?.id;
+          
+          if (transactionId && product.approved_payment_redirect_url) {
+            await generateAndRedirectWithToken(redirectUrl, transactionId);
+          } else {
+            window.location.href = redirectUrl;
+          }
         }, 2000);
       }
 
