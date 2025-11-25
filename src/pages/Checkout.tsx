@@ -80,14 +80,20 @@ export default function Checkout() {
     onSuccess: () => {
       toast.success("Pagamento confirmado! Redirecionando...");
       setPixPollingEnabled(false);
-      // Redirecionar para página de confirmação ou dar acesso ao produto
+      // Redirecionar para página configurada ou página padrão
       setTimeout(() => {
-        window.location.href = '/confirmacao';
+        const redirectUrl = product?.approved_payment_redirect_url || '/confirmacao';
+        window.location.href = redirectUrl;
       }, 2000);
     },
     onError: (error) => {
       toast.error(error);
       setPixPollingEnabled(false);
+      // Redirecionar para página de erro configurada ou página padrão
+      setTimeout(() => {
+        const redirectUrl = product?.rejected_payment_redirect_url || '/pagamento-recusado';
+        window.location.href = redirectUrl;
+      }, 2000);
     },
   });
 
@@ -370,12 +376,13 @@ export default function Checkout() {
         // Buscar produto
         const { data: productData, error: productError } = await supabase
           .from("products")
-          .select("*")
+          .select("*, checkout_header_image_url, approved_payment_redirect_url, rejected_payment_redirect_url")
           .eq("unique_code", productCode)
           .single();
 
         if (productError) throw productError;
         setProduct(productData);
+        setProductOwnerId(productData.user_id);
 
         // Buscar order bumps ativos
         const { data: orderBumpsData, error: orderBumpsError } = await supabase
@@ -535,17 +542,6 @@ export default function Checkout() {
         ip: undefined, // Será preenchido no backend
       };
 
-      // Obter user_id do produto (proprietário)
-      const { data: productData } = await supabase
-        .from('products')
-        .select('user_id')
-        .eq('id', product.id)
-        .single();
-
-      if (!productData?.user_id) {
-        throw new Error('Produto não encontrado');
-      }
-
       // Chamar edge function
       const { data, error } = await supabase.functions.invoke('create-payment', {
         body: {
@@ -553,7 +549,7 @@ export default function Checkout() {
           paymentData,
           productId: product.id,
           priceId: price?.id,
-          userId: productData.user_id,
+          userId: product.user_id,
           affiliateCode,
           orderBumps: selectedBumps,
           deviceInfo,
@@ -574,19 +570,30 @@ export default function Checkout() {
       );
 
       setPaymentResult(data);
-      setProductOwnerId(productData.user_id);
 
       if (paymentMethod === "pix") {
         // Modal já está aberto, iniciar polling
         setPixPollingEnabled(true);
       } else {
-        toast.success("Pagamento processado com sucesso!");
+        // Para cartão de crédito, redirecionar imediatamente
+        toast.success("Pagamento processado com sucesso! Redirecionando...");
+        setTimeout(() => {
+          const redirectUrl = product.approved_payment_redirect_url || '/confirmacao';
+          window.location.href = redirectUrl;
+        }, 2000);
       }
 
     } catch (error: any) {
       console.error("Erro ao processar pagamento:", error);
       toast.error(error.message || "Erro ao processar pagamento. Tente novamente.");
       setShowPixModal(false);
+      
+      // Redirecionar para página de erro se configurada
+      if (product?.rejected_payment_redirect_url) {
+        setTimeout(() => {
+          window.location.href = product.rejected_payment_redirect_url;
+        }, 3000);
+      }
     } finally {
       setProcessing(false);
     }
@@ -727,6 +734,17 @@ export default function Checkout() {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-3xl mx-auto">
+        {/* Imagem personalizada do topo (se configurada) */}
+        {product.checkout_header_image_url && (
+          <div className="mb-8 rounded-lg overflow-hidden">
+            <img 
+              src={product.checkout_header_image_url} 
+              alt="Header do checkout" 
+              className="w-full h-auto object-cover"
+            />
+          </div>
+        )}
+
         {/* Header com produto */}
         <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
           <div className="w-48 h-32 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
