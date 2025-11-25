@@ -26,7 +26,9 @@ export default function Auth() {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         navigate("/");
       }
@@ -103,20 +105,12 @@ export default function Auth() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-4">
           <div className="flex justify-center">
-            <img 
-              src={logo} 
-              alt="Payment Logo" 
-              className="h-10 object-contain"
-            />
+            <img src={logo} alt="Payment Logo" className="h-14 object-contain" />
           </div>
           <div className="space-y-1">
-            <CardTitle className="text-2xl font-bold">
-              {isLogin ? "Login" : "Criar Conta"}
-            </CardTitle>
+            <CardTitle className="text-2xl font-bold">{isLogin ? "Login" : "Criar Conta"}</CardTitle>
             <CardDescription>
-              {isLogin
-                ? "Entre com suas credenciais para acessar o sistema"
-                : "Preencha os dados para criar sua conta"}
+              {isLogin ? "Entre com suas credenciais para acessar o sistema" : "Preencha os dados para criar sua conta"}
             </CardDescription>
           </div>
         </CardHeader>
@@ -180,9 +174,7 @@ export default function Auth() {
               className="text-sm text-primary hover:underline"
               disabled={loading}
             >
-              {isLogin
-                ? "Não tem uma conta? Criar conta"
-                : "Já tem uma conta? Fazer login"}
+              {isLogin ? "Não tem uma conta? Criar conta" : "Já tem uma conta? Fazer login"}
             </button>
           </div>
         </CardContent>
