@@ -85,7 +85,6 @@ export default function Vendas() {
       const { data } = await supabase
         .from("products")
         .select("id, name")
-        .eq("user_id", user.id)
         .order("name");
 
       if (data) {
@@ -122,8 +121,7 @@ export default function Vendas() {
           order_bumps_amount,
           installment_count,
           products (name)
-        `, { count: "exact" })
-        .eq("user_id", user.id);
+        `, { count: "exact" });
 
       // Apply filters
       if (appliedFilters.status !== "all") {

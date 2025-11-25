@@ -43,7 +43,6 @@ export function RevenueChart() {
       const { data: transactions } = await supabase
         .from("transactions")
         .select("value, created_at")
-        .eq("user_id", user.id)
         .in("status", ["RECEIVED", "CONFIRMED"])
         .gte("created_at", monthStart.toISOString())
         .lte("created_at", monthEnd.toISOString());

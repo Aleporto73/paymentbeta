@@ -30,7 +30,6 @@ export default function Integracoes() {
       const { data, error } = await supabase
         .from("integration_settings")
         .select("*")
-        .eq("user_id", user.id)
         .eq("integration_name", "asaas")
         .single();
 

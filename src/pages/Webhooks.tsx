@@ -113,8 +113,7 @@ export default function Webhooks() {
       // Get user's products
       const { data: productsData } = await supabase
         .from("products")
-        .select("id, name")
-        .eq("user_id", user.id);
+        .select("id, name");
 
       if (!productsData || productsData.length === 0) {
         setLoading(false);

@@ -62,7 +62,6 @@ export function ProductOrderBumpTab({ productId }: ProductOrderBumpTabProps) {
       const { data, error } = await supabase
         .from("products")
         .select("id, name, price")
-        .eq("user_id", user.id)
         .eq("is_active", true)
         .order("name");
 

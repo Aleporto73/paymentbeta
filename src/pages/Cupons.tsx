@@ -77,7 +77,6 @@ export default function Cupons() {
       const { data } = await supabase
         .from("products")
         .select("id, name")
-        .eq("user_id", user.id)
         .order("name");
 
       if (data) {
@@ -107,11 +106,10 @@ export default function Cupons() {
           products (name)
         `, { count: "exact" });
 
-      // Filter by products owned by user
+      // Get all products
       const { data: userProducts } = await supabase
         .from("products")
-        .select("id")
-        .eq("user_id", user.id);
+        .select("id");
 
       const productIds = userProducts?.map(p => p.id) || [];
       if (productIds.length > 0) {

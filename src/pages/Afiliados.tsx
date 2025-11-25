@@ -104,8 +104,7 @@ export default function Afiliados() {
 
       let query = supabase
         .from("affiliates")
-        .select("*", { count: "exact" })
-        .eq("user_id", user.id);
+        .select("*", { count: "exact" });
 
       if (appliedFilters.status !== "all") {
         const isActive = appliedFilters.status === "active";
@@ -170,7 +169,6 @@ export default function Afiliados() {
       const { count: activeCount } = await supabase
         .from("affiliates")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
         .eq("is_active", true);
 
       // Get monthly commissions

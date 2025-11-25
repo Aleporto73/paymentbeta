@@ -79,7 +79,6 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
       const { data: productsData, error: productsError } = await supabase
         .from('products')
         .select('id, name, price')
-        .eq('user_id', user.id)
         .neq('id', productId)
         .order('name');
 

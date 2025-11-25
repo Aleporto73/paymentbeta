@@ -156,8 +156,7 @@ export default function Relatorios() {
       // Buscar produtos com suas vendas
       const { data: products } = await supabase
         .from("products")
-        .select("*, product_sales(*)")
-        .eq("user_id", user.id);
+        .select("*, product_sales(*)");
 
       if (products) {
         const performance = products.map((product) => ({
