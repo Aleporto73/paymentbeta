@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Edit } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProductPrice, SubscriptionPeriod, SUBSCRIPTION_PERIOD_LABELS, ProductType } from "@/types/product";
@@ -22,7 +22,9 @@ interface ProductPricesTabProps {
 
 export function ProductPricesTab({ productId, prices, onUpdate, productType, productUniqueCode }: ProductPricesTabProps) {
   const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [editingPrice, setEditingPrice] = useState<ProductPrice | null>(null);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -31,6 +33,13 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
     subscription_period: "" as SubscriptionPeriod | "",
     installments: "1",
     is_default: false,
+  });
+
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    price: "",
+    subscription_period: "" as SubscriptionPeriod | "",
+    installments: "1",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,6 +103,53 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
         description: error.message,
         variant: "destructive",
       });
+    }
+  };
+
+  const handleEdit = (price: ProductPrice) => {
+    setEditingPrice(price);
+    setEditFormData({
+      name: price.name,
+      price: formatCurrency(price.price),
+      subscription_period: price.subscription_period || "",
+      installments: price.installments?.toString() || "1",
+    });
+    setEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const { error } = await supabase
+        .from("product_prices")
+        .update({
+          name: editFormData.name,
+          price: parseCurrency(editFormData.price),
+          subscription_period: editFormData.subscription_period || null,
+          installments: parseInt(editFormData.installments),
+        })
+        .eq("id", editingPrice?.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Preço atualizado",
+        description: "O preço foi atualizado com sucesso.",
+      });
+
+      setEditOpen(false);
+      setEditingPrice(null);
+      onUpdate();
+    } catch (error: any) {
+      toast({
+        title: "Erro ao atualizar preço",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -229,21 +285,113 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                     </div>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDelete(price.id)}
-                  disabled={price.is_default}
-                  className="text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={price.is_default ? "O plano principal não pode ser excluído" : "Excluir plano"}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleEdit(price)}
+                    title="Editar plano"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(price.id)}
+                    disabled={price.is_default}
+                    className="text-destructive hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={price.is_default ? "O plano principal não pode ser excluído" : "Excluir plano"}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </CardContent>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Preço</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Nome do Preço *</Label>
+              <Input
+                id="edit-name"
+                required
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                placeholder="Ex: Plano Básico, À Vista"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-price">Valor (R$) *</Label>
+              <Input
+                id="edit-price"
+                type="text"
+                required
+                value={editFormData.price}
+                onChange={(e) => {
+                  let value = e.target.value.replace(/[^\d]/g, '');
+                  if (value.length > 0) {
+                    const numValue = parseInt(value);
+                    value = formatCurrency(numValue / 100);
+                  }
+                  setEditFormData({ ...editFormData, price: value });
+                }}
+                placeholder="0,00"
+              />
+            </div>
+
+            {productType === "recorrente" && (
+              <div className="space-y-2">
+                <Label>Período de Assinatura</Label>
+                <Select
+                  value={editFormData.subscription_period}
+                  onValueChange={(value: SubscriptionPeriod) =>
+                    setEditFormData({ ...editFormData, subscription_period: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o período" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(SUBSCRIPTION_PERIOD_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-installments">Número de Parcelas</Label>
+              <Input
+                id="edit-installments"
+                type="number"
+                min="1"
+                value={editFormData.installments}
+                onChange={(e) => setEditFormData({ ...editFormData, installments: e.target.value })}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

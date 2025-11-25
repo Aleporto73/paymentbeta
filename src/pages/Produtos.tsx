@@ -157,6 +157,7 @@ export default function Produtos() {
                 onEdit={(product) => navigate(`/produtos/${product.id}`)}
                 onDelete={setDeleteProduct}
                 onClick={(product) => navigate(`/produtos/${product.id}`)}
+                onPriceUpdate={fetchProducts}
               />
             ))}
           </div>
