@@ -100,7 +100,19 @@ export default function Relatorios() {
       if (checkoutEvents) {
         const views = checkoutEvents.filter((e) => e.event_type === "view").length;
         const abandons = checkoutEvents.filter((e) => e.event_type === "abandon").length;
-        const conversions = checkoutEvents.filter((e) => e.event_type === "conversion").length;
+        
+        // Only count conversions from approved transactions
+        const { data: approvedTransactions } = await supabase
+          .from("transactions")
+          .select("asaas_payment_id")
+          .in("status", ["CONFIRMED", "RECEIVED"])
+          .gte("created_at", startDate)
+          .lte("created_at", endDate);
+        
+        const approvedPaymentIds = approvedTransactions?.map(t => t.asaas_payment_id) || [];
+        const conversions = checkoutEvents.filter((e) => 
+          e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id)
+        ).length;
 
         const totalRevenue = checkoutEvents
           .filter((e) => e.event_type === "conversion")
@@ -457,7 +469,7 @@ export default function Relatorios() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
                     <Legend />
                     <Bar dataKey="sales" fill="#3b82f6" name="Vendas" />
                     <Bar dataKey="revenue" fill="#10b981" name="Receita (R$)" />
@@ -500,7 +512,7 @@ export default function Relatorios() {
                         </div>
                         <div>
                           <p className="text-muted-foreground">Receita</p>
-                          <p className="text-lg font-bold">R$ {formatCurrency(bump.revenue)}</p>
+                          <p className="text-sm font-medium">R$ {Number(bump.revenue).toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
