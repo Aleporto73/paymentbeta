@@ -123,9 +123,13 @@ export default function Vendas() {
           products (name)
         `, { count: "exact" });
 
-      // Apply filters
       if (appliedFilters.status !== "all") {
-        query = query.eq("status", appliedFilters.status);
+        if (appliedFilters.status === "CONFIRMED") {
+          // CONFIRMED includes both CONFIRMED and RECEIVED statuses
+          query = query.in("status", ["CONFIRMED", "RECEIVED"]);
+        } else {
+          query = query.eq("status", appliedFilters.status);
+        }
       }
 
       if (appliedFilters.productId !== "all") {
@@ -517,111 +521,111 @@ export default function Vendas() {
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Detalhes da Venda</DialogTitle>
+            <DialogTitle className="text-xl">Detalhes da Venda</DialogTitle>
           </DialogHeader>
           {selectedSale && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Data da Venda</label>
-                  <p className="text-sm mt-1">
-                    {format(new Date(selectedSale.created_at), "dd/MM/yyyy 'às' HH:mm")}
-                  </p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 pb-4 border-b">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Data da Venda</p>
+                    <p className="text-sm font-medium mt-1">
+                      {format(new Date(selectedSale.created_at), "dd/MM/yyyy 'às' HH:mm")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <div className="mt-1">{getStatusBadge(selectedSale.status)}</div>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Status</label>
-                  <div className="mt-1">{getStatusBadge(selectedSale.status)}</div>
-                </div>
-              </div>
 
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-3">Informações do Cliente</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Nome</label>
-                    <p className="text-sm mt-1">{selectedSale.customer_name}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Email</label>
-                    <p className="text-sm mt-1">{selectedSale.customer_email}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">CPF/CNPJ</label>
-                    <p className="text-sm mt-1">{selectedSale.customer_cpf_cnpj || "-"}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Telefone</label>
-                    <p className="text-sm mt-1">{selectedSale.customer_phone || "-"}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Estado</label>
-                    <p className="text-sm mt-1">{selectedSale.customer_state || "-"}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-3">Informações do Produto</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Produto</label>
-                    <p className="text-sm mt-1">{selectedSale.product_name}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Valor</label>
-                    <p className="text-sm mt-1 font-semibold">R$ {formatCurrency(selectedSale.value)}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-3">Informações de Pagamento</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Método de Pagamento</label>
-                    <p className="text-sm mt-1">{selectedSale.payment_method}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Tipo de Cobrança</label>
-                    <p className="text-sm mt-1">{selectedSale.billing_type}</p>
-                  </div>
-                  {selectedSale.installment_count && selectedSale.installment_count > 1 && (
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Parcelas</label>
-                      <p className="text-sm mt-1">{selectedSale.installment_count}x</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {selectedSale.order_bumps_selected && selectedSale.order_bumps_selected.length > 0 && (
-                <div className="border-t pt-4">
-                  <h3 className="font-semibold mb-3">Order Bumps</h3>
+                <div className="pb-4 border-b">
+                  <h3 className="text-base font-semibold mb-3">Informações do Cliente</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-sm font-medium text-muted-foreground">Quantidade</label>
-                      <p className="text-sm mt-1">{selectedSale.order_bumps_selected.length}</p>
+                      <p className="text-xs text-muted-foreground">Nome</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.customer_name}</p>
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-muted-foreground">Valor Total</label>
-                      <p className="text-sm mt-1">
-                        R$ {formatCurrency(selectedSale.order_bumps_amount || 0)}
-                      </p>
+                      <p className="text-xs text-muted-foreground">Email</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.customer_email}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">CPF/CNPJ</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.customer_cpf_cnpj || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Telefone</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.customer_phone || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Estado</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.customer_state || "-"}</p>
                     </div>
                   </div>
                 </div>
-              )}
 
-              {selectedSale.affiliate_code && (
-                <div className="border-t pt-4">
-                  <h3 className="font-semibold mb-3">Informações de Afiliado</h3>
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Código do Afiliado</label>
-                    <p className="text-sm mt-1">{selectedSale.affiliate_code}</p>
+                <div className="pb-4 border-b">
+                  <h3 className="text-base font-semibold mb-3">Informações do Produto</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Produto</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.product_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Valor</p>
+                      <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.value)}</p>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div className="pb-4 border-b">
+                  <h3 className="text-base font-semibold mb-3">Informações de Pagamento</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Método de Pagamento</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.payment_method}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tipo de Cobrança</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.billing_type}</p>
+                    </div>
+                    {selectedSale.installment_count && selectedSale.installment_count > 1 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Parcelas</p>
+                        <p className="text-sm font-medium mt-1">{selectedSale.installment_count}x</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedSale.order_bumps_selected && selectedSale.order_bumps_selected.length > 0 && (
+                  <div className="pb-4 border-b">
+                    <h3 className="text-base font-semibold mb-3">Order Bumps</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Quantidade</p>
+                        <p className="text-sm font-medium mt-1">{selectedSale.order_bumps_selected.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Valor Total</p>
+                        <p className="text-sm font-medium mt-1">
+                          R$ {formatCurrency(selectedSale.order_bumps_amount || 0)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedSale.affiliate_code && (
+                  <div>
+                    <h3 className="text-base font-semibold mb-3">Informações de Afiliado</h3>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Código do Afiliado</p>
+                      <p className="text-sm font-medium mt-1">{selectedSale.affiliate_code}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
           )}
         </DialogContent>
       </Dialog>
