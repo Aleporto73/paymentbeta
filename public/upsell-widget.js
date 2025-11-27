@@ -270,9 +270,25 @@
 
   // Global functions
   window.openUpsellModal = function() {
-    // Get transaction token from URL
+    // Get transaction token from URL or localStorage
     const urlParams = new URLSearchParams(window.location.search);
     transactionToken = urlParams.get('transaction_token');
+
+    // Se não estiver na URL, buscar no localStorage
+    if (!transactionToken) {
+      transactionToken = localStorage.getItem('transaction_token');
+      
+      // Verificar se o token não expirou
+      if (transactionToken) {
+        const expiryDate = localStorage.getItem('transaction_token_expiry');
+        if (expiryDate && new Date(expiryDate) < new Date()) {
+          // Token expirado, limpar
+          localStorage.removeItem('transaction_token');
+          localStorage.removeItem('transaction_token_expiry');
+          transactionToken = null;
+        }
+      }
+    }
 
     if (!transactionToken) {
       alert('Token de transação não encontrado. Este upsell só funciona em páginas de confirmação de pagamento.');
