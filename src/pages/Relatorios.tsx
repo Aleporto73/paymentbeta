@@ -115,11 +115,11 @@ export default function Relatorios() {
         ).length;
 
         const totalRevenue = checkoutEvents
-          .filter((e) => e.event_type === "conversion")
+          .filter((e) => e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id))
           .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
 
         const orderBumpsRevenue = checkoutEvents
-          .filter((e) => e.event_type === "conversion")
+          .filter((e) => e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id))
           .reduce((sum, e) => sum + Number(e.order_bumps_amount || 0), 0);
 
         const conversionsWithOrderBumps = checkoutEvents.filter(
