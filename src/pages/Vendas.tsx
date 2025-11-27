@@ -51,14 +51,14 @@ export default function Vendas() {
   
   const [tempFilters, setTempFilters] = useState({
     search: "",
-    status: "CONFIRMED",
+    status: "all",
     period: "all",
     productId: "all",
   });
   
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
-    status: "CONFIRMED",
+    status: "all",
     period: "all",
     productId: "all",
   });
@@ -192,7 +192,7 @@ export default function Vendas() {
   const clearFilters = () => {
     const defaultFilters = {
       search: "",
-      status: "CONFIRMED",
+      status: "all",
       period: "all",
       productId: "all",
     };

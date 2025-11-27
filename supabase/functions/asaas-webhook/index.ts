@@ -165,9 +165,58 @@ serve(async (req) => {
         } else {
           console.log('Transaction updated:', payment.id);
           
-          // If payment is confirmed/received, queue webhooks
+          // If payment is confirmed/received, process sale data
           if (payment.status === 'RECEIVED' || payment.status === 'CONFIRMED') {
-            await queueWebhooks(supabaseAdmin, existingTransaction);
+            const updatedTransaction = { ...existingTransaction, ...transactionData };
+            
+            // Create product_sales entry
+            if (updatedTransaction.product_id) {
+              const { error: salesError } = await supabaseAdmin
+                .from('product_sales')
+                .insert({
+                  product_id: updatedTransaction.product_id,
+                  product_price_id: updatedTransaction.price_id,
+                  customer_name: updatedTransaction.customer_name,
+                  customer_email: updatedTransaction.customer_email,
+                  sale_amount: updatedTransaction.value,
+                  sale_date: payment.confirmedDate || payment.paymentDate || new Date().toISOString(),
+                  status: 'completed',
+                  affiliate_link_id: updatedTransaction.affiliate_code ? null : null, // Will be linked later if needed
+                  commission_amount: 0, // Calculate based on affiliate if exists
+                });
+
+              if (salesError) {
+                console.error('Error creating product sale:', salesError);
+              } else {
+                console.log('Product sale created for transaction:', payment.id);
+              }
+            }
+
+            // Create order bump analytics
+            if (updatedTransaction.order_bumps_selected && updatedTransaction.order_bumps_selected.length > 0) {
+              for (const bumpId of updatedTransaction.order_bumps_selected) {
+                // Get bump details to calculate revenue
+                const { data: bumpData } = await supabaseAdmin
+                  .from('product_order_bumps')
+                  .select('price')
+                  .eq('id', bumpId)
+                  .single();
+
+                if (bumpData) {
+                  await supabaseAdmin
+                    .from('product_order_bump_analytics')
+                    .insert({
+                      product_id: updatedTransaction.product_id,
+                      order_bump_id: bumpId,
+                      event_type: 'conversion',
+                      revenue_generated: bumpData.price,
+                    });
+                }
+              }
+            }
+            
+            // Queue webhooks
+            await queueWebhooks(supabaseAdmin, updatedTransaction);
           }
         }
       } else {
