@@ -47,6 +47,25 @@ serve(async (req) => {
 
     console.log("[get-upsell-data] Token validated:", tokenData);
 
+    // Get original transaction to check payment method
+    const { data: originalTransaction, error: transactionError } = await supabaseClient
+      .from("transactions")
+      .select("billing_type, credit_card_token")
+      .eq("id", tokenData.transaction_id)
+      .single();
+
+    if (transactionError || !originalTransaction) {
+      console.error("[get-upsell-data] Transaction not found:", transactionError);
+      throw new Error("Transação original não encontrada");
+    }
+
+    // Check if one-click payment is available (credit card + token)
+    const oneClickAvailable = 
+      originalTransaction.billing_type === "CREDIT_CARD" && 
+      !!originalTransaction.credit_card_token;
+
+    console.log("[get-upsell-data] One-click available:", oneClickAvailable);
+
     // Get upsell data
     const { data: upsellData, error: upsellError } = await supabaseClient
       .from("product_upsells")
@@ -70,7 +89,7 @@ serve(async (req) => {
 
     console.log("[get-upsell-data] Upsell found:", upsellData);
 
-    // Return upsell data with customer info
+    // Return upsell data with customer info and one-click availability
     return new Response(
       JSON.stringify({
         upsell: upsellData,
@@ -78,6 +97,8 @@ serve(async (req) => {
           email: tokenData.customer_email,
           name: tokenData.customer_name,
         },
+        oneClickAvailable,
+        paymentMethod: originalTransaction.billing_type,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

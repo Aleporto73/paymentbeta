@@ -162,7 +162,54 @@ serve(async (req) => {
 
     console.log('Payment created:', paymentResult.id);
 
-    // 3. Save transaction to local database
+    // 3. Tokenize credit card if payment is by card (for one-click upsells)
+    let creditCardToken = null;
+    if (paymentData.billingType === 'CREDIT_CARD' && paymentData.creditCard) {
+      try {
+        console.log('Tokenizing credit card for future one-click payments');
+        const tokenizeResponse = await fetch(`${asaasBaseUrl}/creditCard/tokenizeCreditCard`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'access_token': apiKey,
+          },
+          body: JSON.stringify({
+            customer: customerResult.id,
+            creditCard: {
+              holderName: paymentData.creditCard.holderName,
+              number: paymentData.creditCard.number,
+              expiryMonth: paymentData.creditCard.expiryMonth,
+              expiryYear: paymentData.creditCard.expiryYear,
+              ccv: paymentData.creditCard.ccv,
+            },
+            creditCardHolderInfo: {
+              name: customerData.name,
+              email: customerData.email,
+              cpfCnpj: customerData.cpfCnpj,
+              postalCode: customerData.postalCode,
+              addressNumber: customerData.addressNumber,
+              addressComplement: customerData.complement,
+              phone: customerData.phone,
+              mobilePhone: customerData.mobilePhone,
+            },
+            remoteIp: deviceInfo?.ip || '127.0.0.1',
+          }),
+        });
+
+        if (tokenizeResponse.ok) {
+          const tokenResult = await tokenizeResponse.json();
+          creditCardToken = tokenResult.creditCardToken;
+          console.log('Credit card tokenized successfully');
+        } else {
+          const errorData = await tokenizeResponse.json();
+          console.error('Error tokenizing credit card:', errorData);
+        }
+      } catch (error) {
+        console.error('Error in credit card tokenization:', error);
+      }
+    }
+
+    // 4. Save transaction to local database
     await supabaseClient.from('transactions').insert({
       user_id: userId,
       asaas_payment_id: paymentResult.id,
@@ -190,9 +237,10 @@ serve(async (req) => {
       device_type: deviceInfo?.deviceType,
       ip_address: deviceInfo?.ip,
       user_agent: deviceInfo?.userAgent,
+      credit_card_token: creditCardToken,
     });
 
-    // 4. Get PIX QR Code if payment method is PIX
+    // 5. Get PIX QR Code if payment method is PIX
     let pixData = null;
     if (paymentData.billingType === 'PIX') {
       const pixResponse = await fetch(`${asaasBaseUrl}/payments/${paymentResult.id}/pixQrCode`, {

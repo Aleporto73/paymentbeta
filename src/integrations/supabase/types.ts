@@ -887,6 +887,7 @@ export type Database = {
           billing_type: string
           confirmed_date: string | null
           created_at: string
+          credit_card_token: string | null
           credit_date: string | null
           customer_cpf_cnpj: string | null
           customer_email: string
@@ -921,6 +922,7 @@ export type Database = {
           billing_type: string
           confirmed_date?: string | null
           created_at?: string
+          credit_card_token?: string | null
           credit_date?: string | null
           customer_cpf_cnpj?: string | null
           customer_email: string
@@ -955,6 +957,7 @@ export type Database = {
           billing_type?: string
           confirmed_date?: string | null
           created_at?: string
+          credit_card_token?: string | null
           credit_date?: string | null
           customer_cpf_cnpj?: string | null
           customer_email?: string

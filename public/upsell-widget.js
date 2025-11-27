@@ -327,6 +327,8 @@
 
         upsellData = data.upsell;
         customerData = data.customer;
+        upsellData.oneClickAvailable = data.oneClickAvailable;
+        upsellData.paymentMethod = data.paymentMethod;
 
         renderModal();
       })
@@ -344,9 +346,22 @@
 
   function renderModal() {
     const contentDiv = document.getElementById('upsell-modal-content');
+    
+    // Check if one-click payment is available
+    const oneClickAvailable = upsellData.oneClickAvailable !== false;
+    const paymentMethod = upsellData.paymentMethod || 'UNKNOWN';
+    
     const discountHtml = upsellData.discount_percentage
       ? `<span class="upsell-price-discount">R$ ${(upsellData.price / (1 - upsellData.discount_percentage / 100)).toFixed(2)}</span>
          <div class="upsell-discount-badge">-${upsellData.discount_percentage}% OFF</div>`
+      : '';
+
+    // Payment warning if one-click not available
+    const paymentWarning = !oneClickAvailable 
+      ? `<div class="upsell-warning" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 14px;">
+          ⚠️ Pagamento one-click disponível apenas para compras com cartão de crédito. 
+          ${paymentMethod === 'PIX' ? 'Sua compra anterior foi com PIX.' : 'Token de cartão não encontrado.'}
+        </div>`
       : '';
 
     contentDiv.innerHTML = `
@@ -355,6 +370,7 @@
         <p class="upsell-modal-subtitle">Oferta exclusiva para você, ${customerData.name}!</p>
       </div>
       <div class="upsell-modal-body">
+        ${paymentWarning}
         <div class="upsell-content">
           ${upsellData.product.image_url ? `<img src="${upsellData.product.image_url}" alt="${upsellData.title}" class="upsell-image" />` : ''}
           <div class="upsell-details">
@@ -375,7 +391,7 @@
           <button id="upsell-decline-button" class="upsell-button upsell-button-secondary" onclick="closeUpsellModal()">
             Não, obrigado
           </button>
-          <button id="upsell-accept-button" class="upsell-button upsell-button-primary">
+          <button id="upsell-accept-button" class="upsell-button upsell-button-primary" ${!oneClickAvailable ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
             ✨ Sim, quero aproveitar! (One-Click)
           </button>
         </div>
@@ -383,8 +399,10 @@
       </div>
     `;
 
-    // Add click handler
-    document.getElementById('upsell-accept-button').addEventListener('click', handlePurchase);
+    // Add click handler only if one-click is available
+    if (oneClickAvailable) {
+      document.getElementById('upsell-accept-button').addEventListener('click', handlePurchase);
+    }
   }
 
   function handlePurchase() {
