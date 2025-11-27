@@ -95,6 +95,10 @@ export default function Checkout() {
         return;
       }
 
+      // Salvar token no localStorage para acesso em múltiplas páginas
+      localStorage.setItem("transaction_token", tokenData.token);
+      localStorage.setItem("transaction_token_expiry", tokenData.expires_at);
+
       // Adicionar token à URL de redirecionamento
       const urlWithToken = new URL(redirectUrl, window.location.origin);
       urlWithToken.searchParams.set("transaction_token", tokenData.token);
