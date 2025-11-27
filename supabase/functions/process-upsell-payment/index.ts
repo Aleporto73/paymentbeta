@@ -64,6 +64,18 @@ serve(async (req) => {
       throw new Error("Transação original não encontrada");
     }
 
+    // Verify payment was made with credit card for one-click payment
+    if (originalTransaction.billing_type !== "CREDIT_CARD") {
+      console.error("[process-upsell-payment] Original payment was not with credit card");
+      throw new Error("Pagamento one-click disponível apenas para compras com cartão de crédito");
+    }
+
+    // Verify we have a credit card token
+    if (!originalTransaction.credit_card_token) {
+      console.error("[process-upsell-payment] Credit card token not found");
+      throw new Error("Token de cartão não encontrado. Não é possível processar pagamento one-click");
+    }
+
     // Get user integration settings
     const { data: integrationSettings, error: integrationError } = await supabaseClient
       .from("integration_settings")
@@ -85,16 +97,17 @@ serve(async (req) => {
       ? "https://sandbox.asaas.com/api/v3"
       : "https://api.asaas.com/v3";
 
-    console.log("[process-upsell-payment] Creating payment with Asaas");
+    console.log("[process-upsell-payment] Creating one-click payment with Asaas using saved card token");
 
-    // Create payment in Asaas using saved customer
+    // Create payment in Asaas using saved customer and credit card token
     const paymentData = {
       customer: tokenData.asaas_customer_id,
-      billingType: originalTransaction.billing_type,
+      billingType: "CREDIT_CARD",
       value: upsellData.price,
       dueDate: new Date().toISOString().split("T")[0],
       description: `Upsell: ${upsellData.title}`,
       externalReference: `upsell-${upsellData.id}`,
+      creditCardToken: originalTransaction.credit_card_token,
     };
 
     const asaasResponse = await fetch(`${asaasUrl}/payments`, {
