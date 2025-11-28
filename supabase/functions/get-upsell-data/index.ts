@@ -19,23 +19,67 @@ serve(async (req) => {
 
     const { upsellCode, transactionToken } = await req.json();
 
-    console.log("[get-upsell-data] Request:", { upsellCode, transactionToken });
+    console.log("[get-upsell-data] ========== REQUEST START ==========");
+    console.log("[get-upsell-data] Request:", { 
+      upsellCode, 
+      transactionToken: transactionToken ? `${transactionToken.substring(0, 10)}...` : null 
+    });
 
-    if (!upsellCode || !transactionToken) {
-      throw new Error("Missing upsellCode or transactionToken");
+    if (!upsellCode) {
+      console.error("[get-upsell-data] Missing upsellCode");
+      throw new Error("Missing upsellCode");
+    }
+
+    if (!transactionToken) {
+      console.error("[get-upsell-data] Missing transactionToken");
+      throw new Error("Missing transactionToken");
     }
 
     // Validate transaction token
+    console.log("[get-upsell-data] Validating transaction token...");
+    const currentTime = new Date().toISOString();
+    console.log("[get-upsell-data] Current time:", currentTime);
+
     const { data: tokenData, error: tokenError } = await supabaseClient
       .from("transaction_tokens")
       .select("*")
       .eq("token", transactionToken)
-      .gt("expires_at", new Date().toISOString())
+      .gt("expires_at", currentTime)
       .eq("used", false)
       .single();
 
+    if (tokenError) {
+      console.error("[get-upsell-data] Token query error:", tokenError);
+      console.error("[get-upsell-data] Error details:", {
+        code: tokenError.code,
+        message: tokenError.message,
+        details: tokenError.details,
+        hint: tokenError.hint
+      });
+    }
+
+    if (!tokenData) {
+      console.error("[get-upsell-data] Token not found in database");
+      console.log("[get-upsell-data] Searching for any token with this value...");
+      
+      const { data: anyToken, error: anyTokenError } = await supabaseClient
+        .from("transaction_tokens")
+        .select("*, expires_at, used")
+        .eq("token", transactionToken)
+        .single();
+      
+      if (anyToken) {
+        console.log("[get-upsell-data] Token found but invalid:");
+        console.log("[get-upsell-data] - Expires at:", anyToken.expires_at);
+        console.log("[get-upsell-data] - Already used:", anyToken.used);
+        console.log("[get-upsell-data] - Is expired:", new Date(anyToken.expires_at) < new Date());
+      } else {
+        console.error("[get-upsell-data] Token not found at all in database");
+      }
+    }
+
     if (tokenError || !tokenData) {
-      console.error("[get-upsell-data] Invalid token:", tokenError);
+      console.error("[get-upsell-data] Token validation failed");
       return new Response(
         JSON.stringify({ error: "Token inválido ou expirado" }),
         {
