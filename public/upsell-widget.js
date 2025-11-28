@@ -272,33 +272,63 @@
   window.openUpsellModal = function() {
     console.log('[Upsell Widget] Opening modal');
     
-    // Get transaction token from URL or localStorage
+    // Get transaction token from URL or localStorage or referrer
     const urlParams = new URLSearchParams(window.location.search);
-    console.log('[Upsell Widget] URL params:', window.location.search);
+    console.log('[Upsell Widget] URL params on current page:', window.location.search);
     
     transactionToken = urlParams.get('transaction_token');
-    console.log('[Upsell Widget] Token from URL:', transactionToken ? 'Found' : 'Not found');
+    console.log('[Upsell Widget] Token from current URL:', transactionToken ? 'Found' : 'Not found');
 
-    // Se não estiver na URL, buscar no localStorage
+    // If not in current URL, try localStorage (same origin only)
     if (!transactionToken) {
       console.log('[Upsell Widget] Checking localStorage for token');
-      transactionToken = localStorage.getItem('transaction_token');
-      console.log('[Upsell Widget] Token from localStorage:', transactionToken ? 'Found' : 'Not found');
-      
-      // Verificar se o token não expirou
-      if (transactionToken) {
-        const expiryDate = localStorage.getItem('transaction_token_expiry');
-        console.log('[Upsell Widget] Token expiry date:', expiryDate);
+      try {
+        transactionToken = localStorage.getItem('transaction_token');
+        console.log('[Upsell Widget] Token from localStorage:', transactionToken ? 'Found' : 'Not found');
         
-        if (expiryDate && new Date(expiryDate) < new Date()) {
-          // Token expirado, limpar
-          console.log('[Upsell Widget] Token expired, removing from localStorage');
-          localStorage.removeItem('transaction_token');
-          localStorage.removeItem('transaction_token_expiry');
-          transactionToken = null;
-        } else {
-          console.log('[Upsell Widget] Token is valid (not expired)');
+        // Verify token not expired
+        if (transactionToken) {
+          const expiryDate = localStorage.getItem('transaction_token_expiry');
+          console.log('[Upsell Widget] Token expiry date:', expiryDate);
+          
+          if (expiryDate && new Date(expiryDate) < new Date()) {
+            console.log('[Upsell Widget] Token expired, removing from localStorage');
+            localStorage.removeItem('transaction_token');
+            localStorage.removeItem('transaction_token_expiry');
+            transactionToken = null;
+          } else {
+            console.log('[Upsell Widget] Token is valid (not expired)');
+          }
         }
+      } catch (storageError) {
+        console.warn('[Upsell Widget] Error accessing localStorage:', storageError);
+      }
+    }
+
+    // If still not found, try to recover from document.referrer
+    if (!transactionToken && document.referrer) {
+      try {
+        console.log('[Upsell Widget] Attempting to read token from document.referrer:', document.referrer);
+        const referrerUrl = new URL(document.referrer);
+        const referrerToken = referrerUrl.searchParams.get('transaction_token');
+        if (referrerToken) {
+          transactionToken = referrerToken;
+          console.log('[Upsell Widget] Recovered token from referrer (first 10 chars):',
+            transactionToken.substring(0, 10) + '...');
+          // Persist on this origin for future opens
+          try {
+            localStorage.setItem('transaction_token', transactionToken);
+            // We don't know the exact expiry here, so store a conservative 30 minutes from now
+            const expiry = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+            localStorage.setItem('transaction_token_expiry', expiry);
+          } catch (storageError) {
+            console.warn('[Upsell Widget] Could not persist recovered token to localStorage:', storageError);
+          }
+        } else {
+          console.log('[Upsell Widget] No token found in document.referrer URL');
+        }
+      } catch (referrerError) {
+        console.warn('[Upsell Widget] Error parsing document.referrer URL:', referrerError);
       }
     }
 
@@ -307,7 +337,7 @@
 
     if (!transactionToken) {
       console.error('[Upsell Widget] No transaction token found!');
-      console.log('[Upsell Widget] localStorage keys:', Object.keys(localStorage));
+      console.log('[Upsell Widget] localStorage keys:', Object.keys(localStorage || {}));
       alert('Token de transação não encontrado. Este upsell só funciona em páginas de confirmação de pagamento.');
       return;
     }
