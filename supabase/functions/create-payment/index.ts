@@ -212,35 +212,46 @@ serve(async (req) => {
     }
 
     // 4. Save transaction to local database
-    await supabaseClient.from('transactions').insert({
-      user_id: userId,
-      asaas_payment_id: paymentResult.id,
-      asaas_customer_id: customerResult.id,
-      product_id: productId,
-      price_id: priceId,
-      customer_name: customerData.name,
-      customer_email: customerData.email,
-      customer_cpf_cnpj: customerData.cpfCnpj,
-      customer_phone: customerData.mobilePhone || customerData.phone,
-      customer_state: customerData.state,
-      payment_method: paymentData.billingType,
-      status: paymentResult.status,
-      value: paymentData.value,
-      net_value: paymentResult.netValue,
-      due_date: paymentData.dueDate,
-      billing_type: paymentData.billingType,
-      description: paymentData.description,
-      external_reference: paymentData.externalReference,
-      affiliate_code: affiliateCode,
-      order_bumps_selected: orderBumps?.map((ob: any) => ob.id),
-      order_bumps_amount: orderBumps?.reduce((sum: number, ob: any) => sum + ob.price, 0) || 0,
-      installment_count: paymentData.installmentCount || 1,
-      installment_value: paymentData.installmentValue,
-      device_type: deviceInfo?.deviceType,
-      ip_address: deviceInfo?.ip,
-      user_agent: deviceInfo?.userAgent,
-      credit_card_token: creditCardToken,
-    });
+    const { data: transactionData, error: transactionError } = await supabaseClient
+      .from('transactions')
+      .insert({
+        user_id: userId,
+        asaas_payment_id: paymentResult.id,
+        asaas_customer_id: customerResult.id,
+        product_id: productId,
+        price_id: priceId,
+        customer_name: customerData.name,
+        customer_email: customerData.email,
+        customer_cpf_cnpj: customerData.cpfCnpj,
+        customer_phone: customerData.mobilePhone || customerData.phone,
+        customer_state: customerData.state,
+        payment_method: paymentData.billingType,
+        status: paymentResult.status,
+        value: paymentData.value,
+        net_value: paymentResult.netValue,
+        due_date: paymentData.dueDate,
+        billing_type: paymentData.billingType,
+        description: paymentData.description,
+        external_reference: paymentData.externalReference,
+        affiliate_code: affiliateCode,
+        order_bumps_selected: orderBumps?.map((ob: any) => ob.id),
+        order_bumps_amount: orderBumps?.reduce((sum: number, ob: any) => sum + ob.price, 0) || 0,
+        installment_count: paymentData.installmentCount || 1,
+        installment_value: paymentData.installmentValue,
+        device_type: deviceInfo?.deviceType,
+        ip_address: deviceInfo?.ip,
+        user_agent: deviceInfo?.userAgent,
+        credit_card_token: creditCardToken,
+      })
+      .select()
+      .single();
+
+    if (transactionError) {
+      console.error('Error saving transaction:', transactionError);
+      throw new Error('Failed to save transaction');
+    }
+
+    console.log('Transaction saved with ID:', transactionData.id);
 
     // 5. Get PIX QR Code if payment method is PIX
     let pixData = null;
@@ -261,6 +272,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         payment: paymentResult,
+        transaction: transactionData,
         pixData,
         invoiceUrl: paymentResult.invoiceUrl,
         bankSlipUrl: paymentResult.bankSlipUrl,
