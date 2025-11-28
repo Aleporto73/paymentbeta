@@ -113,6 +113,25 @@ export interface ProductOrderBumpAnalytics {
   created_at: string;
 }
 
+export interface ProductUpsell {
+  id: string;
+  product_id: string;
+  upsell_product_id: string;
+  title: string;
+  description: string | null;
+  price: number;
+  discount_percentage: number | null;
+  is_active: boolean;
+  display_order: number;
+  unique_code: string;
+  redirect_url: string | null;
+  preview_background_color?: string;
+  preview_text_color?: string;
+  preview_button_color?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
   saude_esportes: 'Saúde e Esportes',
   financas_investimentos: 'Finanças e Investimentos',
