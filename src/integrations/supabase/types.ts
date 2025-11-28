@@ -590,6 +590,9 @@ export type Database = {
           display_order: number
           id: string
           is_active: boolean
+          preview_background_color: string | null
+          preview_button_color: string | null
+          preview_text_color: string | null
           price: number
           product_id: string
           redirect_url: string | null
@@ -605,6 +608,9 @@ export type Database = {
           display_order?: number
           id?: string
           is_active?: boolean
+          preview_background_color?: string | null
+          preview_button_color?: string | null
+          preview_text_color?: string | null
           price: number
           product_id: string
           redirect_url?: string | null
@@ -620,6 +626,9 @@ export type Database = {
           display_order?: number
           id?: string
           is_active?: boolean
+          preview_background_color?: string | null
+          preview_button_color?: string | null
+          preview_text_color?: string | null
           price?: number
           product_id?: string
           redirect_url?: string | null
