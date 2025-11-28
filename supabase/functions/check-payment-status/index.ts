@@ -81,12 +81,13 @@ serve(async (req) => {
     }
 
     // Get integration settings to fetch API key
+    // Single-account architecture: fetch any active Asaas configuration
     const { data: integrationSettings, error: settingsError } = await supabaseClient
       .from('integration_settings')
       .select('*')
-      .eq('user_id', userId)
       .eq('integration_name', 'asaas')
-      .single();
+      .eq('is_active', true)
+      .maybeSingle();
 
     if (settingsError || !integrationSettings) {
       throw new Error('Asaas integration not configured');

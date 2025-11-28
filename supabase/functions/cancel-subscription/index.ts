@@ -62,15 +62,16 @@ Deno.serve(async (req) => {
     }
 
     // Get Asaas API key
-    const { data: integration } = await supabase
+    // Single-account architecture: fetch any active Asaas configuration
+    const { data: integration, error: integrationError } = await supabase
       .from('integration_settings')
       .select('production_api_key, sandbox_api_key, is_sandbox')
-      .eq('user_id', user.id)
       .eq('integration_name', 'asaas')
-      .single();
+      .eq('is_active', true)
+      .maybeSingle();
 
-    if (!integration) {
-      console.error('Asaas integration not configured');
+    if (integrationError || !integration) {
+      console.error('Asaas integration not configured:', integrationError);
       return new Response(
         JSON.stringify({ error: 'Integração Asaas não configurada' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

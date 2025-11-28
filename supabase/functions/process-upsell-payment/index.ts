@@ -77,13 +77,13 @@ serve(async (req) => {
     }
 
     // Get user integration settings
+    // Single-account architecture: fetch any active Asaas configuration
     const { data: integrationSettings, error: integrationError } = await supabaseClient
       .from("integration_settings")
       .select("*")
-      .eq("user_id", originalTransaction.user_id)
       .eq("integration_name", "asaas")
       .eq("is_active", true)
-      .single();
+      .maybeSingle();
 
     if (integrationError || !integrationSettings) {
       console.error("[process-upsell-payment] Integration not found:", integrationError);
