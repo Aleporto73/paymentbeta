@@ -19,25 +19,54 @@ serve(async (req) => {
 
     const { upsellCode, transactionToken } = await req.json();
 
-    console.log("[process-upsell-payment] Request:", { upsellCode, transactionToken });
+    console.log("[process-upsell-payment] ========== PAYMENT START ==========");
+    console.log("[process-upsell-payment] Request:", { 
+      upsellCode, 
+      transactionToken: transactionToken ? `${transactionToken.substring(0, 10)}...` : null 
+    });
 
-    if (!upsellCode || !transactionToken) {
-      throw new Error("Missing upsellCode or transactionToken");
+    if (!upsellCode) {
+      console.error("[process-upsell-payment] Missing upsellCode");
+      throw new Error("Missing upsellCode");
+    }
+
+    if (!transactionToken) {
+      console.error("[process-upsell-payment] Missing transactionToken");
+      throw new Error("Missing transactionToken");
     }
 
     // Validate and mark token as used
+    console.log("[process-upsell-payment] Validating token...");
+    const currentTime = new Date().toISOString();
+    console.log("[process-upsell-payment] Current time:", currentTime);
+
     const { data: tokenData, error: tokenError } = await supabaseClient
       .from("transaction_tokens")
       .select("*")
       .eq("token", transactionToken)
-      .gt("expires_at", new Date().toISOString())
+      .gt("expires_at", currentTime)
       .eq("used", false)
       .single();
 
+    if (tokenError) {
+      console.error("[process-upsell-payment] Token query error:", tokenError);
+      console.error("[process-upsell-payment] Error details:", {
+        code: tokenError.code,
+        message: tokenError.message
+      });
+    }
+
+    if (!tokenData) {
+      console.error("[process-upsell-payment] Token not found in database");
+    }
+
     if (tokenError || !tokenData) {
-      console.error("[process-upsell-payment] Invalid token:", tokenError);
+      console.error("[process-upsell-payment] Token validation failed");
       throw new Error("Token inválido ou expirado");
     }
+
+    console.log("[process-upsell-payment] Token validated successfully");
+    console.log("[process-upsell-payment] Token transaction_id:", tokenData.transaction_id);
 
     // Get upsell data
     const { data: upsellData, error: upsellError } = await supabaseClient

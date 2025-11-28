@@ -270,27 +270,44 @@
 
   // Global functions
   window.openUpsellModal = function() {
+    console.log('[Upsell Widget] Opening modal');
+    
     // Get transaction token from URL or localStorage
     const urlParams = new URLSearchParams(window.location.search);
+    console.log('[Upsell Widget] URL params:', window.location.search);
+    
     transactionToken = urlParams.get('transaction_token');
+    console.log('[Upsell Widget] Token from URL:', transactionToken ? 'Found' : 'Not found');
 
     // Se não estiver na URL, buscar no localStorage
     if (!transactionToken) {
+      console.log('[Upsell Widget] Checking localStorage for token');
       transactionToken = localStorage.getItem('transaction_token');
+      console.log('[Upsell Widget] Token from localStorage:', transactionToken ? 'Found' : 'Not found');
       
       // Verificar se o token não expirou
       if (transactionToken) {
         const expiryDate = localStorage.getItem('transaction_token_expiry');
+        console.log('[Upsell Widget] Token expiry date:', expiryDate);
+        
         if (expiryDate && new Date(expiryDate) < new Date()) {
           // Token expirado, limpar
+          console.log('[Upsell Widget] Token expired, removing from localStorage');
           localStorage.removeItem('transaction_token');
           localStorage.removeItem('transaction_token_expiry');
           transactionToken = null;
+        } else {
+          console.log('[Upsell Widget] Token is valid (not expired)');
         }
       }
     }
 
+    console.log('[Upsell Widget] Final token status:', transactionToken ? 'Available' : 'Not available');
+    console.log('[Upsell Widget] Token value (first 10 chars):', transactionToken ? transactionToken.substring(0, 10) + '...' : 'null');
+
     if (!transactionToken) {
+      console.error('[Upsell Widget] No transaction token found!');
+      console.log('[Upsell Widget] localStorage keys:', Object.keys(localStorage));
       alert('Token de transação não encontrado. Este upsell só funciona em páginas de confirmação de pagamento.');
       return;
     }
@@ -309,18 +326,31 @@
   function loadUpsellData() {
     const contentDiv = document.getElementById('upsell-modal-content');
     
+    console.log('[Upsell Widget] Loading upsell data');
+    console.log('[Upsell Widget] API URL:', API_URL);
+    console.log('[Upsell Widget] Upsell ID:', upsellId);
+    console.log('[Upsell Widget] Transaction Token (first 10 chars):', transactionToken ? transactionToken.substring(0, 10) + '...' : 'null');
+    
+    const payload = {
+      upsellCode: upsellId,
+      transactionToken: transactionToken,
+    };
+    console.log('[Upsell Widget] Request payload:', payload);
+    
     fetch(`${API_URL}/functions/v1/get-upsell-data`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        upsellCode: upsellId,
-        transactionToken: transactionToken,
-      }),
+      body: JSON.stringify(payload),
     })
-      .then(response => response.json())
+      .then(response => {
+        console.log('[Upsell Widget] Response status:', response.status);
+        return response.json();
+      })
       .then(data => {
+        console.log('[Upsell Widget] Response data:', data);
+        
         if (data.error) {
           throw new Error(data.error);
         }
@@ -330,14 +360,17 @@
         upsellData.oneClickAvailable = data.oneClickAvailable;
         upsellData.paymentMethod = data.paymentMethod;
 
+        console.log('[Upsell Widget] Upsell data loaded successfully');
         renderModal();
       })
       .catch(error => {
         console.error('[Upsell Widget] Error loading data:', error);
+        console.error('[Upsell Widget] Error details:', error.message);
         contentDiv.innerHTML = `
           <div class="upsell-modal-body">
             <div class="upsell-message upsell-error">
-              Não foi possível carregar a oferta. Por favor, tente novamente.
+              Não foi possível carregar a oferta. Por favor, tente novamente.<br>
+              <small style="font-size: 0.85em; opacity: 0.8;">Erro: ${error.message}</small>
             </div>
           </div>
         `;
