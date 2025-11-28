@@ -470,34 +470,32 @@
       : '';
 
     contentDiv.innerHTML = `
-      <div class="upsell-modal-header" style="background-color: ${customStyles.buttonColor};">
-        <h2 class="upsell-modal-title" style="color: white;">${upsellData.title}</h2>
-        <p class="upsell-modal-subtitle" style="color: white; opacity: 0.95;">Oferta exclusiva para você, ${customerData.name}!</p>
-      </div>
-      <div class="upsell-modal-body" style="background-color: ${customStyles.backgroundColor}; color: ${customStyles.textColor};">
-        ${paymentWarning}
-        <div class="upsell-content">
-          ${upsellData.product.image_url ? `<img src="${upsellData.product.image_url}" alt="${upsellData.title}" class="upsell-image" />` : ''}
-          <div class="upsell-details">
-            <p class="upsell-product-name">${upsellData.product.name}</p>
-            ${upsellData.description ? `<p class="upsell-description">${upsellData.description}</p>` : ''}
-          </div>
-        </div>
+      <div class="upsell-modal-body" style="background-color: ${customStyles.backgroundColor}; color: ${customStyles.textColor}; padding: 2rem;">
+        ${upsellData.product.image_url ? `<div style="text-align: center; margin-bottom: 1.5rem;"><img src="${upsellData.product.image_url}" alt="${upsellData.title}" class="upsell-image" style="width: 120px; height: 120px; object-fit: cover; border-radius: 0.5rem;" /></div>` : ''}
         
-        <div class="upsell-price-container">
-          <div class="upsell-price-label">Preço especial:</div>
-          <div class="upsell-price">
-            <span class="upsell-price-value">R$ ${upsellData.price.toFixed(2)}</span>
+        <h2 style="font-size: 1.75rem; font-weight: bold; margin: 0 0 0.5rem 0; text-align: center; color: ${customStyles.textColor};">${upsellData.title}</h2>
+        <p style="font-size: 1rem; margin: 0 0 1rem 0; text-align: center; color: ${customStyles.textColor};">Oferta exclusiva para você, ${customerData.name}!</p>
+        
+        ${paymentWarning}
+        
+        ${upsellData.description ? `<p style="font-size: 0.95rem; color: ${customStyles.textColor}; margin: 0 0 1rem 0; line-height: 1.6; text-align: center;">${upsellData.description}</p>` : ''}
+        
+        <p style="font-size: 0.875rem; color: ${customStyles.textColor}; margin: 0 0 1rem 0; font-weight: 500; text-align: center;">Produto: ${upsellData.product.name}</p>
+        
+        <div style="text-align: center; margin: 1.5rem 0;">
+          <div style="font-size: 0.875rem; color: ${customStyles.textColor}; margin-bottom: 0.25rem;">Preço especial:</div>
+          <div style="display: flex; align-items: baseline; gap: 0.75rem; justify-content: center;">
+            <span style="font-size: 2rem; font-weight: bold; color: ${customStyles.textColor};">R$ ${upsellData.price.toFixed(2)}</span>
             ${discountHtml}
           </div>
         </div>
 
-        <div class="upsell-buttons">
-          <button id="upsell-decline-button" class="upsell-button upsell-button-secondary" style="border-color: ${customStyles.textColor}; color: ${customStyles.textColor};">
+        <div class="upsell-buttons" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+          <button id="upsell-decline-button" class="upsell-button" style="flex: 1; padding: 1rem 2rem; font-size: 1.1rem; font-weight: bold; border: 2px solid ${customStyles.textColor}; background: transparent; color: ${customStyles.textColor}; border-radius: 0.5rem; cursor: pointer; transition: all 0.2s;">
             Não, obrigado
           </button>
-          <button id="upsell-accept-button" class="upsell-button upsell-button-primary" style="background-color: ${customStyles.buttonColor};" ${!oneClickAvailable ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-            ✨ Sim, quero aproveitar! (One-Click)
+          <button id="upsell-accept-button" class="upsell-button" style="flex: 1; padding: 1rem 2rem; font-size: 1.1rem; font-weight: bold; border: none; background-color: ${customStyles.buttonColor}; color: white; border-radius: 0.5rem; cursor: pointer; transition: all 0.2s; ${!oneClickAvailable ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${!oneClickAvailable ? 'disabled' : ''}>
+            ✨ Sim, eu quero!
           </button>
         </div>
         <div id="upsell-message"></div>
