@@ -110,7 +110,7 @@ serve(async (req) => {
 
     console.log("[get-upsell-data] One-click available:", oneClickAvailable);
 
-    // Get upsell data
+    // Get upsell data with customization fields
     const { data: upsellData, error: upsellError } = await supabaseClient
       .from("product_upsells")
       .select(`
