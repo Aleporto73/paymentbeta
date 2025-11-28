@@ -10,7 +10,8 @@
     return;
   }
 
-  const API_URL = window.location.origin;
+  // Use Supabase project URL for edge functions
+  const API_URL = 'https://vjpbsgqvmgrxohapxukn.supabase.co';
 
   // Widget state
   let upsellData = null;
