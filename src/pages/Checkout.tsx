@@ -149,7 +149,7 @@ export default function Checkout() {
         const redirectUrl = product?.approved_payment_redirect_url || "/pagamento-aprovado";
         const transactionId = paymentResult?.transaction?.id;
 
-        if (transactionId && product?.approved_payment_redirect_url) {
+        if (transactionId) {
           await generateAndRedirectWithToken(redirectUrl, transactionId);
         } else {
           window.location.href = redirectUrl;
@@ -862,7 +862,7 @@ export default function Checkout() {
           const redirectUrl = product.approved_payment_redirect_url || "/pagamento-aprovado";
           const transactionId = data?.transaction?.id;
 
-          if (transactionId && product.approved_payment_redirect_url) {
+          if (transactionId) {
             await generateAndRedirectWithToken(redirectUrl, transactionId);
           } else {
             window.location.href = redirectUrl;
