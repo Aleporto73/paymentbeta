@@ -17,6 +17,9 @@ export function UpsellPreview({ upsell, productName, imageUrl }: UpsellPreviewPr
     preview_button_color = "#3b82f6",
   } = upsell;
 
+  const acceptButtonText = (upsell as any).accept_button_text || "Sim, eu quero!";
+  const declineButtonText = (upsell as any).decline_button_text || "Não, obrigado";
+
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium text-muted-foreground">
@@ -70,7 +73,7 @@ export function UpsellPreview({ upsell, productName, imageUrl }: UpsellPreviewPr
             className="px-6 py-2 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: preview_button_color }}
           >
-            Sim, eu quero!
+            {acceptButtonText}
           </button>
           <button
             type="button"
@@ -80,7 +83,7 @@ export function UpsellPreview({ upsell, productName, imageUrl }: UpsellPreviewPr
               color: preview_text_color 
             }}
           >
-            Não, obrigado
+            {declineButtonText}
           </button>
         </div>
       </Card>

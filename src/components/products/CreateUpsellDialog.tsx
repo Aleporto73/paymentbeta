@@ -50,6 +50,8 @@ const formSchema = z.object({
   preview_background_color: z.string().default("#f8f9fa"),
   preview_text_color: z.string().default("#1f2937"),
   preview_button_color: z.string().default("#3b82f6"),
+  accept_button_text: z.string().default("Sim, eu quero!"),
+  decline_button_text: z.string().default("Não, obrigado"),
 });
 
 interface CreateUpsellDialogProps {
@@ -88,6 +90,8 @@ export function CreateUpsellDialog({
       preview_background_color: "#f8f9fa",
       preview_text_color: "#1f2937",
       preview_button_color: "#3b82f6",
+      accept_button_text: "Sim, eu quero!",
+      decline_button_text: "Não, obrigado",
     },
   });
 
@@ -108,6 +112,8 @@ export function CreateUpsellDialog({
           preview_background_color: editingUpsell.preview_background_color || "#f8f9fa",
           preview_text_color: editingUpsell.preview_text_color || "#1f2937",
           preview_button_color: editingUpsell.preview_button_color || "#3b82f6",
+          accept_button_text: (editingUpsell as any).accept_button_text || "Sim, eu quero!",
+          decline_button_text: (editingUpsell as any).decline_button_text || "Não, obrigado",
         });
         setPriceDisplay(formatCurrency(editingUpsell.price));
       } else {
@@ -123,6 +129,8 @@ export function CreateUpsellDialog({
           preview_background_color: "#f8f9fa",
           preview_text_color: "#1f2937",
           preview_button_color: "#3b82f6",
+          accept_button_text: "Sim, eu quero!",
+          decline_button_text: "Não, obrigado",
         });
         setPriceDisplay("");
       }
@@ -144,6 +152,8 @@ export function CreateUpsellDialog({
         preview_background_color: values.preview_background_color,
         preview_text_color: values.preview_text_color,
         preview_button_color: values.preview_button_color,
+        accept_button_text: values.accept_button_text,
+        decline_button_text: values.decline_button_text,
       };
 
       if (editingUpsell) {
@@ -472,6 +482,50 @@ export function CreateUpsellDialog({
                     </FormItem>
                   )}
                 />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="accept_button_text"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Texto do Botão "Aceitar"</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="text" 
+                            placeholder="Sim, eu quero!"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Texto do botão de aceitar a oferta
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="decline_button_text"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Texto do Botão "Recusar"</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="text" 
+                            placeholder="Não, obrigado"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Texto do botão de recusar a oferta
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </TabsContent>
 
               <DialogFooter>
