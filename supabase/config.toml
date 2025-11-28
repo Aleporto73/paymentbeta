@@ -20,3 +20,12 @@ verify_jwt = false
 
 [functions.generate-transaction-token]
 verify_jwt = false
+
+[functions.track-checkout]
+verify_jwt = false
+
+[functions.send-conversion-events]
+verify_jwt = false
+
+[functions.track-click]
+verify_jwt = false

@@ -83,28 +83,21 @@ export default function Checkout() {
   // Função para gerar token e redirecionar
   const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
     try {
-      console.log("[Redirect] Starting token generation...");
-      console.log("[Redirect] Original URL:", redirectUrl);
-      console.log("[Redirect] Transaction ID:", transactionId);
-
       // Gerar token de transação
       const { data: tokenData, error: tokenError } = await supabase.functions.invoke("generate-transaction-token", {
         body: { transactionId },
       });
 
       if (tokenError) {
-        console.error("[Redirect] Error generating token:", tokenError);
+        console.error("Error generating token:", tokenError);
         // Redirecionar sem token em caso de erro
         window.location.href = redirectUrl;
         return;
       }
 
-      console.log("[Redirect] Token generated:", tokenData.token);
-
       // Salvar token no localStorage para acesso em múltiplas páginas
       localStorage.setItem("transaction_token", tokenData.token);
       localStorage.setItem("transaction_token_expiry", tokenData.expires_at);
-      console.log("[Redirect] Token saved to localStorage");
 
       // Adicionar token à URL de redirecionamento
       // Se for URL absoluta (http/https), usa diretamente. Se for relativa, usa origin
@@ -117,16 +110,9 @@ export default function Checkout() {
       
       urlWithToken.searchParams.set("transaction_token", tokenData.token);
       
-      const finalUrl = urlWithToken.toString();
-      console.log("[Redirect] Final URL with token:", finalUrl);
-      console.log("[Redirect] Redirecting in 1 second...");
-
-      // Pequeno delay para garantir que logs sejam visíveis
-      setTimeout(() => {
-        window.location.href = finalUrl;
-      }, 1000);
+      window.location.href = urlWithToken.toString();
     } catch (error) {
-      console.error("[Redirect] Error in redirect flow:", error);
+      console.error("Error generating token:", error);
       // Redirecionar sem token em caso de erro
       window.location.href = redirectUrl;
     }
