@@ -582,6 +582,48 @@ export type Database = {
           },
         ]
       }
+      product_upsell_analytics: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          product_id: string
+          revenue_generated: number | null
+          upsell_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          product_id: string
+          revenue_generated?: number | null
+          upsell_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          product_id?: string
+          revenue_generated?: number | null
+          upsell_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_upsell_analytics_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_upsell_analytics_upsell_id_fkey"
+            columns: ["upsell_id"]
+            isOneToOne: false
+            referencedRelation: "product_upsells"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_upsells: {
         Row: {
           created_at: string

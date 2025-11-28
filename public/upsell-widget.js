@@ -19,6 +19,13 @@
   let isProcessing = false;
   let transactionToken = null;
 
+  // Widget state for customization
+  let customStyles = {
+    backgroundColor: '#f8f9fa',
+    textColor: '#1f2937',
+    buttonColor: '#3b82f6',
+  };
+
   // Create widget styles
   const styles = `
     .upsell-modal-overlay {
@@ -409,7 +416,23 @@
         upsellData.oneClickAvailable = data.oneClickAvailable;
         upsellData.paymentMethod = data.paymentMethod;
 
+        // Extract custom styles from upsell data
+        if (upsellData.preview_background_color) {
+          customStyles.backgroundColor = upsellData.preview_background_color;
+        }
+        if (upsellData.preview_text_color) {
+          customStyles.textColor = upsellData.preview_text_color;
+        }
+        if (upsellData.preview_button_color) {
+          customStyles.buttonColor = upsellData.preview_button_color;
+        }
+
         console.log('[Upsell Widget] Upsell data loaded successfully');
+        console.log('[Upsell Widget] Custom styles:', customStyles);
+
+        // Track view event
+        trackEvent('view', upsellData.id, upsellData.product_id);
+
         renderModal();
       })
       .catch(error => {
@@ -447,11 +470,11 @@
       : '';
 
     contentDiv.innerHTML = `
-      <div class="upsell-modal-header">
-        <h2 class="upsell-modal-title">${upsellData.title}</h2>
-        <p class="upsell-modal-subtitle">Oferta exclusiva para você, ${customerData.name}!</p>
+      <div class="upsell-modal-header" style="background-color: ${customStyles.buttonColor};">
+        <h2 class="upsell-modal-title" style="color: white;">${upsellData.title}</h2>
+        <p class="upsell-modal-subtitle" style="color: white; opacity: 0.95;">Oferta exclusiva para você, ${customerData.name}!</p>
       </div>
-      <div class="upsell-modal-body">
+      <div class="upsell-modal-body" style="background-color: ${customStyles.backgroundColor}; color: ${customStyles.textColor};">
         ${paymentWarning}
         <div class="upsell-content">
           ${upsellData.product.image_url ? `<img src="${upsellData.product.image_url}" alt="${upsellData.title}" class="upsell-image" />` : ''}
@@ -470,10 +493,10 @@
         </div>
 
         <div class="upsell-buttons">
-          <button id="upsell-decline-button" class="upsell-button upsell-button-secondary" onclick="closeUpsellModal()">
+          <button id="upsell-decline-button" class="upsell-button upsell-button-secondary" style="border-color: ${customStyles.textColor}; color: ${customStyles.textColor};">
             Não, obrigado
           </button>
-          <button id="upsell-accept-button" class="upsell-button upsell-button-primary" ${!oneClickAvailable ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+          <button id="upsell-accept-button" class="upsell-button upsell-button-primary" style="background-color: ${customStyles.buttonColor};" ${!oneClickAvailable ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
             ✨ Sim, quero aproveitar! (One-Click)
           </button>
         </div>
@@ -485,6 +508,35 @@
     if (oneClickAvailable) {
       document.getElementById('upsell-accept-button').addEventListener('click', handlePurchase);
     }
+
+    // Track reject on decline button
+    document.getElementById('upsell-decline-button').addEventListener('click', () => {
+      trackEvent('reject', upsellData.id, upsellData.product_id);
+    });
+  }
+
+  function trackEvent(eventType, upsellId, productId, revenue = 0) {
+    console.log('[Upsell Widget] Tracking event:', { eventType, upsellId, productId, revenue });
+    
+    fetch(`${API_URL}/functions/v1/track-upsell-event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        upsellId,
+        productId,
+        eventType,
+        revenueGenerated: revenue,
+      }),
+    })
+      .then(response => response.json())
+      .then(data => {
+        console.log('[Upsell Widget] Event tracked:', data);
+      })
+      .catch(error => {
+        console.error('[Upsell Widget] Error tracking event:', error);
+      });
   }
 
   function handlePurchase() {
@@ -515,6 +567,9 @@
         if (data.error) {
           throw new Error(data.error);
         }
+
+        // Track accept event with revenue
+        trackEvent('accept', upsellData.id, upsellData.product_id, upsellData.price);
 
         messageDiv.innerHTML = `
           <div class="upsell-message upsell-success">

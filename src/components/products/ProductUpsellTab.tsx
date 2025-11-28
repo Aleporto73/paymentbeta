@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,9 +24,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Code, Edit } from "lucide-react";
+import { Plus, Trash2, Code, Edit, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateUpsellDialog } from "./CreateUpsellDialog";
+import { UpsellAnalytics } from "./UpsellAnalytics";
 import type { Product, ProductUpsell } from "@/types/product";
 
 interface ProductUpsellTabProps {
@@ -41,6 +43,7 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
     preview_button_color?: string;
   }) | null>(null);
   const [deleteUpsellId, setDeleteUpsellId] = useState<string | null>(null);
+  const [viewAnalyticsUpsellId, setViewAnalyticsUpsellId] = useState<string | null>(null);
 
   const { data: upsells = [], isLoading: upsellsLoading } = useQuery({
     queryKey: ["product-upsells", productId],
@@ -197,8 +200,32 @@ export function ProductUpsellTab({ productId }: ProductUpsellTabProps) {
                         {upsell.is_active ? "Ativo" : "Inativo"}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Dialog>
+                  <TableCell className="text-right space-x-2">
+                    <Dialog
+                      open={viewAnalyticsUpsellId === upsell.id}
+                      onOpenChange={(open) => !open && setViewAnalyticsUpsellId(null)}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewAnalyticsUpsellId(upsell.id)}
+                        >
+                          <BarChart3 className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                          <DialogTitle>Analytics do Upsell</DialogTitle>
+                          <DialogDescription>
+                            Métricas de performance: {upsell.title}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <UpsellAnalytics upsellId={upsell.id} />
+                      </DialogContent>
+                    </Dialog>
+
+                    <Dialog>
                         <DialogTrigger asChild>
                           <Button variant="outline" size="sm">
                             <Code className="h-4 w-4" />
