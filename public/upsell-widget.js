@@ -492,10 +492,10 @@
 
         <div class="upsell-buttons" style="display: flex; gap: 1rem; margin-top: 1.5rem;">
           <button id="upsell-decline-button" class="upsell-button" style="flex: 1; padding: 1rem 2rem; font-size: 1.1rem; font-weight: bold; border: 2px solid ${customStyles.textColor}; background: transparent; color: ${customStyles.textColor}; border-radius: 0.5rem; cursor: pointer; transition: all 0.2s;">
-            Não, obrigado
+            ${upsellData.decline_button_text || 'Não, obrigado'}
           </button>
           <button id="upsell-accept-button" class="upsell-button" style="flex: 1; padding: 1rem 2rem; font-size: 1.1rem; font-weight: bold; border: none; background-color: ${customStyles.buttonColor}; color: white; border-radius: 0.5rem; cursor: pointer; transition: all 0.2s; ${!oneClickAvailable ? 'opacity: 0.5; cursor: not-allowed;' : ''}" ${!oneClickAvailable ? 'disabled' : ''}>
-            ✨ Sim, eu quero!
+            ${upsellData.accept_button_text || '✨ Sim, eu quero!'}
           </button>
         </div>
         <div id="upsell-message"></div>

@@ -626,7 +626,9 @@ export type Database = {
       }
       product_upsells: {
         Row: {
+          accept_button_text: string | null
           created_at: string
+          decline_button_text: string | null
           description: string | null
           discount_percentage: number | null
           display_order: number
@@ -644,7 +646,9 @@ export type Database = {
           upsell_product_id: string
         }
         Insert: {
+          accept_button_text?: string | null
           created_at?: string
+          decline_button_text?: string | null
           description?: string | null
           discount_percentage?: number | null
           display_order?: number
@@ -662,7 +666,9 @@ export type Database = {
           upsell_product_id: string
         }
         Update: {
+          accept_button_text?: string | null
           created_at?: string
+          decline_button_text?: string | null
           description?: string | null
           discount_percentage?: number | null
           display_order?: number
