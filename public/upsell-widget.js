@@ -268,6 +268,24 @@
     }
   });
 
+  // Auto-persist token from URL when page loads (run immediately)
+  (function() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenFromUrl = urlParams.get('transaction_token');
+      
+      if (tokenFromUrl) {
+        console.log('[Upsell Widget] Token detected in URL on page load, persisting to localStorage');
+        localStorage.setItem('transaction_token', tokenFromUrl);
+        const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+        localStorage.setItem('transaction_token_expiry', expiry);
+        console.log('[Upsell Widget] Token persisted successfully');
+      }
+    } catch (error) {
+      console.warn('[Upsell Widget] Could not auto-persist token from URL:', error);
+    }
+  })();
+
   // Global functions
   window.openUpsellModal = function() {
     console.log('[Upsell Widget] Opening modal');
@@ -338,7 +356,7 @@
     if (!transactionToken) {
       console.error('[Upsell Widget] No transaction token found!');
       console.log('[Upsell Widget] localStorage keys:', Object.keys(localStorage || {}));
-      alert('Token de transação não encontrado. Este upsell só funciona em páginas de confirmação de pagamento.');
+      alert('Token de transação não encontrado. Certifique-se de que o código do widget está instalado na página de confirmação de pagamento que recebe o parâmetro transaction_token.');
       return;
     }
 
