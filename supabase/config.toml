@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.track-upsell-event]
 verify_jwt = false
+
+[functions.test-webhook]
+verify_jwt = false

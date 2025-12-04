@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, Trash2, Pencil, Play, Loader2, CheckCircle2, XCircle } from "lucide-react";
 
 interface ProductWebhookTabProps {
   productId: string;
@@ -21,11 +21,23 @@ interface Webhook {
   created_at: string;
 }
 
+interface TestResult {
+  success: boolean;
+  status_code?: number;
+  response_body?: string;
+  error?: string;
+  payload_sent?: unknown;
+}
+
 export function ProductWebhookTab({ productId }: ProductWebhookTabProps) {
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [editingWebhook, setEditingWebhook] = useState<Webhook | null>(null);
+  const [testingWebhook, setTestingWebhook] = useState<Webhook | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
   const [formData, setFormData] = useState({
     webhook_url: "",
     is_active: true,
@@ -134,6 +146,33 @@ export function ProductWebhookTab({ productId }: ProductWebhookTabProps) {
     }
   };
 
+  const handleTestWebhook = async (webhook: Webhook) => {
+    setTestingWebhook(webhook);
+    setTestResult(null);
+    setTestDialogOpen(true);
+    setIsTesting(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("test-webhook", {
+        body: {
+          webhook_url: webhook.webhook_url,
+          product_id: productId,
+        },
+      });
+
+      if (error) throw error;
+      setTestResult(data);
+    } catch (error) {
+      console.error("Error testing webhook:", error);
+      setTestResult({
+        success: false,
+        error: error instanceof Error ? error.message : "Erro ao testar webhook",
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -221,7 +260,7 @@ export function ProductWebhookTab({ productId }: ProductWebhookTabProps) {
             <TableBody>
               {webhooks.map((webhook) => (
                 <TableRow key={webhook.id}>
-                  <TableCell className="font-mono text-sm">
+                  <TableCell className="font-mono text-sm max-w-[300px] truncate">
                     {webhook.webhook_url}
                   </TableCell>
                   <TableCell>
@@ -235,6 +274,14 @@ export function ProductWebhookTab({ productId }: ProductWebhookTabProps) {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTestWebhook(webhook)}
+                        title="Testar webhook"
+                      >
+                        <Play className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -257,6 +304,82 @@ export function ProductWebhookTab({ productId }: ProductWebhookTabProps) {
           </Table>
         )}
       </CardContent>
+
+      {/* Test Webhook Dialog */}
+      <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Teste de Webhook
+              {testResult && (
+                testResult.success ? (
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                ) : (
+                  <XCircle className="w-5 h-5 text-destructive" />
+                )
+              )}
+            </DialogTitle>
+            <DialogDescription className="font-mono text-xs break-all">
+              {testingWebhook?.webhook_url}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isTesting ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Enviando webhook de teste...</p>
+            </div>
+          ) : testResult ? (
+            <div className="space-y-4">
+              {/* Result Status */}
+              <div className={`p-4 rounded-lg ${testResult.success ? "bg-green-500/10 border border-green-500/20" : "bg-destructive/10 border border-destructive/20"}`}>
+                <p className={`font-medium ${testResult.success ? "text-green-600" : "text-destructive"}`}>
+                  {testResult.success ? "✓ Webhook enviado com sucesso!" : "✗ Falha ao enviar webhook"}
+                </p>
+                {testResult.status_code && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Código HTTP: {testResult.status_code}
+                  </p>
+                )}
+                {testResult.error && (
+                  <p className="text-sm text-destructive mt-1">{testResult.error}</p>
+                )}
+              </div>
+
+              {/* Response */}
+              {testResult.response_body && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Resposta do servidor:</Label>
+                  <pre className="bg-muted p-3 rounded-lg text-xs overflow-x-auto max-h-32">
+                    {testResult.response_body}
+                  </pre>
+                </div>
+              )}
+
+              {/* Payload Sent */}
+              {testResult.payload_sent && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Payload enviado:</Label>
+                  <pre className="bg-muted p-3 rounded-lg text-xs overflow-x-auto max-h-64">
+                    {JSON.stringify(testResult.payload_sent, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTestDialogOpen(false)}>
+              Fechar
+            </Button>
+            {testResult && (
+              <Button onClick={() => testingWebhook && handleTestWebhook(testingWebhook)}>
+                Testar Novamente
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
