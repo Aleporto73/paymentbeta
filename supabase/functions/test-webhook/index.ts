@@ -22,20 +22,14 @@ Deno.serve(async (req) => {
 
     // Create test payload with sample data
     const testPayload = {
-      event: "payment.confirmed",
+      event: "sale.confirmed",
       test: true,
       timestamp: new Date().toISOString(),
-      transaction: {
-        id: "test-transaction-" + Date.now(),
-        status: "CONFIRMED",
-        value: 97.00,
-        net_value: 93.12,
-        billing_type: "CREDIT_CARD",
-        payment_method: "credit_card",
-        installment_count: 1,
-        payment_date: new Date().toISOString(),
-        confirmed_date: new Date().toISOString(),
-      },
+      transaction_id: "test-transaction-" + Date.now(),
+      asaas_payment_id: "pay_test_" + Date.now(),
+      product_id: product_id || "test-product-id",
+      price_id: "test-price-id",
+      price_code: "PLAN1234",
       customer: {
         name: "Cliente Teste",
         email: "cliente.teste@email.com",
@@ -43,23 +37,31 @@ Deno.serve(async (req) => {
         phone: "(11) 99999-9999",
         state: "SP",
       },
-      product: {
-        id: product_id || "test-product-id",
-        name: "Produto de Teste",
-        price: 97.00,
+      payment: {
+        status: "CONFIRMED",
+        payment_method: "credit_card",
+        billing_type: "CREDIT_CARD",
+        value: 97.00,
+        net_value: 93.12,
+        installment_count: 1,
+        installment_value: 97.00,
+        payment_date: new Date().toISOString(),
+        confirmed_date: new Date().toISOString(),
+        credit_date: new Date().toISOString().split('T')[0],
+        due_date: new Date().toISOString().split('T')[0],
       },
-      order_bumps: [
-        {
-          id: "test-order-bump-id",
-          title: "Order Bump de Teste",
-          price: 27.00,
-        }
-      ],
-      affiliate: {
-        code: "AFILIADO123",
-        name: "Afiliado Teste",
-        commission: 19.40,
+      order_bumps: {
+        selected: ["test-order-bump-id"],
+        amount: 27.00,
       },
+      affiliate_code: "AFILIADO123",
+      metadata: {
+        ip_address: "192.168.1.1",
+        user_agent: "Mozilla/5.0 (Test)",
+        device_type: "desktop",
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     console.log(`Sending test payload to: ${webhook_url}`);
