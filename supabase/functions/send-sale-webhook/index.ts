@@ -41,6 +41,21 @@ serve(async (req) => {
       throw new Error('Transaction has no product associated');
     }
 
+    // Get price details to include plan code
+    let priceCode = null;
+    if (transaction.price_id) {
+      const { data: priceData } = await supabaseClient
+        .from('product_prices')
+        .select('unique_code, name')
+        .eq('id', transaction.price_id)
+        .single();
+      
+      if (priceData) {
+        priceCode = priceData.unique_code;
+        console.log('Price code found:', priceCode);
+      }
+    }
+
     // Get active webhooks for this product
     const { data: webhooks, error: webhooksError } = await supabaseClient
       .from('product_webhooks')
@@ -57,13 +72,13 @@ serve(async (req) => {
       throw new Error('No active webhooks configured for this product');
     }
 
-    // Prepare the webhook payload
     const payload = {
       event: 'sale.confirmed',
       transaction_id: transaction.id,
       asaas_payment_id: transaction.asaas_payment_id,
       product_id: transaction.product_id,
       price_id: transaction.price_id,
+      price_code: priceCode,
       customer: {
         name: transaction.customer_name,
         email: transaction.customer_email,
