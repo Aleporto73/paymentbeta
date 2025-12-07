@@ -29,7 +29,7 @@ serve(async (req) => {
       .from("webhook_queue")
       .select("*")
       .eq("status", "pending")
-      .lt("attempts", supabaseClient.rpc("max_attempts"))
+      .lt("attempts", 5) // Max 5 attempts
       .order("created_at", { ascending: true })
       .limit(BATCH_SIZE);
 
