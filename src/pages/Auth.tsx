@@ -8,6 +8,42 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import logo from "@/assets/logo_pay.png";
 
+type AuthRole = "admin" | "affiliate";
+
+const fetchUserRoles = async (userId: string): Promise<AuthRole[]> => {
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("Erro ao buscar roles no login:", error);
+    return [];
+  }
+
+  const roles = new Set<AuthRole>();
+
+  data?.forEach(({ role }) => {
+    if (role === "admin" || role === "affiliate") {
+      roles.add(role);
+    }
+  });
+
+  return Array.from(roles);
+};
+
+const getRoleRedirectPath = (roles: AuthRole[]) => {
+  if (roles.includes("admin")) {
+    return "/";
+  }
+
+  if (roles.includes("affiliate")) {
+    return "/dashboard-afiliado";
+  }
+
+  return null;
+};
+
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -17,24 +53,51 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const redirectByRole = async (userId: string) => {
+    const roles = await fetchUserRoles(userId);
+    const redirectPath = getRoleRedirectPath(roles);
+
+    if (!redirectPath) {
+      return false;
+    }
+
+    navigate(redirectPath, { replace: true });
+    return true;
+  };
+
   useEffect(() => {
-    // Check if user is already logged in
+    let isMounted = true;
+
+    const handleSession = async (userId: string) => {
+      const roles = await fetchUserRoles(userId);
+
+      if (!isMounted) return;
+
+      const redirectPath = getRoleRedirectPath(roles);
+
+      if (redirectPath) {
+        navigate(redirectPath, { replace: true });
+      }
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate("/");
+      if (session?.user) {
+        void handleSession(session.user.id);
       }
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        navigate("/");
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void handleSession(session.user.id);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -78,17 +141,27 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
 
-      toast({
-        title: "Login realizado!",
-        description: "Bem-vindo de volta.",
-      });
+      const redirected = data.user ? await redirectByRole(data.user.id) : false;
+
+      if (redirected) {
+        toast({
+          title: "Login realizado!",
+          description: "Bem-vindo de volta.",
+        });
+      } else {
+        toast({
+          title: "Acesso nao liberado",
+          description: "Sua conta ainda nao possui permissao para acessar o painel.",
+          variant: "destructive",
+        });
+      }
     } catch (error: any) {
       toast({
         title: "Erro ao fazer login",

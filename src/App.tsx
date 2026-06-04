@@ -46,18 +46,18 @@ const App = () => {
             <Route path="/pagamento-aprovado" element={<PaymentApproved />} />
             <Route path="/pagamento-em-analise" element={<PaymentPending />} />
             <Route path="/pagamento-recusado" element={<PaymentRejected />} />
-            <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
-            <Route path="/produtos" element={<ProtectedRoute><Layout><Produtos /></Layout></ProtectedRoute>} />
-            <Route path="/produtos/:id" element={<ProtectedRoute><Layout><ProductDetail /></Layout></ProtectedRoute>} />
-            <Route path="/vendas" element={<ProtectedRoute><Layout><Vendas /></Layout></ProtectedRoute>} />
-            <Route path="/assinaturas" element={<ProtectedRoute><Layout><Assinaturas /></Layout></ProtectedRoute>} />
-            <Route path="/clientes" element={<ProtectedRoute><Layout><Clientes /></Layout></ProtectedRoute>} />
-            <Route path="/afiliados" element={<ProtectedRoute><Layout><Afiliados /></Layout></ProtectedRoute>} />
-            <Route path="/dashboard-afiliado" element={<ProtectedRoute><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
-            <Route path="/cupons" element={<ProtectedRoute><Layout><Cupons /></Layout></ProtectedRoute>} />
-            <Route path="/relatorios" element={<ProtectedRoute><Layout><Relatorios /></Layout></ProtectedRoute>} />
-            <Route path="/integracoes" element={<ProtectedRoute><Layout><Integracoes /></Layout></ProtectedRoute>} />
-            <Route path="/webhooks" element={<ProtectedRoute><Layout><Webhooks /></Layout></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute requiredRole="admin"><Layout><Dashboard /></Layout></ProtectedRoute>} />
+            <Route path="/produtos" element={<ProtectedRoute requiredRole="admin"><Layout><Produtos /></Layout></ProtectedRoute>} />
+            <Route path="/produtos/:id" element={<ProtectedRoute requiredRole="admin"><Layout><ProductDetail /></Layout></ProtectedRoute>} />
+            <Route path="/vendas" element={<ProtectedRoute requiredRole="admin"><Layout><Vendas /></Layout></ProtectedRoute>} />
+            <Route path="/assinaturas" element={<ProtectedRoute requiredRole="admin"><Layout><Assinaturas /></Layout></ProtectedRoute>} />
+            <Route path="/clientes" element={<ProtectedRoute requiredRole="admin"><Layout><Clientes /></Layout></ProtectedRoute>} />
+            <Route path="/afiliados" element={<ProtectedRoute requiredRole="admin"><Layout><Afiliados /></Layout></ProtectedRoute>} />
+            <Route path="/dashboard-afiliado" element={<ProtectedRoute requiredRole="affiliate"><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
+            <Route path="/cupons" element={<ProtectedRoute requiredRole="admin"><Layout><Cupons /></Layout></ProtectedRoute>} />
+            <Route path="/relatorios" element={<ProtectedRoute requiredRole="admin"><Layout><Relatorios /></Layout></ProtectedRoute>} />
+            <Route path="/integracoes" element={<ProtectedRoute requiredRole="admin"><Layout><Integracoes /></Layout></ProtectedRoute>} />
+            <Route path="/webhooks" element={<ProtectedRoute requiredRole="admin"><Layout><Webhooks /></Layout></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

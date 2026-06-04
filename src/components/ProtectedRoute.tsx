@@ -1,33 +1,92 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
+
+type RequiredRole = "admin" | "affiliate";
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: ReactNode;
+  requiredRole?: RequiredRole;
 }
 
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
+const fetchUserRoles = async (userId: string): Promise<RequiredRole[]> => {
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("Erro ao buscar roles do usuario:", error);
+    return [];
+  }
+
+  const roles = new Set<RequiredRole>();
+
+  data?.forEach(({ role }) => {
+    if (role === "admin" || role === "affiliate") {
+      roles.add(role);
+    }
+  });
+
+  return Array.from(roles);
+};
+
+const getSafeRedirectPath = (roles: RequiredRole[]) => {
+  if (roles.includes("admin")) {
+    return "/";
+  }
+
+  if (roles.includes("affiliate")) {
+    return "/dashboard-afiliado";
+  }
+
+  return "/auth";
+};
+
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const [session, setSession] = useState<Session | null>(null);
+  const [roles, setRoles] = useState<RequiredRole[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
+    let isMounted = true;
+
+    const loadAccess = async (currentSession: Session | null) => {
+      if (!isMounted) return;
+
+      setSession(currentSession);
+
+      if (!currentSession || !requiredRole) {
+        setRoles([]);
+        setLoading(false);
+        return;
+      }
+
+      const userRoles = await fetchUserRoles(currentSession.user.id);
+
+      if (!isMounted) return;
+
+      setRoles(userRoles);
+      setLoading(false);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setSession(session);
-        setLoading(false);
+        setLoading(true);
+        void loadAccess(session);
       }
     );
 
-    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
+      void loadAccess(session);
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [requiredRole]);
 
   if (loading) {
     return (
@@ -42,6 +101,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!session) {
     return <Navigate to="/auth" replace />;
+  }
+
+  if (requiredRole && !roles.includes(requiredRole)) {
+    return <Navigate to={getSafeRedirectPath(roles)} replace />;
   }
 
   return <>{children}</>;

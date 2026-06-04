@@ -44,24 +44,46 @@ const managementItems = [
   { title: "Webhooks", url: "/webhooks", icon: Webhook },
 ];
 
+type SidebarRole = "admin" | "affiliate";
+
+const getPrimaryRole = (roles: Array<string | null>): SidebarRole | null => {
+  if (roles.includes("admin")) {
+    return "admin";
+  }
+
+  if (roles.includes("affiliate")) {
+    return "affiliate";
+  }
+
+  return null;
+};
+
 export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const isCollapsed = state === "collapsed";
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<SidebarRole | null>(null);
   
   useEffect(() => {
     const fetchUserRole = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: roleData } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id)
-          .single();
-        
-        setUserRole(roleData?.role || null);
+      if (!user) {
+        setUserRole(null);
+        return;
       }
+
+      const { data: roleData, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Erro ao buscar role do menu:", error);
+        setUserRole(null);
+        return;
+      }
+
+      setUserRole(getPrimaryRole((roleData ?? []).map(({ role }) => role)));
     };
     
     fetchUserRole();
@@ -114,7 +136,7 @@ export function AppSidebar() {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-        ) : (
+        ) : userRole === 'admin' ? (
           <>
             <SidebarGroup>
               <SidebarGroupLabel>Principal</SidebarGroupLabel>
@@ -161,7 +183,7 @@ export function AppSidebar() {
               </SidebarGroupContent>
             </SidebarGroup>
           </>
-        )}
+        ) : null}
       </SidebarContent>
     </Sidebar>
   );
