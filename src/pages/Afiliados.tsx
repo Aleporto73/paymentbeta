@@ -777,11 +777,11 @@ export default function Afiliados() {
                           <div>
                             <label className="text-sm font-medium mb-2 block">Link de Afiliado</label>
                             {product.affiliate_url ? (
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 <Input
                                   value={product.affiliate_url}
                                   readOnly
-                                  className="font-mono text-xs"
+                                  className="min-w-0 flex-1 font-mono text-xs"
                                 />
                                 <Button
                                   variant="outline"
@@ -799,6 +799,15 @@ export default function Afiliados() {
                                 >
                                   <ExternalLink className="h-4 w-4" />
                                 </Button>
+                                {product.link_id && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => generateAffiliateLink(product.product_id, product.link_id!)}
+                                  >
+                                    Atualizar link
+                                  </Button>
+                                )}
                               </div>
                             ) : (
                               <Button
