@@ -329,14 +329,7 @@ export default function Afiliados() {
         return;
       }
 
-      const { data: linkData } = await supabase
-        .from("product_affiliate_links")
-        .select("affiliate_name")
-        .eq("id", linkId)
-        .single();
-
-      const affiliateCode = linkData?.affiliate_name?.toLowerCase().replace(/\s+/g, '-') || 'afiliado';
-      const checkoutUrl = `${window.location.origin}/checkout?product=${productData.unique_code}&price=${priceData.unique_code}&affiliate=${affiliateCode}`;
+      const checkoutUrl = `${window.location.origin}/checkout?product=${productData.unique_code}&price=${priceData.unique_code}&affiliate=${linkId}`;
 
       // Update the affiliate link with the generated URL
       await supabase

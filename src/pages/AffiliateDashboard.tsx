@@ -182,8 +182,8 @@ export default function AffiliateDashboard() {
     });
   };
 
-  const generateAffiliateUrl = (productCode: string, priceCode: string) => {
-    return `${window.location.origin}/checkout/${productCode}/${priceCode}?aff=${affiliateData?.id}`;
+  const generateAffiliateUrl = (productCode: string, priceCode: string, linkId: string) => {
+    return `${window.location.origin}/checkout?product=${productCode}&price=${priceCode}&affiliate=${linkId}`;
   };
 
   if (loading) {
@@ -281,7 +281,7 @@ export default function AffiliateDashboard() {
                   
                   <div className="space-y-2">
                     {link.product_prices.map((price) => {
-                      const url = generateAffiliateUrl(link.products.unique_code, price.unique_code);
+                      const url = generateAffiliateUrl(link.products.unique_code, price.unique_code, link.id);
                       return (
                         <div key={price.id} className="flex items-center gap-2 p-2 bg-muted rounded">
                           <div className="flex-1">
