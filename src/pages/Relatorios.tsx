@@ -26,6 +26,8 @@ import {
 
 type DateFilter = "today" | "7days" | "30days" | "custom";
 
+const APPROVED_TRANSACTION_STATUSES = ["RECEIVED", "CONFIRMED"];
+
 export default function Relatorios() {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState<DateFilter>("30days");
@@ -97,53 +99,50 @@ export default function Relatorios() {
         .lte("created_at", endDate)
         .order("created_at", { ascending: false });
 
-      if (checkoutEvents) {
-        const views = checkoutEvents.filter((e) => e.event_type === "view").length;
-        const abandons = checkoutEvents.filter((e) => e.event_type === "abandon").length;
-        
-        // Only count conversions from approved transactions
-        const { data: approvedTransactions } = await supabase
-          .from("transactions")
-          .select("asaas_payment_id")
-          .in("status", ["CONFIRMED", "RECEIVED"])
-          .gte("created_at", startDate)
-          .lte("created_at", endDate);
-        
-        const approvedPaymentIds = approvedTransactions?.map(t => t.asaas_payment_id) || [];
-        const conversions = checkoutEvents.filter((e) => 
-          e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id)
-        ).length;
+      const checkoutEventList = checkoutEvents || [];
+      const views = checkoutEventList.filter((e) => e.event_type === "view").length;
+      const abandons = checkoutEventList.filter((e) => e.event_type === "abandon").length;
+      
+      const { data: approvedTransactions } = await supabase
+        .from("transactions")
+        .select("value, order_bumps_amount, order_bumps_selected")
+        .in("status", APPROVED_TRANSACTION_STATUSES)
+        .gte("created_at", startDate)
+        .lte("created_at", endDate);
 
-        const totalRevenue = checkoutEvents
-          .filter((e) => e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id))
-          .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+      const approvedTransactionList = approvedTransactions || [];
+      const conversions = approvedTransactionList.length;
+      const totalRevenue = approvedTransactionList.reduce(
+        (sum, transaction) => sum + Number(transaction.value || 0),
+        0
+      );
+      const orderBumpsRevenue = approvedTransactionList.reduce(
+        (sum, transaction) => sum + Number(transaction.order_bumps_amount || 0),
+        0
+      );
+      const conversionsWithOrderBumps = approvedTransactionList.filter(
+        (transaction) =>
+          Number(transaction.order_bumps_amount || 0) > 0 ||
+          (transaction.order_bumps_selected?.length || 0) > 0
+      ).length;
 
-        const orderBumpsRevenue = checkoutEvents
-          .filter((e) => e.event_type === "conversion" && approvedPaymentIds.includes(e.session_id))
-          .reduce((sum, e) => sum + Number(e.order_bumps_amount || 0), 0);
+      setCheckoutStats({
+        totalViews: views,
+        totalAbandons: abandons,
+        totalConversions: conversions,
+        conversionRate: views > 0 ? (conversions / views) * 100 : 0,
+        abandonRate: views > 0 ? (abandons / views) * 100 : 0,
+        totalRevenue,
+        orderBumpsRevenue,
+        orderBumpsConversionRate: conversions > 0 ? (conversionsWithOrderBumps / conversions) * 100 : 0,
+      });
 
-        const conversionsWithOrderBumps = checkoutEvents.filter(
-          (e) => e.event_type === "conversion" && e.order_bumps_selected && e.order_bumps_selected.length > 0
-        ).length;
-
-        setCheckoutStats({
-          totalViews: views,
-          totalAbandons: abandons,
-          totalConversions: conversions,
-          conversionRate: views > 0 ? (conversions / views) * 100 : 0,
-          abandonRate: views > 0 ? (abandons / views) * 100 : 0,
-          totalRevenue,
-          orderBumpsRevenue,
-          orderBumpsConversionRate: conversions > 0 ? (conversionsWithOrderBumps / conversions) * 100 : 0,
-        });
-
-        // Funil de conversão
-        setCheckoutFunnel([
-          { name: "Visualizações", value: views, fill: "#3b82f6" },
-          { name: "Conversões", value: conversions, fill: "#10b981" },
-          { name: "Abandonos", value: abandons, fill: "#ef4444" },
-        ]);
-      }
+      // Funil de conversão
+      setCheckoutFunnel([
+        { name: "Visualizações", value: views, fill: "#3b82f6" },
+        { name: "Conversões", value: conversions, fill: "#10b981" },
+        { name: "Abandonos", value: abandons, fill: "#ef4444" },
+      ]);
 
       // Buscar vendas
       const { data: sales } = await supabase
