@@ -6,6 +6,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, asaas-access-token',
 };
 
+const jsonResponse = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+
+const validateWebhookToken = (req: Request) => {
+  const expectedToken = Deno.env.get('ASAAS_WEBHOOK_TOKEN');
+
+  if (!expectedToken) {
+    return jsonResponse({ error: 'Webhook not configured' }, 500);
+  }
+
+  const receivedToken = req.headers.get('asaas-access-token');
+
+  if (!receivedToken || receivedToken !== expectedToken) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  return null;
+};
+
 async function queueWebhooks(supabaseAdmin: any, transaction: any) {
   try {
     if (!transaction.product_id) {
@@ -108,6 +130,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const tokenError = validateWebhookToken(req);
+  if (tokenError) return tokenError;
 
   try {
     const supabaseAdmin = createClient(
@@ -247,45 +272,8 @@ serve(async (req) => {
           }
         }
       } else {
-        // Create new transaction if it doesn't exist
-        // This can happen if webhook arrives before the create-payment response
-        console.log('Transaction not found, creating from webhook data');
-        
-        // We need to find the user_id from the customer
-        const { data: customerData } = await supabaseAdmin
-          .from('asaas_customers')
-          .select('user_id')
-          .eq('asaas_customer_id', payment.customer)
-          .single();
-
-        if (customerData) {
-          const { error: insertError } = await supabaseAdmin
-            .from('transactions')
-            .insert({
-              user_id: customerData.user_id,
-              asaas_payment_id: payment.id,
-              asaas_customer_id: payment.customer,
-              customer_name: '', // Will be filled from customer data if needed
-              customer_email: '', // Will be filled from customer data if needed
-              payment_method: payment.billingType,
-              status: payment.status,
-              value: payment.value,
-              net_value: payment.netValue,
-              due_date: payment.dueDate,
-              payment_date: payment.paymentDate,
-              confirmed_date: payment.confirmedDate,
-              credit_date: payment.creditDate,
-              billing_type: payment.billingType,
-              description: payment.description,
-              external_reference: payment.externalReference,
-              installment_count: payment.installmentCount || 1,
-              ...transactionData,
-            });
-
-          if (insertError) {
-            console.error('Error inserting transaction:', insertError);
-          }
-        }
+        console.warn('Ignoring Asaas payment webhook for unknown transaction:', payment.id);
+        return jsonResponse({ received: true, ignored: true });
       }
     }
 
