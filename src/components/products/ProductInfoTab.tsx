@@ -313,7 +313,7 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                     {product.unique_code}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Link: https://exemplocheckout.com.br/{product.unique_code}
+                    Link disponível na aba Links de divulgação
                   </p>
                 </div>
               </div>
