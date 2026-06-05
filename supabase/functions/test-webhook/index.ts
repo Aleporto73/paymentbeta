@@ -1,6 +1,60 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const jsonResponse = (body: Record<string, unknown>, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+const getBearerToken = (req: Request) => {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] ?? null;
+};
+
+const requireAdmin = async (req: Request, supabaseClient: ReturnType<typeof createClient>) => {
+  const token = getBearerToken(req);
+
+  if (!token) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+
+  if (authError || !user) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const { data: roles, error: rolesError } = await supabaseClient
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id);
+
+  if (rolesError) {
+    console.error("Error checking admin role:", rolesError);
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
+
+  if (!roles?.some(({ role }) => role === "admin")) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
+
+  return null;
+};
+
+const isHttpUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 };
 
 Deno.serve(async (req) => {
@@ -9,16 +63,29 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { webhook_url, product_id } = await req.json();
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
-    if (!webhook_url) {
+    const adminError = await requireAdmin(req, supabaseClient);
+    if (adminError) return adminError;
+
+    const { webhook_url, product_id } = await req.json();
+    const webhookUrl = typeof webhook_url === "string" ? webhook_url.trim() : "";
+
+    if (!webhookUrl) {
       return new Response(
         JSON.stringify({ error: "webhook_url is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Testing webhook: ${webhook_url}`);
+    if (!isHttpUrl(webhookUrl)) {
+      return jsonResponse({ error: "webhook_url must be http:// or https://" }, 400);
+    }
+
+    console.log(`Testing webhook: ${webhookUrl}`);
 
     // Create test payload with sample data
     const testPayload = {
@@ -64,14 +131,14 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     };
 
-    console.log(`Sending test payload to: ${webhook_url}`);
+    console.log(`Sending test payload to: ${webhookUrl}`);
 
     // Send test webhook
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
     try {
-      const response = await fetch(webhook_url, {
+      const response = await fetch(webhookUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -6,6 +6,49 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const jsonResponse = (body: Record<string, unknown>, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+
+const getBearerToken = (req: Request) => {
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] ?? null;
+};
+
+const requireAdmin = async (req: Request, supabaseClient: ReturnType<typeof createClient>) => {
+  const token = getBearerToken(req);
+
+  if (!token) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+
+  if (authError || !user) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const { data: roles, error: rolesError } = await supabaseClient
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id);
+
+  if (rolesError) {
+    console.error('Error checking admin role:', rolesError);
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+
+  if (!roles?.some(({ role }) => role === 'admin')) {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+
+  return null;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -16,6 +59,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    const adminError = await requireAdmin(req, supabaseClient);
+    if (adminError) return adminError;
 
     const { transactionId } = await req.json();
 

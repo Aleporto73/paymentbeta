@@ -7,11 +7,28 @@ const getCorsHeaders = (origin: string | null) => ({
   "Access-Control-Allow-Credentials": "true",
 });
 
+const jsonResponse = (body: Record<string, unknown>, status: number, origin: string | null) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...getCorsHeaders(origin), "Content-Type": "application/json" },
+  });
+
+const isServiceRoleRequest = (req: Request) => {
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const authHeader = req.headers.get("Authorization") ?? "";
+
+  return serviceRoleKey.length > 0 && authHeader === `Bearer ${serviceRoleKey}`;
+};
+
 serve(async (req) => {
   const origin = req.headers.get("Origin") || req.headers.get("origin");
 
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: getCorsHeaders(origin) });
+  }
+
+  if (!isServiceRoleRequest(req)) {
+    return jsonResponse({ error: "Unauthorized" }, 401, origin);
   }
 
   try {

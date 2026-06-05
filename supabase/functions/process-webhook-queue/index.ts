@@ -11,6 +11,65 @@ const BATCH_SIZE = 10; // Process 10 webhooks at a time
 const PROCESSING_DELAY = 100; // 100ms delay between batches
 const REQUEST_TIMEOUT = 10000; // 10 second timeout per webhook
 
+const unauthorizedResponse = () =>
+  new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+const forbiddenResponse = () =>
+  new Response(JSON.stringify({ error: "Forbidden" }), {
+    status: 403,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+const getBearerToken = (req: Request) => {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] ?? null;
+};
+
+const isServiceRoleToken = (token: string) => {
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  return serviceRoleKey.length > 0 && token === serviceRoleKey;
+};
+
+const authorizeRequest = async (req: Request, supabaseClient: ReturnType<typeof createClient>) => {
+  const token = getBearerToken(req);
+
+  if (!token) {
+    return unauthorizedResponse();
+  }
+
+  if (isServiceRoleToken(token)) {
+    return null;
+  }
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+
+  if (authError || !user) {
+    return unauthorizedResponse();
+  }
+
+  const { data: roles, error: rolesError } = await supabaseClient
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id);
+
+  if (rolesError) {
+    console.error("Error checking admin role:", rolesError);
+    return forbiddenResponse();
+  }
+
+  if (!roles?.some(({ role }) => role === "admin")) {
+    return forbiddenResponse();
+  }
+
+  return null;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -21,6 +80,9 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    const authorizationError = await authorizeRequest(req, supabaseClient);
+    if (authorizationError) return authorizationError;
 
     console.log("Starting webhook queue processing...");
 

@@ -5,6 +5,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const jsonResponse = (body: Record<string, unknown>, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+
+const getBearerToken = (req: Request) => {
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] ?? null;
+};
+
 interface CancelSubscriptionRequest {
   subscriptionId: string;
   asaasSubscriptionId: string;
@@ -22,8 +35,12 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get authenticated user
-    const authHeader = req.headers.get('Authorization')!;
-    const token = authHeader.replace('Bearer ', '');
+    const token = getBearerToken(req);
+
+    if (!token) {
+      return jsonResponse({ error: 'NÃ£o autorizado' }, 401);
+    }
+
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
@@ -32,6 +49,20 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Não autorizado' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    const { data: roles, error: rolesError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    if (rolesError) {
+      console.error('Error checking admin role:', rolesError);
+      return jsonResponse({ error: 'Acesso negado' }, 403);
+    }
+
+    if (!roles?.some(({ role }) => role === 'admin')) {
+      return jsonResponse({ error: 'Acesso negado' }, 403);
     }
 
     const { subscriptionId, asaasSubscriptionId, cancel }: CancelSubscriptionRequest = await req.json();

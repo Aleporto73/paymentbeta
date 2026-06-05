@@ -25,7 +25,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-conversion-events]
-verify_jwt = false
+verify_jwt = true
 
 [functions.track-click]
 verify_jwt = false
@@ -34,7 +34,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.test-webhook]
-verify_jwt = false
+verify_jwt = true
 
 [functions.send-sale-webhook]
-verify_jwt = false
+verify_jwt = true
+
+[functions.cancel-subscription]
+verify_jwt = true
