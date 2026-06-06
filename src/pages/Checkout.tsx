@@ -1146,7 +1146,48 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* Métodos de Pagamento */}
+              {/* Cupom */}
+              <div className="border-y py-4">
+                <button
+                  type="button"
+                  className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                  onClick={() => setShowCoupon(!showCoupon)}
+                >
+                  Você tem um cupom?
+                  {showCoupon ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+
+                {showCoupon && (
+                  <div className="mt-3">
+                    {!appliedCoupon ? (
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Digite o código"
+                          value={couponCode}
+                          onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                          onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), validateCoupon())}
+                          disabled={validatingCoupon}
+                        />
+                        <Button type="button" size="sm" onClick={validateCoupon} disabled={validatingCoupon}>
+                          {validatingCoupon ? "..." : "Aplicar"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 rounded-lg p-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-green-700 dark:text-green-300">
+                            Cupom {appliedCoupon.code}
+                          </span>
+                          <Button type="button" variant="ghost" size="sm" onClick={removeCoupon} className="h-auto p-1">
+                            Remover
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Métodos de Pagamento */}
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-3">
@@ -1439,54 +1480,6 @@ export default function Checkout() {
                         </div>
                       );
                     })}
-                  </div>
-
-                  {/* Cupom */}
-                  <div className="border-t pt-4">
-                    <button
-                      type="button"
-                      className="text-blue-600 hover:underline text-sm flex items-center gap-1"
-                      onClick={() => setShowCoupon(!showCoupon)}
-                    >
-                      Você tem um cupom?
-                      {showCoupon ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </button>
-
-                    {showCoupon && (
-                      <div className="mt-3">
-                        {!appliedCoupon ? (
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Digite o código"
-                              value={couponCode}
-                              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                              onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), validateCoupon())}
-                              disabled={validatingCoupon}
-                            />
-                            <Button type="button" size="sm" onClick={validateCoupon} disabled={validatingCoupon}>
-                              {validatingCoupon ? "..." : "Aplicar"}
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 rounded-lg p-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-green-700 dark:text-green-300">
-                                Cupom {appliedCoupon.code}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={removeCoupon}
-                                className="h-auto p-1"
-                              >
-                                Remover
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   {/* Totais */}
