@@ -1233,8 +1233,7 @@ export default function Checkout() {
                           O pagamento é instantâneo e liberação imediata.
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-300">
-                          Ao clicar em "Comprar agora" você será encaminhado para um ambiente seguro, onde encontrará o
-                          passo a passo para realizar o pagamento.
+                          Ao clicar em Gerar PIX, o sistema criará um QR Code e código Pix Copia e Cola para pagamento seguro.
                         </p>
                       </div>
                     </div>
@@ -1533,20 +1532,40 @@ export default function Checkout() {
                   {/* Termos */}
                   <p className="text-center text-xs text-muted-foreground">
                     Ao clicar em "Comprar agora", você concorda com os{" "}
-                    <a href="#" className="text-blue-600 hover:underline">
+                    <a
+                      href="/termos-de-compra"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
                       Termos de Compra
                     </a>{" "}
                     e está ciente da{" "}
-                    <a href="#" className="text-blue-600 hover:underline">
+                    <a
+                      href="/privacidade"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
                       Política de Privacidade
                     </a>
                     .
                   </p>
 
                   {/* Compra Segura */}
-                  <div className="flex items-center justify-center gap-2 text-sm text-green-600 font-medium">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Compra 100% segura</span>
+                  <div className="flex flex-col items-center justify-center gap-1 text-sm">
+                    <div className="flex items-center justify-center gap-2 text-green-600 font-medium">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Pagamento seguro processado pela Asaas</span>
+                    </div>
+                    <a
+                      href="/seguranca-pagamento"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground hover:text-blue-600 hover:underline"
+                    >
+                      Segurança do pagamento
+                    </a>
                   </div>
                 </div>
               </div>
