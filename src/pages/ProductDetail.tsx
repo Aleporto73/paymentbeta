@@ -82,12 +82,23 @@ export default function ProductDetail() {
     try {
       const { data, error } = await supabase
         .from("product_affiliate_links")
-        .select("*")
+        .select("*, affiliates(name, email, asaas_wallet_id)")
         .eq("product_id", id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setAffiliateLinks((data || []) as ProductAffiliateLink[]);
+      const links = (data || []).map((link: any) => {
+        const affiliate = Array.isArray(link.affiliates) ? link.affiliates[0] : link.affiliates;
+
+        return {
+          ...link,
+          affiliate_name: link.affiliate_name || affiliate?.name || "",
+          affiliate_email: affiliate?.email || null,
+          affiliate_asaas_wallet_id: affiliate?.asaas_wallet_id || null,
+        };
+      });
+
+      setAffiliateLinks(links as ProductAffiliateLink[]);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar links de afiliação",

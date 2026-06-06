@@ -67,6 +67,8 @@ export interface ProductAffiliateLink {
   id: string;
   product_id: string;
   affiliate_id?: string;
+  affiliate_email?: string | null;
+  affiliate_asaas_wallet_id?: string | null;
   affiliate_name: string;
   affiliate_url: string;
   commission_type: CommissionType;

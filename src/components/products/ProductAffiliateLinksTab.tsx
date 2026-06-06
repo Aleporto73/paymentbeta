@@ -360,13 +360,17 @@ export function ProductAffiliateLinksTab({
                     <p className="text-sm font-medium">
                       Comissão: {formatCommissionDisplay(link.commission_type, link.commission_value)}
                     </p>
+                    <p className="text-sm text-muted-foreground">
+                      Repasse automático Asaas: {link.affiliate_asaas_wallet_id ? "ativo" : "pendente"}
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
                   <EditAffiliateDialog
                     affiliateId={link.affiliate_id!}
                     affiliateName={link.affiliate_name || ""}
-                    affiliateEmail=""
+                    affiliateEmail={link.affiliate_email || ""}
+                    affiliateAsaasWalletId={link.affiliate_asaas_wallet_id}
                     productId={productId}
                     currentCommissionType={link.commission_type as CommissionType}
                     currentCommissionValue={link.commission_value}

@@ -10,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { CommissionType } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 interface AddAffiliateDialogProps {
   productId: string;
   defaultCommissionType: CommissionType | null;
@@ -31,6 +33,7 @@ export function AddAffiliateDialog({
     name: "",
     email: "",
     password: "",
+    asaasWalletId: "",
     commissionOption: "default" as "default" | "custom",
     customCommissionType: "percentage" as CommissionType,
     customCommissionValue: "",
@@ -67,12 +70,19 @@ export function AddAffiliateDialog({
         throw new Error("Valor de comissão inválido");
       }
 
+      const asaasWalletId = form.asaasWalletId.trim();
+
+      if (asaasWalletId && !UUID_PATTERN.test(asaasWalletId)) {
+        throw new Error("Wallet ID Asaas invalido");
+      }
+
       const { data, error } = await supabase.functions.invoke("admin-create-affiliate", {
         body: {
           productId,
           name: form.name,
           email: form.email,
           password: form.password,
+          asaasWalletId: asaasWalletId || null,
           commissionType,
           commissionValue,
         },
@@ -90,6 +100,7 @@ export function AddAffiliateDialog({
         name: "",
         email: "",
         password: "",
+        asaasWalletId: "",
         commissionOption: "default",
         customCommissionType: "percentage",
         customCommissionValue: "",
@@ -152,6 +163,16 @@ export function AddAffiliateDialog({
               minLength={6}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="asaas-wallet-id">Wallet ID Asaas (opcional)</Label>
+            <Input
+              id="asaas-wallet-id"
+              value={form.asaasWalletId}
+              onChange={(e) => setForm({ ...form, asaasWalletId: e.target.value })}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             />
           </div>
 

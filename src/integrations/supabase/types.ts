@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       affiliates: {
         Row: {
+          asaas_wallet_id: string | null
           created_at: string
           email: string
           id: string
@@ -24,6 +25,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          asaas_wallet_id?: string | null
           created_at?: string
           email: string
           id?: string
@@ -32,6 +34,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          asaas_wallet_id?: string | null
           created_at?: string
           email?: string
           id?: string

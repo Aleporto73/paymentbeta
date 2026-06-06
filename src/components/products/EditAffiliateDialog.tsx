@@ -10,10 +10,13 @@ import { useToast } from "@/hooks/use-toast";
 import { CommissionType } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 interface EditAffiliateDialogProps {
   affiliateId: string;
   affiliateName: string;
   affiliateEmail: string;
+  affiliateAsaasWalletId?: string | null;
   productId?: string;
   currentCommissionType?: CommissionType;
   currentCommissionValue?: number;
@@ -27,6 +30,7 @@ export function EditAffiliateDialog({
   affiliateId,
   affiliateName,
   affiliateEmail,
+  affiliateAsaasWalletId,
   productId,
   currentCommissionType,
   currentCommissionValue,
@@ -43,6 +47,7 @@ export function EditAffiliateDialog({
     name: affiliateName,
     email: affiliateEmail,
     password: "",
+    asaasWalletId: affiliateAsaasWalletId || "",
     commissionOption: "current" as "current" | "default" | "custom",
     customCommissionType: (currentCommissionType || "percentage") as CommissionType,
     customCommissionValue: "",
@@ -54,24 +59,32 @@ export function EditAffiliateDialog({
         name: affiliateName,
         email: affiliateEmail,
         password: "",
+        asaasWalletId: affiliateAsaasWalletId || "",
         commissionOption: "current",
         customCommissionType: (currentCommissionType || "percentage") as CommissionType,
         customCommissionValue: "",
       });
     }
-  }, [open, affiliateName, affiliateEmail, currentCommissionType]);
+  }, [open, affiliateName, affiliateEmail, affiliateAsaasWalletId, currentCommissionType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      const asaasWalletId = form.asaasWalletId.trim();
+
+      if (asaasWalletId && !UUID_PATTERN.test(asaasWalletId)) {
+        throw new Error("Wallet ID Asaas invalido");
+      }
+
       // Update affiliate basic info
       const { error: affiliateError } = await supabase
         .from("affiliates")
         .update({
           name: form.name,
           email: form.email,
+          asaas_wallet_id: asaasWalletId || null,
         })
         .eq("id", affiliateId);
 
@@ -200,6 +213,16 @@ export function EditAffiliateDialog({
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder="••••••"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="asaas-wallet-id">Wallet ID Asaas</Label>
+            <Input
+              id="asaas-wallet-id"
+              value={form.asaasWalletId}
+              onChange={(e) => setForm({ ...form, asaasWalletId: e.target.value })}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             />
           </div>
 

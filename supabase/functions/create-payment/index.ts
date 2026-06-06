@@ -110,7 +110,7 @@ async function validateAffiliateCode(
 
   const { data: affiliateLink, error } = await supabaseClient
     .from("product_affiliate_links")
-    .select("id, product_id, is_active")
+    .select("id, product_id, is_active, commission_type, commission_value, affiliate_id, affiliates(asaas_wallet_id)")
     .eq("id", normalizedAffiliateCode)
     .maybeSingle();
 
@@ -123,8 +123,62 @@ async function validateAffiliateCode(
     throw new HttpError("Afiliado invalido");
   }
 
-  return normalizedAffiliateCode;
+  return affiliateLink;
 }
+
+const getAffiliateWalletId = (affiliateLink: any) => {
+  const affiliate = Array.isArray(affiliateLink?.affiliates)
+    ? affiliateLink.affiliates[0]
+    : affiliateLink?.affiliates;
+  const walletId = affiliate?.asaas_wallet_id;
+
+  if (typeof walletId !== "string") {
+    return null;
+  }
+
+  const normalizedWalletId = walletId.trim();
+
+  return normalizedWalletId || null;
+};
+
+const buildAsaasSplit = (affiliateLink: any, requestedInstallments: number) => {
+  if (!affiliateLink) {
+    return null;
+  }
+
+  const walletId = getAffiliateWalletId(affiliateLink);
+
+  if (!walletId) {
+    return null;
+  }
+
+  if (!isUuid(walletId)) {
+    console.warn("Affiliate Wallet ID ignored because it is invalid");
+    return null;
+  }
+
+  const commissionValue = Number(affiliateLink.commission_value);
+
+  if (!Number.isFinite(commissionValue) || commissionValue <= 0) {
+    console.warn("Affiliate split ignored because commission value is invalid");
+    return null;
+  }
+
+  if (affiliateLink.commission_type === "percentage") {
+    return [{ walletId, percentualValue: commissionValue }];
+  }
+
+  if (affiliateLink.commission_type === "fixed") {
+    return [
+      requestedInstallments > 1
+        ? { walletId, totalFixedValue: commissionValue }
+        : { walletId, fixedValue: commissionValue },
+    ];
+  }
+
+  console.warn("Affiliate split ignored because commission type is invalid");
+  return null;
+};
 
 async function validateOrderBumps(
   supabaseClient: ReturnType<typeof createClient>,
@@ -308,7 +362,7 @@ serve(async (req) => {
         ? roundMoney(serverTotal / requestedInstallments)
         : null;
 
-    const validatedAffiliateCode = await validateAffiliateCode(
+    const validatedAffiliateLink = await validateAffiliateCode(
       supabaseClient,
       affiliateCode,
       product.id,
@@ -407,6 +461,13 @@ serve(async (req) => {
       description: serverDescription,
       externalReference: serverExternalReference,
     };
+
+    const asaasSplit = buildAsaasSplit(validatedAffiliateLink, requestedInstallments);
+
+    if (asaasSplit) {
+      // Asaas /payments uses the singular split field for payment charge payloads.
+      paymentPayload.split = asaasSplit;
+    }
 
     // Add credit card data if payment is by card
     if (billingType === "CREDIT_CARD" && paymentData.creditCard) {
@@ -516,7 +577,7 @@ serve(async (req) => {
         billing_type: billingType,
         description: serverDescription,
         external_reference: serverExternalReference,
-        affiliate_code: validatedAffiliateCode,
+        affiliate_code: validatedAffiliateLink?.id ?? null,
         order_bumps_selected: selectedOrderBumpIds,
         order_bumps_amount: serverOrderBumpsTotal,
         installment_count: requestedInstallments,

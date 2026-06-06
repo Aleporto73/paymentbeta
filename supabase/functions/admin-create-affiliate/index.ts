@@ -20,6 +20,7 @@ interface CreateAffiliateRequest {
   name?: string;
   email?: string;
   password?: string;
+  asaasWalletId?: string | null;
   commissionType?: string;
   commissionValue?: number;
 }
@@ -59,6 +60,31 @@ const parseCommissionValue = (value: unknown) => {
   }
 
   return parsed;
+};
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const parseOptionalWalletId = (value: unknown) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new HttpError("Wallet ID Asaas invalido");
+  }
+
+  const normalizedWalletId = value.trim();
+
+  if (!normalizedWalletId) {
+    return null;
+  }
+
+  if (!isUuid(normalizedWalletId)) {
+    throw new HttpError("Wallet ID Asaas invalido");
+  }
+
+  return normalizedWalletId;
 };
 
 const requireAdminUser = async (
@@ -151,6 +177,7 @@ serve(async (req) => {
     const email = requireString(body.email, "Email").toLowerCase();
     const commissionType = requireString(body.commissionType, "Tipo de comissao");
     const commissionValue = parseCommissionValue(body.commissionValue);
+    const asaasWalletId = parseOptionalWalletId(body.asaasWalletId);
 
     if (!["percentage", "fixed"].includes(commissionType)) {
       throw new HttpError("Tipo de comissao invalido");
@@ -173,7 +200,7 @@ serve(async (req) => {
 
     const { data: existingAffiliate, error: existingAffiliateError } = await supabaseAdmin
       .from("affiliates")
-      .select("id, user_id, name, email")
+      .select("id, user_id, name, email, asaas_wallet_id")
       .eq("email", email)
       .maybeSingle();
 
@@ -208,8 +235,9 @@ serve(async (req) => {
           user_id: authData.user.id,
           name,
           email,
+          asaas_wallet_id: asaasWalletId,
         })
-        .select("id, user_id, name, email")
+        .select("id, user_id, name, email, asaas_wallet_id")
         .single();
 
       if (affiliateError || !createdAffiliate) {
@@ -219,6 +247,20 @@ serve(async (req) => {
 
       affiliate = createdAffiliate;
       reusedAffiliate = false;
+    } else if (asaasWalletId) {
+      const { data: updatedAffiliate, error: updateAffiliateError } = await supabaseAdmin
+        .from("affiliates")
+        .update({ asaas_wallet_id: asaasWalletId })
+        .eq("id", affiliate.id)
+        .select("id, user_id, name, email, asaas_wallet_id")
+        .single();
+
+      if (updateAffiliateError || !updatedAffiliate) {
+        console.error("Error updating affiliate Wallet ID status:", updateAffiliateError);
+        throw new HttpError("Erro ao atualizar afiliado", 500);
+      }
+
+      affiliate = updatedAffiliate;
     }
 
     const { error: roleError } = await supabaseAdmin
@@ -298,6 +340,7 @@ serve(async (req) => {
     return jsonResponse({
       success: true,
       affiliateId: affiliate.id,
+      asaasWalletId: affiliate.asaas_wallet_id,
       linkId,
       affiliateUrl,
       reusedAffiliate,

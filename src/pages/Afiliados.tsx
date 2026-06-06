@@ -16,6 +16,7 @@ interface Affiliate {
   id: string;
   name: string;
   email: string;
+  asaas_wallet_id: string | null;
   is_active: boolean;
   created_at: string;
   user_id: string;
@@ -395,6 +396,7 @@ export default function Afiliados() {
       "Nome",
       "Email",
       "Status",
+      "Repasse Asaas",
       "Data de Cadastro"
     ];
 
@@ -402,6 +404,7 @@ export default function Afiliados() {
       affiliate.name,
       affiliate.email,
       affiliate.is_active ? "Ativo" : "Inativo",
+      affiliate.asaas_wallet_id ? "ativo" : "pendente",
       format(new Date(affiliate.created_at), "dd/MM/yyyy HH:mm")
     ]);
 
@@ -642,6 +645,7 @@ export default function Afiliados() {
                       <TableHead>Nome</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Repasse Asaas</TableHead>
                       <TableHead>Data de Cadastro</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -654,6 +658,11 @@ export default function Afiliados() {
                         <TableCell>
                           <Badge variant={affiliate.is_active ? "default" : "secondary"}>
                             {affiliate.is_active ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={affiliate.asaas_wallet_id ? "default" : "secondary"}>
+                            {affiliate.asaas_wallet_id ? "ativo" : "pendente"}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -732,6 +741,14 @@ export default function Afiliados() {
                     <p className="text-sm mt-1">
                       <Badge variant={selectedAffiliate.is_active ? "default" : "secondary"}>
                         {selectedAffiliate.is_active ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Repasse automático Asaas</label>
+                    <p className="text-sm mt-1">
+                      <Badge variant={selectedAffiliate.asaas_wallet_id ? "default" : "secondary"}>
+                        {selectedAffiliate.asaas_wallet_id ? "ativo" : "pendente"}
                       </Badge>
                     </p>
                   </div>
