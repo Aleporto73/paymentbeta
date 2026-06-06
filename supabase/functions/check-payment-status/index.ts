@@ -139,6 +139,54 @@ async function queueWebhooksForTransaction(supabaseClient: any, transaction: any
   }
 }
 
+async function getAffiliateSaleData(supabaseClient: any, fullTransaction: any) {
+  const emptyAffiliateData = {
+    affiliate_link_id: null,
+    commission_amount: 0,
+  };
+
+  if (!fullTransaction.affiliate_code) {
+    return emptyAffiliateData;
+  }
+
+  const { data: affiliateLink, error } = await supabaseClient
+    .from('product_affiliate_links')
+    .select('id, product_id, commission_type, commission_value, is_active')
+    .eq('id', fullTransaction.affiliate_code)
+    .eq('product_id', fullTransaction.product_id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Error fetching affiliate link for commission:', error);
+    return emptyAffiliateData;
+  }
+
+  if (!affiliateLink || affiliateLink.is_active !== true) {
+    console.warn('Affiliate link not found or inactive for transaction:', fullTransaction.id);
+    return emptyAffiliateData;
+  }
+
+  const saleAmount = Number(fullTransaction.value || 0);
+  const commissionValue = Number(affiliateLink.commission_value || 0);
+
+  if (affiliateLink.commission_type === 'percentage') {
+    return {
+      affiliate_link_id: affiliateLink.id,
+      commission_amount: (saleAmount * commissionValue) / 100,
+    };
+  }
+
+  if (affiliateLink.commission_type === 'fixed') {
+    return {
+      affiliate_link_id: affiliateLink.id,
+      commission_amount: commissionValue,
+    };
+  }
+
+  console.warn('Invalid affiliate commission type for transaction:', fullTransaction.id);
+  return emptyAffiliateData;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -255,12 +303,14 @@ serve(async (req) => {
           if (fullTransaction.product_id) {
             const { data: existingSale } = await supabaseClient
               .from('product_sales')
-              .select('id')
+              .select('id, affiliate_link_id')
               .eq('product_id', fullTransaction.product_id)
               .eq('customer_email', fullTransaction.customer_email)
               .eq('sale_amount', fullTransaction.value)
               .gte('created_at', new Date(Date.now() - 60000).toISOString())
               .maybeSingle();
+
+            const affiliateSaleData = await getAffiliateSaleData(supabaseClient, fullTransaction);
 
             if (!existingSale) {
               await supabaseClient.from('product_sales').insert({
@@ -271,8 +321,24 @@ serve(async (req) => {
                 sale_amount: fullTransaction.value,
                 sale_date: paymentData.confirmedDate || paymentData.paymentDate || new Date().toISOString(),
                 status: 'completed',
+                affiliate_link_id: affiliateSaleData.affiliate_link_id,
+                commission_amount: affiliateSaleData.commission_amount,
               });
               console.log('Product sale created via polling');
+            } else if (!existingSale.affiliate_link_id && fullTransaction.affiliate_code && affiliateSaleData.affiliate_link_id) {
+              const { error: updateSaleError } = await supabaseClient
+                .from('product_sales')
+                .update({
+                  affiliate_link_id: affiliateSaleData.affiliate_link_id,
+                  commission_amount: affiliateSaleData.commission_amount,
+                })
+                .eq('id', existingSale.id);
+
+              if (updateSaleError) {
+                console.error('Error updating existing product sale affiliate commission via polling:', updateSaleError);
+              } else {
+                console.log('Existing product sale affiliate commission updated via polling:', existingSale.id);
+              }
             }
           }
 

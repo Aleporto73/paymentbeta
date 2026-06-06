@@ -126,6 +126,54 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
   }
 }
 
+async function getAffiliateSaleData(supabaseAdmin: any, fullTransaction: any) {
+  const emptyAffiliateData = {
+    affiliate_link_id: null,
+    commission_amount: 0,
+  };
+
+  if (!fullTransaction.affiliate_code) {
+    return emptyAffiliateData;
+  }
+
+  const { data: affiliateLink, error } = await supabaseAdmin
+    .from('product_affiliate_links')
+    .select('id, product_id, commission_type, commission_value, is_active')
+    .eq('id', fullTransaction.affiliate_code)
+    .eq('product_id', fullTransaction.product_id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Error fetching affiliate link for commission:', error);
+    return emptyAffiliateData;
+  }
+
+  if (!affiliateLink || affiliateLink.is_active !== true) {
+    console.warn('Affiliate link not found or inactive for transaction:', fullTransaction.id);
+    return emptyAffiliateData;
+  }
+
+  const saleAmount = Number(fullTransaction.value || 0);
+  const commissionValue = Number(affiliateLink.commission_value || 0);
+
+  if (affiliateLink.commission_type === 'percentage') {
+    return {
+      affiliate_link_id: affiliateLink.id,
+      commission_amount: (saleAmount * commissionValue) / 100,
+    };
+  }
+
+  if (affiliateLink.commission_type === 'fixed') {
+    return {
+      affiliate_link_id: affiliateLink.id,
+      commission_amount: commissionValue,
+    };
+  }
+
+  console.warn('Invalid affiliate commission type for transaction:', fullTransaction.id);
+  return emptyAffiliateData;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -211,12 +259,14 @@ serve(async (req) => {
                 // Check if sale already exists to avoid duplicates
                 const { data: existingSale } = await supabaseAdmin
                   .from('product_sales')
-                  .select('id')
+                  .select('id, affiliate_link_id')
                   .eq('product_id', fullTransaction.product_id)
                   .eq('customer_email', fullTransaction.customer_email)
                   .eq('sale_amount', fullTransaction.value)
                   .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Within last minute
                   .maybeSingle();
+
+                const affiliateSaleData = await getAffiliateSaleData(supabaseAdmin, fullTransaction);
                 
                 if (!existingSale) {
                   const { error: salesError } = await supabaseAdmin
@@ -229,8 +279,8 @@ serve(async (req) => {
                       sale_amount: fullTransaction.value,
                       sale_date: payment.confirmedDate || payment.paymentDate || new Date().toISOString(),
                       status: 'completed',
-                      affiliate_link_id: null,
-                      commission_amount: 0,
+                      affiliate_link_id: affiliateSaleData.affiliate_link_id,
+                      commission_amount: affiliateSaleData.commission_amount,
                     });
 
                   if (salesError) {
@@ -240,6 +290,21 @@ serve(async (req) => {
                   }
                 } else {
                   console.log('Sale already exists, skipping duplicate creation');
+                  if (!existingSale.affiliate_link_id && fullTransaction.affiliate_code && affiliateSaleData.affiliate_link_id) {
+                    const { error: updateSaleError } = await supabaseAdmin
+                      .from('product_sales')
+                      .update({
+                        affiliate_link_id: affiliateSaleData.affiliate_link_id,
+                        commission_amount: affiliateSaleData.commission_amount,
+                      })
+                      .eq('id', existingSale.id);
+
+                    if (updateSaleError) {
+                      console.error('Error updating existing product sale affiliate commission:', updateSaleError);
+                    } else {
+                      console.log('Existing product sale affiliate commission updated:', existingSale.id);
+                    }
+                  }
                 }
               }
 
