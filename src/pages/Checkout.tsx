@@ -1536,7 +1536,7 @@ export default function Checkout() {
                       href="/termos-de-compra"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
                     >
                       Termos de Compra
                     </a>{" "}
@@ -1545,7 +1545,7 @@ export default function Checkout() {
                       href="/privacidade"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
                     >
                       Política de Privacidade
                     </a>
@@ -1556,13 +1556,23 @@ export default function Checkout() {
                   <div className="flex flex-col items-center justify-center gap-1 text-sm">
                     <div className="flex items-center justify-center gap-2 text-green-600 font-medium">
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Pagamento seguro processado pela Asaas</span>
+                      <span>
+                        Pagamento seguro processado pela{" "}
+                        <a
+                          href="https://www.asaas.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
+                        >
+                          Asaas.com
+                        </a>
+                      </span>
                     </div>
                     <a
                       href="/seguranca-pagamento"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-muted-foreground hover:text-blue-600 hover:underline"
+                      className="text-xs text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
                     >
                       Segurança do pagamento
                     </a>

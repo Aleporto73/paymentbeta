@@ -1,15 +1,4 @@
-import { Button } from "@/components/ui/button";
-
 export default function PrivacyPolicy() {
-  const goBackToCheckout = () => {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-
-    window.location.href = "/checkout";
-  };
-
   return (
     <main className="min-h-screen bg-background px-4 py-10 text-foreground sm:px-6">
       <article className="mx-auto max-w-3xl space-y-8">
@@ -58,9 +47,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <footer className="border-t pt-6">
-          <Button type="button" variant="outline" onClick={goBackToCheckout}>
-            Voltar ao checkout
-          </Button>
+          <p className="text-sm text-muted-foreground">Você pode fechar esta aba para voltar ao checkout.</p>
         </footer>
       </article>
     </main>
