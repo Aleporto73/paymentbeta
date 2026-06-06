@@ -89,8 +89,114 @@ const getSelectedOrderBumpIds = (orderBumps: unknown) => {
   return Array.from(new Set(ids));
 };
 
+const getOptionalNumberField = (record: Record<string, unknown>, fieldNames: string[]) => {
+  for (const fieldName of fieldNames) {
+    const parsed = Number(record[fieldName]);
+
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const getOptionalDateField = (record: Record<string, unknown>, fieldNames: string[]) => {
+  for (const fieldName of fieldNames) {
+    const value = record[fieldName];
+
+    if (typeof value !== "string" || !value.trim()) {
+      continue;
+    }
+
+    const parsed = new Date(value);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+async function validateCouponCode(
+  supabaseClient: ReturnType<typeof createClient>,
+  couponCode: unknown,
+  productId: string,
+  eligibleAmount: number,
+) {
+  if (couponCode === undefined || couponCode === null || couponCode === "") {
+    return {
+      coupon: null,
+      serverDiscount: 0,
+    };
+  }
+
+  if (typeof couponCode !== "string" || !couponCode.trim()) {
+    throw new HttpError("Cupom invalido");
+  }
+
+  const normalizedCouponCode = couponCode.trim().toUpperCase();
+
+  const { data: coupon, error } = await supabaseClient
+    .from("product_coupons")
+    .select("*")
+    .eq("code", normalizedCouponCode)
+    .eq("product_id", productId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error validating coupon:", error);
+    throw new HttpError("Cupom invalido");
+  }
+
+  if (!coupon || coupon.product_id !== productId || coupon.is_active !== true) {
+    throw new HttpError("Cupom invalido ou expirado");
+  }
+
+  const couponRecord = coupon as Record<string, unknown>;
+  const expiresAt = getOptionalDateField(couponRecord, ["expires_at", "valid_until", "expiresAt", "validUntil"]);
+
+  if (expiresAt && expiresAt.getTime() < Date.now()) {
+    throw new HttpError("Cupom invalido ou expirado");
+  }
+
+  const minimumAmount = getOptionalNumberField(couponRecord, [
+    "minimum_amount",
+    "minimum_value",
+    "min_purchase_value",
+    "min_value",
+  ]);
+
+  if (minimumAmount !== null && eligibleAmount < minimumAmount) {
+    throw new HttpError("Cupom nao atende ao valor minimo");
+  }
+
+  const discountValue = Number(coupon.discount_value);
+
+  if (!Number.isFinite(discountValue) || discountValue <= 0) {
+    throw new HttpError("Cupom invalido");
+  }
+
+  let calculatedDiscount = 0;
+
+  if (coupon.discount_type === "percentage") {
+    calculatedDiscount = (eligibleAmount * discountValue) / 100;
+  } else if (coupon.discount_type === "fixed") {
+    calculatedDiscount = discountValue;
+  } else {
+    throw new HttpError("Cupom invalido");
+  }
+
+  return {
+    coupon,
+    serverDiscount: roundMoney(Math.min(calculatedDiscount, eligibleAmount)),
+  };
+}
 
 async function validateAffiliateCode(
   supabaseClient: ReturnType<typeof createClient>,
@@ -266,6 +372,7 @@ serve(async (req) => {
       paymentData = {},
       productId,
       priceId,
+      couponCode,
       affiliateCode,
       orderBumps,
       deviceInfo,
@@ -329,13 +436,19 @@ serve(async (req) => {
 
     const productOwnerId = product.user_id;
     const serverSubtotal = requirePositiveMoney(price.price, "Preco");
-    const serverDiscount = 0;
     const { selectedOrderBumpIds, serverOrderBumpsTotal } = await validateOrderBumps(
       supabaseClient,
       orderBumps,
       product.id,
     );
-    const serverTotal = roundMoney(serverSubtotal + serverOrderBumpsTotal - serverDiscount);
+    const serverGrossTotal = roundMoney(serverSubtotal + serverOrderBumpsTotal);
+    const { serverDiscount } = await validateCouponCode(
+      supabaseClient,
+      couponCode,
+      product.id,
+      serverGrossTotal,
+    );
+    const serverTotal = Math.max(0, roundMoney(serverGrossTotal - serverDiscount));
 
     if (serverTotal < MINIMUM_PAYMENT_VALUE) {
       throw new HttpError("Valor minimo para pagamento nao atingido");
@@ -357,6 +470,7 @@ serve(async (req) => {
       throw new HttpError("Quantidade de parcelas acima do permitido");
     }
 
+    // Taxa do cliente no parcelamento sera aplicada em patch separado.
     const installmentValue =
       billingType === "CREDIT_CARD" && requestedInstallments > 1
         ? roundMoney(serverTotal / requestedInstallments)
@@ -465,8 +579,7 @@ serve(async (req) => {
     const asaasSplit = buildAsaasSplit(validatedAffiliateLink, requestedInstallments);
 
     if (asaasSplit) {
-      // Asaas /payments uses the singular split field for payment charge payloads.
-      paymentPayload.split = asaasSplit;
+      paymentPayload.splits = asaasSplit;
     }
 
     // Add credit card data if payment is by card

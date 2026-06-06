@@ -853,6 +853,7 @@ export default function Checkout() {
           productId: product.id,
           priceId: price?.id,
           userId: product.user_id,
+          couponCode: appliedCoupon?.code || null,
           affiliateCode,
           orderBumps: selectedBumps,
           deviceInfo,
