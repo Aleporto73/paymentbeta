@@ -128,6 +128,8 @@ export default function ProductDetail() {
     return null;
   }
 
+  const defaultPrice = prices.find((price) => price.is_default) ?? null;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center gap-4">
@@ -179,7 +181,14 @@ export default function ProductDetail() {
 
         {/* Conteúdo */}
         <div className="flex-1 min-w-0">
-          {activeTab === "info" && <ProductInfoTab product={product} onUpdate={fetchProduct} />}
+          {activeTab === "info" && (
+            <ProductInfoTab
+              product={product}
+              defaultPrice={defaultPrice}
+              onUpdate={fetchProduct}
+              onManagePrices={() => setActiveTab("prices")}
+            />
+          )}
           {activeTab === "links" && (
             <ProductLinksTab 
               productId={product.id} 

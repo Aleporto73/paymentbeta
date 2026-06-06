@@ -8,38 +8,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
 import { ImageUpload } from "./ImageUpload";
 import {
+  CATEGORY_LABELS,
+  PAYMENT_METHOD_LABELS,
+  PRODUCT_TYPE_LABELS,
   Product,
   ProductCategory,
+  ProductPrice,
   ProductType,
-  PaymentMethod,
-  CATEGORY_LABELS,
-  PRODUCT_TYPE_LABELS,
-  PAYMENT_METHOD_LABELS,
 } from "@/types/product";
 
 interface ProductInfoTabProps {
   product: Product;
+  defaultPrice: ProductPrice | null;
   onUpdate: () => void;
+  onManagePrices: () => void;
 }
 
-export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
+const getInitialFormData = (product: Product) => ({
+  name: product.name,
+  description: product.description || "",
+  image_url: product.image_url || "",
+  category: product.category,
+  product_type: product.product_type,
+  is_active: product.is_active,
+});
+
+export function ProductInfoTab({ product, defaultPrice, onUpdate, onManagePrices }: ProductInfoTabProps) {
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState(getInitialFormData(product));
   const { toast } = useToast();
-
-  const [formData, setFormData] = useState({
-    name: product.name,
-    description: product.description || "",
-    image_url: product.image_url || "",
-    category: product.category,
-    product_type: product.product_type,
-    payment_method: product.payment_method,
-    price: product.price.toString(),
-    installments: product.installments.toString(),
-    is_active: product.is_active,
-  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,11 +49,7 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
     try {
       const { error } = await supabase
         .from("products")
-        .update({
-          ...formData,
-          price: parseFloat(formData.price),
-          installments: parseInt(formData.installments),
-        })
+        .update(formData)
         .eq("id", product.id);
 
       if (error) throw error;
@@ -73,6 +70,11 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCancel = () => {
+    setEditing(false);
+    setFormData(getInitialFormData(product));
   };
 
   return (
@@ -119,40 +121,6 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="price">Preço principal (R$) *</Label>
-                <Input
-                  id="price"
-                  type="text"
-                  required
-                  value={formData.price}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "");
-                    const numericValue = value ? (parseInt(value) / 100).toFixed(2) : "";
-                    setFormData({ ...formData, price: numericValue });
-                  }}
-                  placeholder="0,00"
-                />
-              </div>
-
-              {(formData.payment_method === "parcelado_taxa_cliente" ||
-                formData.payment_method === "parcelado_taxa_vendedor") && (
-                <div className="space-y-2">
-                  <Label htmlFor="installments">Número de Parcelas *</Label>
-                  <Input
-                    id="installments"
-                    type="number"
-                    min="1"
-                    max="12"
-                    required
-                    value={formData.installments}
-                    onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
                 <Label>Categoria *</Label>
                 <Select
                   value={formData.category}
@@ -195,27 +163,6 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Forma de Pagamento *</Label>
-              <Select
-                value={formData.payment_method}
-                onValueChange={(value: PaymentMethod) =>
-                  setFormData({ ...formData, payment_method: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="flex items-center space-x-2">
               <Switch
                 id="is_active"
@@ -226,24 +173,7 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                setEditing(false);
-                setFormData({
-                  name: product.name,
-                  description: product.description || "",
-                  image_url: product.image_url || "",
-                  category: product.category,
-                  product_type: product.product_type,
-                  payment_method: product.payment_method,
-                  price: product.price.toString(),
-                  installments: product.installments.toString(),
-                  is_active: product.is_active,
-                });
-              }}
-              >
+              <Button type="button" variant="outline" onClick={handleCancel}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={loading}>
@@ -261,17 +191,11 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                   className="w-[100px] h-[100px] object-cover rounded-lg border shrink-0"
                 />
               )}
-              
+
               <div className="flex-1 space-y-4">
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-muted-foreground">Nome</p>
-                    <p className="text-lg font-semibold">{product.name}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-muted-foreground">Preço</p>
-                    <p className="text-lg font-semibold">R$ {product.price.toFixed(2)}</p>
-                  </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Nome</p>
+                  <p className="text-lg font-semibold">{product.name}</p>
                 </div>
 
                 {product.description && (
@@ -295,28 +219,66 @@ export function ProductInfoTab({ product, onUpdate }: ProductInfoTabProps) {
                     <p className="text-base text-foreground">{PRODUCT_TYPE_LABELS[product.product_type]}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Forma de Pagamento</p>
-                    <p className="text-base text-foreground">{PAYMENT_METHOD_LABELS[product.payment_method]}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Data de Cadastro</p>
+                    <p className="text-base text-foreground">
+                      {new Date(product.created_at).toLocaleDateString("pt-BR")}
+                    </p>
                   </div>
                 </div>
-
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Data de Cadastro</p>
-                  <p className="text-base text-foreground">
-                    {new Date(product.created_at).toLocaleDateString("pt-BR")}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Código do Produto</p>
-                  <p className="text-base text-foreground font-mono bg-muted px-3 py-1 rounded inline-block">
-                    {product.unique_code}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Link disponível na aba Links de divulgação
-                  </p>
-                </div>
               </div>
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-semibold">Resumo financeiro</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Estes dados são gerenciados em Preços e planos.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" onClick={onManagePrices}>
+                  Gerenciar em Preços e planos
+                </Button>
+              </div>
+
+              {defaultPrice ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Preço principal</p>
+                    <p className="text-base text-foreground">R$ {formatCurrency(defaultPrice.price)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Número de parcelas</p>
+                    <p className="text-base text-foreground">{defaultPrice.installments || 1}x</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Forma de pagamento</p>
+                    <p className="text-base text-foreground">{PAYMENT_METHOD_LABELS[product.payment_method]}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Código do produto</p>
+                    <p className="text-base text-foreground font-mono bg-muted px-3 py-1 rounded inline-block">
+                      {product.unique_code}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Nenhum preço principal configurado.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Forma de pagamento</p>
+                      <p className="text-base text-foreground">{PAYMENT_METHOD_LABELS[product.payment_method]}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Código do produto</p>
+                      <p className="text-base text-foreground font-mono bg-muted px-3 py-1 rounded inline-block">
+                        {product.unique_code}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
