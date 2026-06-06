@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CheckCircle2, ChevronDown, ChevronUp, CreditCard, Info, Copy } from "lucide-react";
 import { formatCurrency, formatCPF, formatPhone } from "@/lib/utils";
@@ -193,6 +194,29 @@ export default function Checkout() {
   const discount = calculateDiscount();
   const totalPrice = Math.max(0, subtotal - discount);
   const isBelowMinimum = totalPrice < MINIMUM_PAYMENT_VALUE;
+  const configuredInstallments = Number(price?.installments ?? product?.installments ?? 1);
+  const maxInstallments = Math.min(
+    12,
+    Math.max(1, Number.isFinite(configuredInstallments) ? Math.floor(configuredInstallments) : 1),
+  );
+  const installmentOptions = Array.from({ length: maxInstallments }, (_, index) => {
+    const installmentCount = index + 1;
+
+    return {
+      value: installmentCount.toString(),
+      label: `${installmentCount}x de ${formatCurrency(totalPrice / installmentCount)}`,
+    };
+  });
+
+  useEffect(() => {
+    const selectedInstallments = parseInt(cardData.installments, 10);
+    const safeInstallments = Number.isFinite(selectedInstallments) ? selectedInstallments : 1;
+    const normalizedInstallments = Math.min(Math.max(safeInstallments, 1), maxInstallments);
+
+    if (selectedInstallments !== normalizedInstallments) {
+      setCardData((prev) => ({ ...prev, installments: normalizedInstallments.toString() }));
+    }
+  }, [cardData.installments, maxInstallments]);
 
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
@@ -1295,12 +1319,23 @@ export default function Checkout() {
                       <Label htmlFor="installments" className="text-sm">
                         Parcelas
                       </Label>
-                      <Input
-                        id="installments"
-                        value={`${cardData.installments}x`}
-                        readOnly
-                        className="mt-1 cursor-not-allowed"
-                      />
+                      <Select
+                        value={cardData.installments}
+                        onValueChange={(installments) => {
+                          setCardData((prev) => ({ ...prev, installments }));
+                        }}
+                      >
+                        <SelectTrigger id="installments" className="mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {installmentOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
