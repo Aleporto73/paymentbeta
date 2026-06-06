@@ -30,6 +30,7 @@ export type PaymentMethod = 'a_vista' | 'parcelado_taxa_cliente' | 'parcelado_ta
 export type SubscriptionPeriod = 'mensal' | 'trimestral' | 'semestral' | 'anual';
 export type CommissionType = 'percentage' | 'fixed';
 export type DiscountType = 'percentage' | 'fixed';
+export type InstallmentInterestRates = Record<string, number>;
 
 export interface Product {
   id: string;
@@ -58,6 +59,7 @@ export interface ProductPrice {
   price: number;
   subscription_period: SubscriptionPeriod | null;
   installments: number;
+  installment_interest_rates: InstallmentInterestRates | null;
   is_default: boolean;
   unique_code: string;
   created_at: string;

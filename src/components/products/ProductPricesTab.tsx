@@ -9,7 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Edit } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { ProductPrice, SubscriptionPeriod, SUBSCRIPTION_PERIOD_LABELS, ProductType } from "@/types/product";
+import {
+  InstallmentInterestRates,
+  PaymentMethod,
+  ProductPrice,
+  SubscriptionPeriod,
+  SUBSCRIPTION_PERIOD_LABELS,
+  ProductType,
+} from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 
 interface ProductPricesTabProps {
@@ -17,10 +24,67 @@ interface ProductPricesTabProps {
   prices: ProductPrice[];
   onUpdate: () => void;
   productType: ProductType;
+  productPaymentMethod: PaymentMethod;
   productUniqueCode: string;
 }
 
-export function ProductPricesTab({ productId, prices, onUpdate, productType, productUniqueCode }: ProductPricesTabProps) {
+type InstallmentRateForm = Record<string, string>;
+
+const normalizeInstallments = (value: string | number | null | undefined) => {
+  const parsed = Number.parseInt(String(value ?? "1"), 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.min(parsed, 12);
+};
+
+const parseRateValue = (value: string) => {
+  const normalized = value.replace(",", ".").trim();
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const buildInstallmentInterestRates = (rates: InstallmentRateForm, installments: string | number) => {
+  const maxInstallments = normalizeInstallments(installments);
+  const parsedRates: InstallmentInterestRates = {};
+
+  for (let installment = 2; installment <= maxInstallments; installment += 1) {
+    const parsedRate = parseRateValue(rates[installment.toString()] || "");
+
+    if (parsedRate !== null) {
+      parsedRates[installment.toString()] = parsedRate;
+    }
+  }
+
+  return Object.keys(parsedRates).length > 0 ? parsedRates : null;
+};
+
+const formatInstallmentInterestRates = (
+  rates: InstallmentInterestRates | null | undefined,
+  installments: string | number,
+) => {
+  const maxInstallments = normalizeInstallments(installments);
+  const formattedRates: InstallmentRateForm = {};
+
+  for (let installment = 2; installment <= maxInstallments; installment += 1) {
+    const rate = Number(rates?.[installment.toString()]);
+    formattedRates[installment.toString()] = Number.isFinite(rate) && rate > 0 ? rate.toString() : "";
+  }
+
+  return formattedRates;
+};
+
+export function ProductPricesTab({
+  productId,
+  prices,
+  onUpdate,
+  productType,
+  productPaymentMethod,
+  productUniqueCode,
+}: ProductPricesTabProps) {
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -32,6 +96,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
     price: "",
     subscription_period: "" as SubscriptionPeriod | "",
     installments: "1",
+    installment_interest_rates: {} as InstallmentRateForm,
     is_default: false,
   });
 
@@ -40,7 +105,67 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
     price: "",
     subscription_period: "" as SubscriptionPeriod | "",
     installments: "1",
+    installment_interest_rates: {} as InstallmentRateForm,
   });
+
+  const shouldConfigureCustomerRates =
+    productType !== "recorrente" && productPaymentMethod === "parcelado_taxa_cliente";
+
+  const renderInstallmentRateFields = (
+    installments: string,
+    rates: InstallmentRateForm,
+    onRatesChange: (rates: InstallmentRateForm) => void,
+    inputPrefix: string,
+  ) => {
+    const maxInstallments = normalizeInstallments(installments);
+
+    if (!shouldConfigureCustomerRates || maxInstallments < 2) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label>Taxa do cliente por parcela (%)</Label>
+          <p className="text-xs text-muted-foreground">Deixe vazio para 0%.</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: maxInstallments - 1 }, (_, index) => {
+            const installment = index + 2;
+            const key = installment.toString();
+
+            return (
+              <div key={key} className="space-y-1">
+                <Label htmlFor={`${inputPrefix}-${key}`} className="text-xs">
+                  {installment}x
+                </Label>
+                <Input
+                  id={`${inputPrefix}-${key}`}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={rates[key] || ""}
+                  onChange={(e) => onRatesChange({ ...rates, [key]: e.target.value })}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const formatConfiguredRates = (rates: InstallmentInterestRates | null | undefined) => {
+    if (!rates) {
+      return "";
+    }
+
+    return Object.entries(rates)
+      .filter(([, rate]) => Number(rate) > 0)
+      .map(([installment, rate]) => `${installment}x: ${Number(rate).toLocaleString("pt-BR")}%`)
+      .join(" | ");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +179,9 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
           price: parseCurrency(formData.price),
           subscription_period: formData.subscription_period || null,
           installments: parseInt(formData.installments),
+          installment_interest_rates: shouldConfigureCustomerRates
+            ? buildInstallmentInterestRates(formData.installment_interest_rates, formData.installments)
+            : null,
           is_default: formData.is_default,
         } as any,
       ]);
@@ -70,6 +198,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
         price: "",
         subscription_period: "",
         installments: "1",
+        installment_interest_rates: {},
         is_default: false,
       });
       setOpen(false);
@@ -113,6 +242,10 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
       price: formatCurrency(price.price),
       subscription_period: price.subscription_period || "",
       installments: price.installments?.toString() || "1",
+      installment_interest_rates: formatInstallmentInterestRates(
+        price.installment_interest_rates,
+        price.installments || 1,
+      ),
     });
     setEditOpen(true);
   };
@@ -129,6 +262,9 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
           price: parseCurrency(editFormData.price),
           subscription_period: editFormData.subscription_period || null,
           installments: parseInt(editFormData.installments),
+          installment_interest_rates: shouldConfigureCustomerRates
+            ? buildInstallmentInterestRates(editFormData.installment_interest_rates, editFormData.installments)
+            : null,
         })
         .eq("id", editingPrice?.id);
 
@@ -165,7 +301,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                 Adicionar Preço
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Adicionar Novo Preço</DialogTitle>
               </DialogHeader>
@@ -234,6 +370,13 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                   />
                 </div>
 
+                {renderInstallmentRateFields(
+                  formData.installments,
+                  formData.installment_interest_rates,
+                  (rates) => setFormData({ ...formData, installment_interest_rates: rates }),
+                  "installment-rate",
+                )}
+
                 <div className="flex justify-end gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                     Cancelar
@@ -278,6 +421,11 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                       <span>{price.installments}x parcelas</span>
                     )}
                   </div>
+                  {shouldConfigureCustomerRates && formatConfiguredRates(price.installment_interest_rates) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Taxas do cliente: {formatConfiguredRates(price.installment_interest_rates)}
+                    </div>
+                  )}
                   <div className="mt-2">
                     <div className="text-xs text-muted-foreground">
                       <span className="font-medium">Código do plano: </span>
@@ -312,7 +460,7 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
       </CardContent>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Preço</DialogTitle>
           </DialogHeader>
@@ -380,6 +528,13 @@ export function ProductPricesTab({ productId, prices, onUpdate, productType, pro
                 onChange={(e) => setEditFormData({ ...editFormData, installments: e.target.value })}
               />
             </div>
+
+            {renderInstallmentRateFields(
+              editFormData.installments,
+              editFormData.installment_interest_rates,
+              (rates) => setEditFormData({ ...editFormData, installment_interest_rates: rates }),
+              "edit-installment-rate",
+            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>

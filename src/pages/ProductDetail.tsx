@@ -68,7 +68,7 @@ export default function ProductDetail() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setPrices(data || []);
+      setPrices((data || []) as ProductPrice[]);
     } catch (error: any) {
       toast({
         title: "Erro ao carregar preços",
@@ -193,6 +193,7 @@ export default function ProductDetail() {
               prices={prices}
               onUpdate={fetchPrices}
               productType={product.product_type}
+              productPaymentMethod={product.payment_method}
               productUniqueCode={product.unique_code}
             />
           )}

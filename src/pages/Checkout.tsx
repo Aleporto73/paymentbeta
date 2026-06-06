@@ -199,14 +199,46 @@ export default function Checkout() {
     12,
     Math.max(1, Number.isFinite(configuredInstallments) ? Math.floor(configuredInstallments) : 1),
   );
+  const getInstallmentInterestRate = (installmentCount: number) => {
+    if (product?.payment_method !== "parcelado_taxa_cliente" || installmentCount <= 1) {
+      return 0;
+    }
+
+    const rates = price?.installment_interest_rates;
+
+    if (!rates || typeof rates !== "object" || Array.isArray(rates)) {
+      return 0;
+    }
+
+    const rate = Number(rates[installmentCount.toString()]);
+
+    return Number.isFinite(rate) && rate > 0 ? rate : 0;
+  };
+  const getInstallmentDetails = (installmentCount: number) => {
+    const interestRate = getInstallmentInterestRate(installmentCount);
+    const totalWithInterest = Math.max(0, totalPrice * (1 + interestRate / 100));
+
+    return {
+      interestRate,
+      totalWithInterest,
+      installmentValue: totalWithInterest / installmentCount,
+    };
+  };
   const installmentOptions = Array.from({ length: maxInstallments }, (_, index) => {
     const installmentCount = index + 1;
+    const installmentDetails = getInstallmentDetails(installmentCount);
 
     return {
       value: installmentCount.toString(),
-      label: `${installmentCount}x de ${formatCurrency(totalPrice / installmentCount)}`,
+      label: `${installmentCount}x de R$ ${formatCurrency(installmentDetails.installmentValue)}`,
     };
   });
+  const selectedInstallments = parseInt(cardData.installments, 10);
+  const selectedInstallmentCount = Math.min(
+    Math.max(Number.isFinite(selectedInstallments) ? selectedInstallments : 1, 1),
+    maxInstallments,
+  );
+  const selectedInstallmentDetails = getInstallmentDetails(selectedInstallmentCount);
 
   useEffect(() => {
     const selectedInstallments = parseInt(cardData.installments, 10);
@@ -824,7 +856,7 @@ export default function Checkout() {
         const installments = parseInt(cardData.installments);
         if (installments > 1) {
           paymentData.installmentCount = installments;
-          paymentData.installmentValue = totalPrice / installments;
+          paymentData.installmentValue = getInstallmentDetails(installments).installmentValue;
         }
       }
 
@@ -1377,6 +1409,11 @@ export default function Checkout() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {selectedInstallmentDetails.interestRate > 0 && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Total parcelado: R$ {formatCurrency(selectedInstallmentDetails.totalWithInterest)} com taxa
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

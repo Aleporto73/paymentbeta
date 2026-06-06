@@ -475,6 +475,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          installment_interest_rates: Json | null
           installments: number | null
           is_default: boolean | null
           name: string
@@ -488,6 +489,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          installment_interest_rates?: Json | null
           installments?: number | null
           is_default?: boolean | null
           name: string
@@ -501,6 +503,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          installment_interest_rates?: Json | null
           installments?: number | null
           is_default?: boolean | null
           name?: string

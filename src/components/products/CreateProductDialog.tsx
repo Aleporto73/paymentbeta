@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ImageUpload } from "./ImageUpload";
 import {
+  InstallmentInterestRates,
   ProductCategory,
   ProductType,
   PaymentMethod,
@@ -21,6 +22,40 @@ import {
 interface CreateProductDialogProps {
   onProductCreated: () => void;
 }
+
+type InstallmentRateForm = Record<string, string>;
+
+const normalizeInstallments = (value: string | number | null | undefined) => {
+  const parsed = Number.parseInt(String(value ?? "1"), 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.min(parsed, 12);
+};
+
+const parseRateValue = (value: string) => {
+  const normalized = value.replace(",", ".").trim();
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const buildInstallmentInterestRates = (rates: InstallmentRateForm, installments: string | number) => {
+  const maxInstallments = normalizeInstallments(installments);
+  const parsedRates: InstallmentInterestRates = {};
+
+  for (let installment = 2; installment <= maxInstallments; installment += 1) {
+    const parsedRate = parseRateValue(rates[installment.toString()] || "");
+
+    if (parsedRate !== null) {
+      parsedRates[installment.toString()] = parsedRate;
+    }
+  }
+
+  return Object.keys(parsedRates).length > 0 ? parsedRates : null;
+};
 
 export function CreateProductDialog({ onProductCreated }: CreateProductDialogProps) {
   const [open, setOpen] = useState(false);
@@ -36,6 +71,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
     payment_method: "" as PaymentMethod,
     price: "",
     installments: "1",
+    installment_interest_rates: {} as InstallmentRateForm,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,6 +80,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const { installment_interest_rates, ...productFormData } = formData;
       if (!user) throw new Error("Usuário não autenticado");
 
       // Criar o produto
@@ -51,7 +88,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
         .from("products")
         .insert([
           {
-            ...formData,
+            ...productFormData,
             user_id: user.id,
             price: parseFloat(formData.price),
             installments: parseInt(formData.installments),
@@ -74,6 +111,9 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
           price: parseFloat(formData.price),
           subscription_period: formData.product_type === "recorrente" ? "mensal" : null,
           installments: parseInt(formData.installments),
+          installment_interest_rates: formData.payment_method === "parcelado_taxa_cliente"
+            ? buildInstallmentInterestRates(installment_interest_rates, formData.installments)
+            : null,
           is_default: true,
         } as any,
       ]);
@@ -94,6 +134,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
         payment_method: "" as PaymentMethod,
         price: "",
         installments: "1",
+        installment_interest_rates: {},
       });
       setOpen(false);
       onProductCreated();
@@ -107,6 +148,10 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
       setLoading(false);
     }
   };
+
+  const maxInstallmentsForRates = normalizeInstallments(formData.installments);
+  const showInstallmentInterestRates =
+    formData.payment_method === "parcelado_taxa_cliente" && maxInstallmentsForRates > 1;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -184,6 +229,46 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
               </div>
             )}
           </div>
+
+          {showInstallmentInterestRates && (
+            <div className="space-y-2">
+              <div>
+                <Label>Taxa do cliente por parcela (%)</Label>
+                <p className="text-xs text-muted-foreground">Deixe vazio para 0%.</p>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {Array.from({ length: maxInstallmentsForRates - 1 }, (_, index) => {
+                  const installment = index + 2;
+                  const key = installment.toString();
+
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label htmlFor={`create-installment-rate-${key}`} className="text-xs">
+                        {installment}x
+                      </Label>
+                      <Input
+                        id={`create-installment-rate-${key}`}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0,00"
+                        value={formData.installment_interest_rates[key] || ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            installment_interest_rates: {
+                              ...formData.installment_interest_rates,
+                              [key]: e.target.value,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

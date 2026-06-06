@@ -119,6 +119,17 @@ const getOptionalDateField = (record: Record<string, unknown>, fieldNames: strin
   return null;
 };
 
+const getInstallmentInterestRate = (rates: unknown, installmentCount: number) => {
+  if (!rates || typeof rates !== "object" || Array.isArray(rates) || installmentCount <= 1) {
+    return 0;
+  }
+
+  const rawRate = (rates as Record<string, unknown>)[installmentCount.toString()];
+  const parsedRate = Number(rawRate);
+
+  return Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0;
+};
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -390,7 +401,7 @@ serve(async (req) => {
 
     const { data: product, error: productError } = await supabaseClient
       .from("products")
-      .select("id, user_id, name, is_active, product_type, unique_code, installments")
+      .select("id, user_id, name, is_active, product_type, payment_method, unique_code, installments")
       .eq("id", productId)
       .maybeSingle();
 
@@ -413,7 +424,7 @@ serve(async (req) => {
 
     const { data: price, error: priceError } = await supabaseClient
       .from("product_prices")
-      .select("id, product_id, name, price, installments, subscription_period")
+      .select("id, product_id, name, price, installments, subscription_period, installment_interest_rates")
       .eq("id", priceId)
       .maybeSingle();
 
@@ -450,10 +461,6 @@ serve(async (req) => {
     );
     const serverTotal = Math.max(0, roundMoney(serverGrossTotal - serverDiscount));
 
-    if (serverTotal < MINIMUM_PAYMENT_VALUE) {
-      throw new HttpError("Valor minimo para pagamento nao atingido");
-    }
-
     const billingType = paymentData?.billingType;
     if (billingType !== "PIX" && billingType !== "CREDIT_CARD") {
       throw new HttpError("Metodo de pagamento invalido");
@@ -470,10 +477,21 @@ serve(async (req) => {
       throw new HttpError("Quantidade de parcelas acima do permitido");
     }
 
-    // Taxa do cliente no parcelamento sera aplicada em patch separado.
+    const installmentInterestRate =
+      billingType === "CREDIT_CARD" &&
+      requestedInstallments > 1 &&
+      product.payment_method === "parcelado_taxa_cliente"
+        ? getInstallmentInterestRate(price.installment_interest_rates, requestedInstallments)
+        : 0;
+    const serverChargeTotal = roundMoney(serverTotal * (1 + installmentInterestRate / 100));
+
+    if (serverChargeTotal < MINIMUM_PAYMENT_VALUE) {
+      throw new HttpError("Valor minimo para pagamento nao atingido");
+    }
+
     const installmentValue =
       billingType === "CREDIT_CARD" && requestedInstallments > 1
-        ? roundMoney(serverTotal / requestedInstallments)
+        ? roundMoney(serverChargeTotal / requestedInstallments)
         : null;
 
     const validatedAffiliateLink = await validateAffiliateCode(
@@ -570,7 +588,7 @@ serve(async (req) => {
     const paymentPayload: any = {
       customer: customerResult.id,
       billingType,
-      value: serverTotal,
+      value: serverChargeTotal,
       dueDate,
       description: serverDescription,
       externalReference: serverExternalReference,
@@ -684,7 +702,7 @@ serve(async (req) => {
         customer_state: customerData.state,
         payment_method: billingType,
         status: paymentResult.status,
-        value: serverTotal,
+        value: serverChargeTotal,
         net_value: paymentResult.netValue,
         due_date: dueDate,
         billing_type: billingType,
@@ -744,7 +762,10 @@ serve(async (req) => {
           subtotal: serverSubtotal,
           discount: serverDiscount,
           orderBumpsTotal: serverOrderBumpsTotal,
-          total: serverTotal,
+          installmentInterestRate,
+          installmentInterestAmount: roundMoney(serverChargeTotal - serverTotal),
+          totalBeforeInstallmentInterest: serverTotal,
+          total: serverChargeTotal,
         },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
