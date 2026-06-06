@@ -3,6 +3,9 @@ project_id = "nwaihnoxcxhtitgagcqk"
 [functions.create-payment]
 verify_jwt = false
 
+[functions.admin-create-affiliate]
+verify_jwt = true
+
 [functions.check-payment-status]
 verify_jwt = false
 

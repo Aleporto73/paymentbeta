@@ -51,39 +51,11 @@ export function AddAffiliateDialog({
     setLoading(true);
 
     try {
-      // Create user in auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: {
-          data: {
-            full_name: form.name,
-          },
-        },
-      });
-
-      if (authError) throw authError;
-      if (!authData.user) throw new Error("Falha ao criar usuário");
-
-      // Create affiliate record
-      const { data: affiliateData, error: affiliateError } = await supabase
-        .from("affiliates")
-        .insert({
-          user_id: authData.user.id,
-          name: form.name,
-          email: form.email,
-        })
-        .select()
-        .single();
-
-      if (affiliateError) throw affiliateError;
-
-      // Determine commission values
       const commissionType =
         form.commissionOption === "default"
           ? defaultCommissionType
           : form.customCommissionType;
-      
+
       const commissionValue =
         form.commissionOption === "default"
           ? defaultCommissionValue
@@ -91,29 +63,23 @@ export function AddAffiliateDialog({
           ? parseFloat(form.customCommissionValue)
           : parseCurrency(form.customCommissionValue);
 
-      // Create product-affiliate link
-      const { error: linkError } = await supabase
-        .from("product_affiliate_links")
-        .insert({
-          product_id: productId,
-          affiliate_id: affiliateData.id,
-          affiliate_name: form.name,
-          affiliate_url: `${window.location.origin}/checkout/${productId}?aff=${affiliateData.id}`,
-          commission_type: commissionType,
-          commission_value: commissionValue,
-        });
+      if (!Number.isFinite(commissionValue)) {
+        throw new Error("Valor de comissão inválido");
+      }
 
-      if (linkError) throw linkError;
+      const { data, error } = await supabase.functions.invoke("admin-create-affiliate", {
+        body: {
+          productId,
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          commissionType,
+          commissionValue,
+        },
+      });
 
-      // Assign affiliate role
-      const { error: roleError } = await supabase
-        .from("user_roles")
-        .insert({
-          user_id: authData.user.id,
-          role: "affiliate",
-        });
-
-      if (roleError) throw roleError;
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       toast({
         title: "Afiliado cadastrado",
@@ -200,8 +166,8 @@ export function AddAffiliateDialog({
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="default" id="default-commission" />
                 <Label htmlFor="default-commission" className="font-normal cursor-pointer">
-                  Padrão ({defaultCommissionType === 'percentage' 
-                    ? `${defaultCommissionValue}%` 
+                  Padrão ({defaultCommissionType === "percentage"
+                    ? `${defaultCommissionValue}%`
                     : `R$ ${formatCurrency(defaultCommissionValue || 0)}`})
                 </Label>
               </div>
@@ -221,10 +187,10 @@ export function AddAffiliateDialog({
                 <RadioGroup
                   value={form.customCommissionType}
                   onValueChange={(value: CommissionType) =>
-                    setForm({ 
-                      ...form, 
+                    setForm({
+                      ...form,
                       customCommissionType: value,
-                      customCommissionValue: value === 'percentage' ? '' : '0,00'
+                      customCommissionValue: value === "percentage" ? "" : "0,00",
                     })
                   }
                 >
@@ -245,7 +211,7 @@ export function AddAffiliateDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="custom-value">
-                  {form.customCommissionType === 'percentage' ? 'Porcentagem (%)' : 'Valor (R$)'}
+                  {form.customCommissionType === "percentage" ? "Porcentagem (%)" : "Valor (R$)"}
                 </Label>
                 <Input
                   id="custom-value"
@@ -253,11 +219,11 @@ export function AddAffiliateDialog({
                   required
                   value={form.customCommissionValue}
                   onChange={(e) => {
-                    if (form.customCommissionType === 'percentage') {
-                      const value = e.target.value.replace(/[^\d.]/g, '');
+                    if (form.customCommissionType === "percentage") {
+                      const value = e.target.value.replace(/[^\d.]/g, "");
                       setForm({ ...form, customCommissionValue: value });
                     } else {
-                      let value = e.target.value.replace(/[^\d]/g, '');
+                      let value = e.target.value.replace(/[^\d]/g, "");
                       if (value.length > 0) {
                         const numValue = parseInt(value);
                         value = formatCurrency(numValue / 100);
@@ -265,7 +231,7 @@ export function AddAffiliateDialog({
                       setForm({ ...form, customCommissionValue: value });
                     }
                   }}
-                  placeholder={form.customCommissionType === 'percentage' ? '0.00' : '0,00'}
+                  placeholder={form.customCommissionType === "percentage" ? "0.00" : "0,00"}
                 />
               </div>
             </>
