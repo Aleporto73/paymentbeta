@@ -24,6 +24,9 @@ import Checkout from "./pages/Checkout";
 import PaymentApproved from "./pages/PaymentApproved";
 import PaymentPending from "./pages/PaymentPending";
 import PaymentRejected from "./pages/PaymentRejected";
+import TermsOfPurchase from "./pages/TermsOfPurchase";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import PaymentSecurity from "./pages/PaymentSecurity";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +49,9 @@ const App = () => {
             <Route path="/pagamento-aprovado" element={<PaymentApproved />} />
             <Route path="/pagamento-em-analise" element={<PaymentPending />} />
             <Route path="/pagamento-recusado" element={<PaymentRejected />} />
+            <Route path="/termos-de-compra" element={<TermsOfPurchase />} />
+            <Route path="/privacidade" element={<PrivacyPolicy />} />
+            <Route path="/seguranca-pagamento" element={<PaymentSecurity />} />
             <Route path="/" element={<ProtectedRoute requiredRole="admin"><Layout><Dashboard /></Layout></ProtectedRoute>} />
             <Route path="/produtos" element={<ProtectedRoute requiredRole="admin"><Layout><Produtos /></Layout></ProtectedRoute>} />
             <Route path="/produtos/:id" element={<ProtectedRoute requiredRole="admin"><Layout><ProductDetail /></Layout></ProtectedRoute>} />
