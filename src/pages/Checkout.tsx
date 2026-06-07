@@ -239,6 +239,9 @@ export default function Checkout() {
     maxInstallments,
   );
   const selectedInstallmentDetails = getInstallmentDetails(selectedInstallmentCount);
+  const hasInstallmentFee = paymentMethod === "card" && selectedInstallmentDetails.interestRate > 0;
+  const totalParcelado = hasInstallmentFee ? selectedInstallmentDetails.totalWithInterest : totalPrice;
+  const installmentFeeAmount = Math.max(0, totalParcelado - totalPrice);
 
   useEffect(() => {
     const selectedInstallments = parseInt(cardData.installments, 10);
@@ -1533,10 +1536,27 @@ export default function Checkout() {
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between text-lg font-bold pt-2">
-                      <span>Total:</span>
-                      <span className="text-blue-600">R$ {formatCurrency(totalPrice)}</span>
-                    </div>
+                    {hasInstallmentFee ? (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Total à vista:</span>
+                          <span>R$ {formatCurrency(totalPrice)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Taxa de parcelamento:</span>
+                          <span>R$ {formatCurrency(installmentFeeAmount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-lg font-bold pt-2">
+                          <span>Total no cartão:</span>
+                          <span className="text-blue-600">R$ {formatCurrency(totalParcelado)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between text-lg font-bold pt-2">
+                        <span>Total:</span>
+                        <span className="text-blue-600">R$ {formatCurrency(totalPrice)}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Alerta valor mínimo */}
