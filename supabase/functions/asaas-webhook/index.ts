@@ -28,6 +28,261 @@ const validateWebhookToken = (req: Request) => {
   return null;
 };
 
+const CONFIRMED_PAYMENT_STATUSES = new Set(['RECEIVED', 'CONFIRMED']);
+
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+const getValidNumber = (value: unknown) => {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isConfirmedPaymentStatus = (status: unknown) =>
+  typeof status === 'string' && CONFIRMED_PAYMENT_STATUSES.has(status);
+
+const getAsaasFeeAmount = (payment: any) => {
+  const paymentValue = getValidNumber(payment?.value);
+  const netValue = getValidNumber(payment?.netValue);
+
+  if (paymentValue === null || netValue === null) {
+    return null;
+  }
+
+  const feeAmount = roundMoney(paymentValue - netValue);
+
+  return feeAmount >= 0 ? feeAmount : null;
+};
+
+const getWebhookSplits = (webhookData: any, payment: any) => {
+  const splitCandidates = [
+    payment?.splits,
+    payment?.split,
+    webhookData?.splits,
+    webhookData?.split,
+  ];
+
+  for (const candidate of splitCandidates) {
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      return [candidate];
+    }
+  }
+
+  return [];
+};
+
+const getSplitWalletId = (split: Record<string, unknown>) => {
+  const walletId = split.walletId ?? split.wallet_id ?? split.wallet;
+
+  return typeof walletId === 'string' && walletId.trim() ? walletId.trim() : null;
+};
+
+const getSplitReceivedAmount = (split: Record<string, unknown>) => {
+  const amount = getValidNumber(
+    split.receivedAmount
+      ?? split.received_amount
+      ?? split.receivedValue
+      ?? split.received_value
+      ?? split.netValue
+      ?? split.net_value,
+  );
+
+  return amount !== null && amount >= 0 ? roundMoney(amount) : null;
+};
+
+const combineReconciliationNotes = (...notes: Array<string | null | undefined>) => {
+  const validNotes = notes.filter((note): note is string => typeof note === 'string' && note.trim().length > 0);
+
+  return validNotes.length > 0 ? validNotes.join(' | ') : null;
+};
+
+async function updateTransactionReconciliation(
+  supabaseAdmin: any,
+  transactionId: string,
+  reconciliationStatus: string,
+  reconciliationNotes: string | null,
+) {
+  const updatePayload: Record<string, unknown> = {
+    reconciliation_status: reconciliationStatus,
+  };
+
+  if (reconciliationNotes) {
+    updatePayload.reconciliation_notes = reconciliationNotes;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('transactions')
+    .update(updatePayload)
+    .eq('id', transactionId);
+
+  if (error) {
+    console.error('Error updating transaction reconciliation fields:', error);
+  }
+}
+
+async function getPlannedSplitContext(supabaseAdmin: any, transaction: any, payment: any) {
+  const affiliateSplitTotal = getValidNumber(transaction?.affiliate_split_total);
+
+  if (affiliateSplitTotal !== null && affiliateSplitTotal > 0) {
+    return {
+      hasPlannedSplit: true,
+      verificationFailed: false,
+      notes: null,
+    };
+  }
+
+  if (typeof transaction?.affiliate_code === 'string' && transaction.affiliate_code.trim()) {
+    return {
+      hasPlannedSplit: true,
+      verificationFailed: false,
+      notes: null,
+    };
+  }
+
+  const { data: existingSplits, error } = await supabaseAdmin
+    .from('transaction_splits')
+    .select('id')
+    .or(`transaction_id.eq.${transaction.id},asaas_payment_id.eq.${payment.id}`)
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking planned transaction splits:', error);
+    return {
+      hasPlannedSplit: false,
+      verificationFailed: true,
+      notes: 'Failed to verify planned transaction splits during asaas-webhook',
+    };
+  }
+
+  return {
+    hasPlannedSplit: Boolean(existingSplits && existingSplits.length > 0),
+    verificationFailed: false,
+    notes: null,
+  };
+}
+
+async function updateTransactionSplitsFromWebhook(
+  supabaseAdmin: any,
+  transaction: any,
+  payment: any,
+  webhookData: any,
+) {
+  try {
+    const webhookSplits = getWebhookSplits(webhookData, payment);
+
+    if (webhookSplits.length === 0) {
+      return {
+        status: 'partial',
+        notes: 'Asaas webhook did not include detailed split data; planned split remains sent',
+      };
+    }
+
+    const { data: existingSplits, error: splitFetchError } = await supabaseAdmin
+      .from('transaction_splits')
+      .select('id, wallet_id')
+      .or(`transaction_id.eq.${transaction.id},asaas_payment_id.eq.${payment.id}`);
+
+    if (splitFetchError) {
+      console.error('Error fetching transaction splits for reconciliation:', splitFetchError);
+      return {
+        status: 'divergent',
+        notes: 'Failed to fetch planned transaction splits during asaas-webhook',
+      };
+    }
+
+    if (!existingSplits || existingSplits.length === 0) {
+      console.error('Asaas webhook included split data, but no planned transaction_splits rows were found');
+      return {
+        status: 'divergent',
+        notes: 'Asaas webhook included split data, but no planned transaction_splits rows were found',
+      };
+    }
+
+    let updatedCount = 0;
+    let receivedCount = 0;
+    let missingCount = 0;
+    let updateErrorCount = 0;
+
+    for (const [index, split] of webhookSplits.entries()) {
+      const splitRecord = split as Record<string, unknown>;
+      const walletId = getSplitWalletId(splitRecord);
+      const receivedAmount = getSplitReceivedAmount(splitRecord);
+      const splitRow = walletId
+        ? existingSplits.find((row: any) => row.wallet_id === walletId)
+        : existingSplits.length === webhookSplits.length
+          ? existingSplits[index]
+          : existingSplits.length === 1 && webhookSplits.length === 1
+            ? existingSplits[0]
+            : null;
+
+      if (!splitRow) {
+        missingCount += 1;
+        continue;
+      }
+
+      const splitUpdatePayload: Record<string, unknown> = {
+        status: receivedAmount !== null ? 'received' : 'partial',
+        raw_payload: {
+          asaas_split: splitRecord,
+          source: 'asaas-webhook',
+          event: webhookData.event,
+          payment_id: payment.id,
+        },
+      };
+
+      if (receivedAmount !== null) {
+        splitUpdatePayload.received_amount = receivedAmount;
+      }
+
+      const { error: splitUpdateError } = await supabaseAdmin
+        .from('transaction_splits')
+        .update(splitUpdatePayload)
+        .eq('id', splitRow.id);
+
+      if (splitUpdateError) {
+        updateErrorCount += 1;
+        console.error('Error updating transaction split from Asaas webhook:', splitUpdateError);
+        continue;
+      }
+
+      updatedCount += 1;
+
+      if (receivedAmount !== null) {
+        receivedCount += 1;
+      }
+    }
+
+    if (updateErrorCount > 0 || missingCount > 0) {
+      return {
+        status: 'divergent',
+        notes: 'Failed to match or update all webhook split details during asaas-webhook',
+      };
+    }
+
+    if (updatedCount === webhookSplits.length && receivedCount === webhookSplits.length) {
+      return {
+        status: 'reconciled',
+        notes: null,
+      };
+    }
+
+    return {
+      status: 'partial',
+      notes: 'Asaas webhook included split details without received split amounts',
+    };
+  } catch (error) {
+    console.error('Unexpected error reconciling transaction splits from webhook:', error);
+    return {
+      status: 'divergent',
+      notes: 'Unexpected error reconciling transaction splits during asaas-webhook',
+    };
+  }
+}
+
 async function queueWebhooks(supabaseAdmin: any, transaction: any) {
   try {
     if (!transaction.product_id) {
@@ -219,12 +474,27 @@ serve(async (req) => {
       // Update or create transaction
       const transactionData: any = {
         status: payment.status,
-        net_value: payment.netValue,
         payment_date: payment.paymentDate,
         confirmed_date: payment.confirmedDate,
         credit_date: payment.creditDate,
+        asaas_raw_payload: webhookData,
+        reconciliation_status: isConfirmedPaymentStatus(payment.status) ? 'partial' : 'pending',
         updated_at: new Date().toISOString(),
       };
+      const paymentNetValue = getValidNumber(payment.netValue);
+      const asaasFeeAmount = getAsaasFeeAmount(payment);
+      const asaasFeeNote = asaasFeeAmount !== null
+        ? 'Asaas fee estimated from webhook payment.value - payment.netValue'
+        : null;
+
+      if (paymentNetValue !== null) {
+        transactionData.net_value = paymentNetValue;
+      }
+
+      if (asaasFeeAmount !== null) {
+        transactionData.asaas_fee_amount = asaasFeeAmount;
+        transactionData.reconciliation_notes = asaasFeeNote;
+      }
 
       if (existingTransaction) {
         // Update existing transaction
@@ -257,14 +527,21 @@ serve(async (req) => {
               // Create product_sales entry
               if (fullTransaction.product_id) {
                 // Check if sale already exists to avoid duplicates
-                const { data: existingSale } = await supabaseAdmin
+                const { data: existingSaleByTransaction } = await supabaseAdmin
                   .from('product_sales')
-                  .select('id, affiliate_link_id')
+                  .select('id, affiliate_link_id, transaction_id, asaas_payment_id')
+                  .or(`transaction_id.eq.${fullTransaction.id},asaas_payment_id.eq.${fullTransaction.asaas_payment_id}`)
+                  .maybeSingle();
+
+                const { data: existingRecentSale } = await supabaseAdmin
+                  .from('product_sales')
+                  .select('id, affiliate_link_id, transaction_id, asaas_payment_id')
                   .eq('product_id', fullTransaction.product_id)
                   .eq('customer_email', fullTransaction.customer_email)
                   .eq('sale_amount', fullTransaction.value)
                   .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Within last minute
                   .maybeSingle();
+                const existingSale = existingSaleByTransaction ?? existingRecentSale;
 
                 const affiliateSaleData = await getAffiliateSaleData(supabaseAdmin, fullTransaction);
                 
@@ -281,6 +558,8 @@ serve(async (req) => {
                       status: 'completed',
                       affiliate_link_id: affiliateSaleData.affiliate_link_id,
                       commission_amount: affiliateSaleData.commission_amount,
+                      transaction_id: fullTransaction.id,
+                      asaas_payment_id: fullTransaction.asaas_payment_id,
                     });
 
                   if (salesError) {
@@ -290,22 +569,65 @@ serve(async (req) => {
                   }
                 } else {
                   console.log('Sale already exists, skipping duplicate creation');
+                  const saleUpdateData: Record<string, unknown> = {};
+
+                  if (!existingSale.transaction_id) {
+                    saleUpdateData.transaction_id = fullTransaction.id;
+                  }
+
+                  if (!existingSale.asaas_payment_id) {
+                    saleUpdateData.asaas_payment_id = fullTransaction.asaas_payment_id;
+                  }
+
                   if (!existingSale.affiliate_link_id && fullTransaction.affiliate_code && affiliateSaleData.affiliate_link_id) {
+                    saleUpdateData.affiliate_link_id = affiliateSaleData.affiliate_link_id;
+                    saleUpdateData.commission_amount = affiliateSaleData.commission_amount;
+                  }
+
+                  if (Object.keys(saleUpdateData).length > 0) {
                     const { error: updateSaleError } = await supabaseAdmin
                       .from('product_sales')
-                      .update({
-                        affiliate_link_id: affiliateSaleData.affiliate_link_id,
-                        commission_amount: affiliateSaleData.commission_amount,
-                      })
+                      .update(saleUpdateData)
                       .eq('id', existingSale.id);
 
                     if (updateSaleError) {
-                      console.error('Error updating existing product sale affiliate commission:', updateSaleError);
+                      console.error('Error updating existing product sale reconciliation fields:', updateSaleError);
                     } else {
-                      console.log('Existing product sale affiliate commission updated:', existingSale.id);
+                      console.log('Existing product sale reconciliation fields updated:', existingSale.id);
                     }
                   }
                 }
+              }
+
+              const plannedSplitContext = await getPlannedSplitContext(supabaseAdmin, fullTransaction, payment);
+
+              if (plannedSplitContext.verificationFailed) {
+                await updateTransactionReconciliation(
+                  supabaseAdmin,
+                  fullTransaction.id,
+                  'divergent',
+                  combineReconciliationNotes(asaasFeeNote, plannedSplitContext.notes),
+                );
+              } else if (!plannedSplitContext.hasPlannedSplit) {
+                await updateTransactionReconciliation(
+                  supabaseAdmin,
+                  fullTransaction.id,
+                  'not_applicable',
+                  asaasFeeNote,
+                );
+              } else {
+                const reconciliationResult = await updateTransactionSplitsFromWebhook(
+                  supabaseAdmin,
+                  fullTransaction,
+                  payment,
+                  webhookData,
+                );
+                await updateTransactionReconciliation(
+                  supabaseAdmin,
+                  fullTransaction.id,
+                  reconciliationResult.status,
+                  combineReconciliationNotes(asaasFeeNote, reconciliationResult.notes),
+                );
               }
 
               // Create order bump analytics
