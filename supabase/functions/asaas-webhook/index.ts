@@ -100,6 +100,190 @@ const combineReconciliationNotes = (...notes: Array<string | null | undefined>) 
   return validNotes.length > 0 ? validNotes.join(' | ') : null;
 };
 
+const getTextValue = (value: unknown) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return null;
+};
+
+const getAsaasEventId = (webhookData: any) =>
+  getTextValue(webhookData?.id)
+    ?? getTextValue(webhookData?.eventId)
+    ?? getTextValue(webhookData?.event_id);
+
+const isUniqueViolation = (error: any) => error?.code === '23505';
+
+async function registerAsaasWebhookEvent(
+  supabaseAdmin: any,
+  webhookData: any,
+  eventType: string,
+  paymentId: string,
+) {
+  const asaasEventId = getAsaasEventId(webhookData);
+
+  const { data, error } = await supabaseAdmin
+    .from('asaas_webhook_events')
+    .insert({
+      asaas_payment_id: paymentId,
+      event_type: eventType,
+      asaas_event_id: asaasEventId,
+      status: 'received',
+      raw_payload: webhookData,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    if (isUniqueViolation(error)) {
+      return resolveExistingAsaasWebhookEvent(
+        supabaseAdmin,
+        webhookData,
+        eventType,
+        paymentId,
+        asaasEventId,
+      );
+    }
+
+    console.error('Error registering Asaas webhook event:', error);
+    return {
+      eventRowId: null,
+      duplicate: false,
+      error,
+    };
+  }
+
+  return {
+    eventRowId: data?.id ?? null,
+    duplicate: false,
+    error: null,
+  };
+}
+
+// On a 23505 unique violation, the event already exists. Decide whether it is a
+// real (final) duplicate or a row that can be reused to continue processing.
+async function resolveExistingAsaasWebhookEvent(
+  supabaseAdmin: any,
+  webhookData: any,
+  eventType: string,
+  paymentId: string,
+  asaasEventId: string | null,
+) {
+  let existingEvent: any = null;
+  let lookupError: any = null;
+
+  // Prefer lookup by (asaas_payment_id, event_type).
+  const byPair = await supabaseAdmin
+    .from('asaas_webhook_events')
+    .select('id, status')
+    .eq('asaas_payment_id', paymentId)
+    .eq('event_type', eventType)
+    .maybeSingle();
+
+  existingEvent = byPair.data ?? null;
+  lookupError = byPair.error ?? null;
+
+  // Fall back to lookup by asaas_event_id when available.
+  if (!existingEvent && asaasEventId) {
+    const byEventId = await supabaseAdmin
+      .from('asaas_webhook_events')
+      .select('id, status')
+      .eq('asaas_event_id', asaasEventId)
+      .maybeSingle();
+
+    existingEvent = byEventId.data ?? null;
+    lookupError = byEventId.error ?? lookupError;
+  }
+
+  // Could not resolve the existing row: stay safe and treat as duplicate so we
+  // do not reprocess without context.
+  if (!existingEvent) {
+    console.error(
+      'Asaas webhook unique violation but existing event not found:',
+      lookupError,
+    );
+    return {
+      eventRowId: null,
+      duplicate: true,
+      error: null,
+    };
+  }
+
+  // Already finalized -> real duplicate, do not reprocess.
+  if (existingEvent.status === 'processed' || existingEvent.status === 'ignored') {
+    return {
+      eventRowId: existingEvent.id ?? null,
+      duplicate: true,
+      error: null,
+    };
+  }
+
+  // failed or received -> reuse the row, reset to received and continue.
+  const { error: resetError } = await supabaseAdmin
+    .from('asaas_webhook_events')
+    .update({
+      status: 'received',
+      raw_payload: webhookData,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existingEvent.id);
+
+  if (resetError) {
+    console.error('Error resetting Asaas webhook event for reprocessing:', resetError);
+    return {
+      eventRowId: null,
+      duplicate: false,
+      error: resetError,
+    };
+  }
+
+  return {
+    eventRowId: existingEvent.id ?? null,
+    duplicate: false,
+    error: null,
+  };
+}
+
+async function updateAsaasWebhookEventStatus(
+  supabaseAdmin: any,
+  eventRowId: string | null,
+  status: 'processed' | 'ignored' | 'failed',
+) {
+  if (!eventRowId) {
+    return;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const updatePayload: Record<string, unknown> = {
+      status,
+      updated_at: now,
+    };
+
+    if (status === 'processed') {
+      updatePayload.processed_at = now;
+    }
+
+    const { error } = await supabaseAdmin
+      .from('asaas_webhook_events')
+      .update(updatePayload)
+      .eq('id', eventRowId);
+
+    if (error) {
+      console.error(`Error marking Asaas webhook event as ${status}:`, error);
+    }
+  } catch (error) {
+    console.error(`Unexpected error marking Asaas webhook event as ${status}:`, error);
+  }
+}
+
 async function updateTransactionReconciliation(
   supabaseAdmin: any,
   transactionId: string,
@@ -437,38 +621,71 @@ serve(async (req) => {
   const tokenError = validateWebhookToken(req);
   if (tokenError) return tokenError;
 
+  let supabaseAdmin: any = null;
+  let webhookEventRowId: string | null = null;
+
   try {
-    const supabaseAdmin = createClient(
+    supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
     const webhookData = await req.json();
-    console.log('Received webhook:', webhookData.event, 'for payment:', webhookData.payment?.id);
+    const eventType = getTextValue(webhookData?.event);
+    const payment = webhookData?.payment;
+    const paymentId = getTextValue(payment?.id);
+
+    console.log('Received webhook:', eventType, 'for payment:', paymentId);
+
+    if (eventType && paymentId && !eventType.startsWith('PAYMENT_') && !eventType.startsWith('SUBSCRIPTION_')) {
+      const registration = await registerAsaasWebhookEvent(supabaseAdmin, webhookData, eventType, paymentId);
+
+      if (registration.duplicate) {
+        console.warn('Duplicate Asaas webhook event ignored:', eventType, paymentId);
+        return jsonResponse({ success: true, duplicate: true });
+      }
+
+      if (registration.error) {
+        return jsonResponse({ error: 'Webhook event registration failed' }, 500);
+      }
+
+      webhookEventRowId = registration.eventRowId;
+      console.warn('Ignoring unsupported Asaas webhook event:', eventType, paymentId);
+      await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'ignored');
+      return jsonResponse({ received: true, ignored: true });
+    }
 
     // Handle payment events
-    if (webhookData.event && webhookData.event.startsWith('PAYMENT_')) {
-      const payment = webhookData.payment;
-      
-      if (!payment || !payment.id) {
+    if (eventType && eventType.startsWith('PAYMENT_')) {
+      if (!payment || !paymentId) {
         console.error('Invalid payment data in webhook');
-        return new Response(JSON.stringify({ received: true }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
+        return jsonResponse({ received: true, ignored: true });
       }
+
+      const registration = await registerAsaasWebhookEvent(supabaseAdmin, webhookData, eventType, paymentId);
+
+      if (registration.duplicate) {
+        console.warn('Duplicate Asaas webhook event ignored:', eventType, paymentId);
+        return jsonResponse({ success: true, duplicate: true });
+      }
+
+      if (registration.error) {
+        return jsonResponse({ error: 'Webhook event registration failed' }, 500);
+      }
+
+      webhookEventRowId = registration.eventRowId;
 
       // Find the transaction by asaas_payment_id
       const { data: existingTransaction, error: findError } = await supabaseAdmin
         .from('transactions')
         .select('*')
-        .eq('asaas_payment_id', payment.id)
+        .eq('asaas_payment_id', paymentId)
         .single();
 
       if (findError && findError.code !== 'PGRST116') {
         console.error('Error finding transaction:', findError);
-        return new Response(JSON.stringify({ received: true }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
+        await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+        return jsonResponse({ received: true });
       }
 
       // Update or create transaction
@@ -501,12 +718,14 @@ serve(async (req) => {
         const { error: updateError } = await supabaseAdmin
           .from('transactions')
           .update(transactionData)
-          .eq('asaas_payment_id', payment.id);
+          .eq('asaas_payment_id', paymentId);
 
         if (updateError) {
           console.error('Error updating transaction:', updateError);
+          await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+          return jsonResponse({ received: true });
         } else {
-          console.log('Transaction updated:', payment.id, 'Status:', payment.status);
+          console.log('Transaction updated:', paymentId, 'Status:', payment.status);
           
           // If payment is confirmed/received, process sale data
           if (payment.status === 'RECEIVED' || payment.status === 'CONFIRMED') {
@@ -516,11 +735,13 @@ serve(async (req) => {
             const { data: fullTransaction, error: fetchFullError } = await supabaseAdmin
               .from('transactions')
               .select('*')
-              .eq('asaas_payment_id', payment.id)
+              .eq('asaas_payment_id', paymentId)
               .single();
             
             if (fetchFullError || !fullTransaction) {
               console.error('Error fetching full transaction:', fetchFullError);
+              await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+              return jsonResponse({ received: true });
             } else {
               console.log('Full transaction fetched:', fullTransaction.id, 'Product ID:', fullTransaction.product_id);
               
@@ -563,9 +784,13 @@ serve(async (req) => {
                     });
 
                   if (salesError) {
-                    console.error('Error creating product sale:', salesError);
+                    if (isUniqueViolation(salesError)) {
+                      console.warn('Product sale already exists by unique constraint, skipping duplicate creation:', salesError);
+                    } else {
+                      console.error('Error creating product sale:', salesError);
+                    }
                   } else {
-                    console.log('Product sale created for transaction:', payment.id);
+                    console.log('Product sale created for transaction:', paymentId);
                   }
                 } else {
                   console.log('Sale already exists, skipping duplicate creation');
@@ -659,13 +884,17 @@ serve(async (req) => {
           }
         }
       } else {
-        console.warn('Ignoring Asaas payment webhook for unknown transaction:', payment.id);
-        return jsonResponse({ received: true, ignored: true });
+        console.error('Transaction not found for Asaas webhook payment', paymentId);
+        await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+        return jsonResponse({ received: true });
       }
+
+      await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'processed');
+      return jsonResponse({ received: true });
     }
 
     // Handle subscription events
-    if (webhookData.event && webhookData.event.startsWith('SUBSCRIPTION_')) {
+    if (eventType && eventType.startsWith('SUBSCRIPTION_')) {
       const subscription = webhookData.subscription;
       
       if (!subscription || !subscription.id) {
@@ -702,7 +931,7 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
 
-      if (webhookData.event === 'SUBSCRIPTION_CREATED') {
+      if (eventType === 'SUBSCRIPTION_CREATED') {
         await supabaseAdmin.from('subscriptions').insert(subscriptionData);
         console.log('Subscription created:', subscription.id);
       } else {
@@ -714,20 +943,15 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ received: true }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ received: true });
 
   } catch (error) {
     console.error('Error processing webhook:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage, received: true }),
-      { 
-        status: 200, // Return 200 to prevent Asaas from retrying
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+
+    if (supabaseAdmin && webhookEventRowId) {
+      await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+    }
+
+    return jsonResponse({ error: 'Webhook processing failed', received: true });
   }
 });
