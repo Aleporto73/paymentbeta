@@ -297,6 +297,58 @@ const buildAsaasSplit = (affiliateLink: any, requestedInstallments: number) => {
   return null;
 };
 
+const getPlannedSplitAmount = (split: Record<string, unknown>, paymentValue: number) => {
+  const percentualValue = Number(split.percentualValue);
+
+  if (Number.isFinite(percentualValue) && percentualValue > 0) {
+    return roundMoney((paymentValue * percentualValue) / 100);
+  }
+
+  const totalFixedValue = Number(split.totalFixedValue);
+
+  if (Number.isFinite(totalFixedValue) && totalFixedValue > 0) {
+    return roundMoney(totalFixedValue);
+  }
+
+  const fixedValue = Number(split.fixedValue);
+
+  if (Number.isFinite(fixedValue) && fixedValue > 0) {
+    return roundMoney(fixedValue);
+  }
+
+  return null;
+};
+
+const getSplitType = (split: Record<string, unknown>) => {
+  if (split.percentualValue !== undefined) {
+    return "percentage";
+  }
+
+  if (split.fixedValue !== undefined || split.totalFixedValue !== undefined) {
+    return "fixed";
+  }
+
+  return null;
+};
+
+const getSplitPercentage = (split: Record<string, unknown>) => {
+  const percentualValue = Number(split.percentualValue);
+
+  return Number.isFinite(percentualValue) ? percentualValue : null;
+};
+
+const getSplitFixedValue = (split: Record<string, unknown>) => {
+  const fixedValue = Number(split.fixedValue);
+
+  if (Number.isFinite(fixedValue)) {
+    return roundMoney(fixedValue);
+  }
+
+  const totalFixedValue = Number(split.totalFixedValue);
+
+  return Number.isFinite(totalFixedValue) ? roundMoney(totalFixedValue) : null;
+};
+
 async function validateOrderBumps(
   supabaseClient: ReturnType<typeof createClient>,
   orderBumps: unknown,
@@ -453,7 +505,7 @@ serve(async (req) => {
       product.id,
     );
     const serverGrossTotal = roundMoney(serverSubtotal + serverOrderBumpsTotal);
-    const { serverDiscount } = await validateCouponCode(
+    const { coupon: validatedCoupon, serverDiscount } = await validateCouponCode(
       supabaseClient,
       couponCode,
       product.id,
@@ -484,6 +536,7 @@ serve(async (req) => {
         ? getInstallmentInterestRate(price.installment_interest_rates, requestedInstallments)
         : 0;
     const serverChargeTotal = roundMoney(serverTotal * (1 + installmentInterestRate / 100));
+    const installmentFeeAmount = roundMoney(serverChargeTotal - serverTotal);
 
     if (serverChargeTotal < MINIMUM_PAYMENT_VALUE) {
       throw new HttpError("Valor minimo para pagamento nao atingido");
@@ -600,6 +653,13 @@ serve(async (req) => {
       paymentPayload.splits = asaasSplit;
     }
 
+    const plannedSplitAmounts = (asaasSplit ?? [])
+      .map((split: Record<string, unknown>) => getPlannedSplitAmount(split, serverChargeTotal))
+      .filter((amount: number | null): amount is number => amount !== null);
+    const affiliateSplitTotal = plannedSplitAmounts.length > 0
+      ? roundMoney(plannedSplitAmounts.reduce((sum, amount) => sum + amount, 0))
+      : null;
+
     // Add credit card data if payment is by card
     if (billingType === "CREDIT_CARD" && paymentData.creditCard) {
       paymentPayload.creditCard = paymentData.creditCard;
@@ -709,6 +769,13 @@ serve(async (req) => {
         description: serverDescription,
         external_reference: serverExternalReference,
         affiliate_code: validatedAffiliateLink?.id ?? null,
+        coupon_code: validatedCoupon?.code ?? null,
+        discount_amount: serverDiscount,
+        installment_fee_amount: installmentFeeAmount,
+        affiliate_split_total: affiliateSplitTotal,
+        producer_net_amount: null,
+        asaas_raw_payload: paymentResult,
+        reconciliation_status: "partial",
         order_bumps_selected: selectedOrderBumpIds,
         order_bumps_amount: serverOrderBumpsTotal,
         installment_count: requestedInstallments,
@@ -727,6 +794,52 @@ serve(async (req) => {
     }
 
     console.log("Transaction saved with ID:", transactionData.id);
+
+    if (asaasSplit) {
+      const splitRows = asaasSplit.map((split: Record<string, unknown>) => {
+        const plannedAmount = getPlannedSplitAmount(split, serverChargeTotal);
+
+        return {
+          transaction_id: transactionData.id,
+          asaas_payment_id: paymentResult.id,
+          affiliate_id: validatedAffiliateLink?.affiliate_id ?? null,
+          affiliate_link_id: validatedAffiliateLink?.id ?? null,
+          wallet_id: typeof split.walletId === "string" ? split.walletId : null,
+          split_type: getSplitType(split),
+          split_percentage: getSplitPercentage(split),
+          split_fixed_value: getSplitFixedValue(split),
+          planned_amount: plannedAmount,
+          received_amount: null,
+          status: "sent",
+          raw_payload: {
+            asaas_split: split,
+            planned_amount: plannedAmount,
+            payment_value: serverChargeTotal,
+            source: "create-payment",
+          },
+        };
+      });
+
+      const { error: splitInsertError } = await supabaseClient
+        .from("transaction_splits")
+        .insert(splitRows);
+
+      if (splitInsertError) {
+        console.error("Error saving transaction split:", splitInsertError);
+
+        const { error: reconciliationUpdateError } = await supabaseClient
+          .from("transactions")
+          .update({
+            reconciliation_status: "divergent",
+            reconciliation_notes: "Failed to save planned transaction split during create-payment",
+          })
+          .eq("id", transactionData.id);
+
+        if (reconciliationUpdateError) {
+          console.error("Error updating transaction reconciliation status after split failure:", reconciliationUpdateError);
+        }
+      }
+    }
 
     // 5. Get PIX QR Code if payment method is PIX
     let pixData = null;
