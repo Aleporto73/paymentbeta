@@ -887,51 +887,84 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          access_until: string | null
           affiliate_code: string | null
           asaas_customer_id: string
           asaas_subscription_id: string
           billing_type: string
+          cancel_at_period_end: boolean
+          cancellation_requested_at: string | null
           cancelled_at: string | null
           created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
           cycle: string
           description: string | null
+          ended_at: string | null
           id: string
+          last_paid_at: string | null
+          last_payment_id: string | null
+          last_payment_status: string | null
           next_due_date: string | null
+          overdue_since: string | null
           product_id: string | null
+          product_price_id: string | null
           status: string
           updated_at: string
           user_id: string
           value: number
         }
         Insert: {
+          access_until?: string | null
           affiliate_code?: string | null
           asaas_customer_id: string
           asaas_subscription_id: string
           billing_type: string
+          cancel_at_period_end?: boolean
+          cancellation_requested_at?: string | null
           cancelled_at?: string | null
           created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
           cycle: string
           description?: string | null
+          ended_at?: string | null
           id?: string
+          last_paid_at?: string | null
+          last_payment_id?: string | null
+          last_payment_status?: string | null
           next_due_date?: string | null
+          overdue_since?: string | null
           product_id?: string | null
+          product_price_id?: string | null
           status: string
           updated_at?: string
           user_id: string
           value: number
         }
         Update: {
+          access_until?: string | null
           affiliate_code?: string | null
           asaas_customer_id?: string
           asaas_subscription_id?: string
           billing_type?: string
+          cancel_at_period_end?: boolean
+          cancellation_requested_at?: string | null
           cancelled_at?: string | null
           created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
           cycle?: string
           description?: string | null
+          ended_at?: string | null
           id?: string
+          last_paid_at?: string | null
+          last_payment_id?: string | null
+          last_payment_status?: string | null
           next_due_date?: string | null
+          overdue_since?: string | null
           product_id?: string | null
+          product_price_id?: string | null
           status?: string
           updated_at?: string
           user_id?: string
@@ -943,6 +976,13 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscriptions_product_price_id_fkey"
+            columns: ["product_price_id"]
+            isOneToOne: false
+            referencedRelation: "product_prices"
             referencedColumns: ["id"]
           },
         ]
