@@ -9,6 +9,21 @@ const corsHeaders = {
 const MINIMUM_PAYMENT_VALUE = 5;
 const MAX_INSTALLMENTS = 12;
 
+const SUBSCRIPTION_CYCLE_BY_PERIOD: Record<string, string> = {
+  mensal: "MONTHLY",
+  trimestral: "QUARTERLY",
+  semestral: "SEMIANNUALLY",
+  anual: "YEARLY",
+};
+
+const mapSubscriptionPeriodToCycle = (period: unknown) => {
+  if (typeof period !== "string") {
+    return null;
+  }
+
+  return SUBSCRIPTION_CYCLE_BY_PERIOD[period] ?? null;
+};
+
 class HttpError extends Error {
   status: number;
 
@@ -493,8 +508,37 @@ serve(async (req) => {
       throw new HttpError("Preco nao pertence ao produto");
     }
 
-    if (product.product_type === "recorrente" || price.subscription_period) {
-      throw new HttpError("Produtos recorrentes ainda nao estao disponiveis neste checkout.");
+    const isRecurring =
+      product.product_type === "recorrente" && Boolean(price.subscription_period);
+
+    if (product.product_type === "recorrente" && !price.subscription_period) {
+      throw new HttpError("Preco recorrente sem periodicidade configurada");
+    }
+
+    if (price.subscription_period && product.product_type !== "recorrente") {
+      throw new HttpError("Produto nao marcado como recorrente para preco recorrente");
+    }
+
+    if (isRecurring) {
+      const hasCoupon = typeof couponCode === "string" && couponCode.trim().length > 0;
+
+      if (hasCoupon) {
+        throw new HttpError("Cupom indisponivel para assinatura nesta fase");
+      }
+
+      const hasOrderBumps = Array.isArray(orderBumps) && orderBumps.length > 0;
+
+      if (hasOrderBumps) {
+        throw new HttpError("Order bump indisponivel para assinatura nesta fase");
+      }
+
+      const recurringRequestedInstallments = parseRequestedInstallments(
+        paymentData?.installmentCount,
+      );
+
+      if (recurringRequestedInstallments > 1) {
+        throw new HttpError("Parcelamento indisponivel para assinatura");
+      }
     }
 
     const productOwnerId = product.user_id;
@@ -636,6 +680,117 @@ serve(async (req) => {
     const dueDate = getServerDueDate();
     const serverDescription = `${product.name}${price.name ? ` - ${price.name}` : ""}`;
     const serverExternalReference = `${product.unique_code}-${Date.now()}`;
+
+    // 2a. If product is recurring, create an Asaas subscription instead of a one-shot payment.
+    if (isRecurring) {
+      if (billingType !== "CREDIT_CARD") {
+        throw new HttpError("Assinatura via PIX ainda indisponivel nesta fase");
+      }
+
+      const cycle = mapSubscriptionPeriodToCycle(price.subscription_period);
+
+      if (!cycle) {
+        throw new HttpError("Periodicidade invalida para assinatura");
+      }
+
+      const asaasSplit = buildAsaasSplit(validatedAffiliateLink, 1);
+
+      const subscriptionPayload: any = {
+        customer: customerResult.id,
+        billingType,
+        value: serverTotal,
+        nextDueDate: dueDate,
+        cycle,
+        description: serverDescription,
+        externalReference: serverExternalReference,
+      };
+
+      if (asaasSplit) {
+        subscriptionPayload.split = asaasSplit;
+      }
+
+      if (billingType === "CREDIT_CARD" && paymentData.creditCard) {
+        subscriptionPayload.creditCard = paymentData.creditCard;
+        subscriptionPayload.creditCardHolderInfo = {
+          name: customerData.name,
+          email: customerData.email,
+          cpfCnpj: customerData.cpfCnpj,
+          postalCode: customerData.postalCode,
+          addressNumber: customerData.addressNumber,
+          addressComplement: customerData.complement,
+          phone: customerData.phone,
+          mobilePhone: customerData.mobilePhone,
+        };
+        subscriptionPayload.remoteIp = deviceInfo?.ip || "127.0.0.1";
+      }
+
+      console.log("Creating Asaas subscription for product:", product.id, "cycle:", cycle);
+
+      const subscriptionResponse = await fetch(`${asaasBaseUrl}/subscriptions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": apiKey,
+        },
+        body: JSON.stringify(subscriptionPayload),
+      });
+
+      const subscriptionResult = await subscriptionResponse.json();
+
+      if (!subscriptionResponse.ok) {
+        console.error("Error creating Asaas subscription:", subscriptionResult);
+        throw new HttpError(
+          subscriptionResult.errors?.[0]?.description || "Failed to create subscription",
+        );
+      }
+
+      console.log("Asaas subscription created:", subscriptionResult.id);
+
+      const { data: subscriptionRow, error: subscriptionInsertError } = await supabaseClient
+        .from("subscriptions")
+        .insert({
+          user_id: productOwnerId,
+          asaas_subscription_id: subscriptionResult.id,
+          asaas_customer_id: customerResult.id,
+          product_id: product.id,
+          product_price_id: price.id,
+          affiliate_code: validatedAffiliateLink?.id ?? null,
+          status: subscriptionResult.status,
+          value: serverTotal,
+          next_due_date: subscriptionResult.nextDueDate ?? dueDate,
+          cycle,
+          description: serverDescription,
+          billing_type: billingType,
+          current_period_start: null,
+          current_period_end: null,
+          access_until: null,
+          cancel_at_period_end: false,
+          last_payment_id: null,
+          last_payment_status: null,
+        })
+        .select("id, asaas_subscription_id, status")
+        .single();
+
+      if (subscriptionInsertError) {
+        console.error("Error saving subscription:", subscriptionInsertError);
+        throw new HttpError("Failed to save subscription");
+      }
+
+      console.log("Subscription saved with ID:", subscriptionRow.id);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          type: "subscription",
+          subscription_id: subscriptionRow.id,
+          asaas_subscription_id: subscriptionResult.id,
+          status: subscriptionResult.status,
+          message:
+            "Assinatura criada. Acesso sera liberado apos confirmacao do pagamento.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // 2. Create payment in Asaas with server-side pricing only.
     const paymentPayload: any = {
