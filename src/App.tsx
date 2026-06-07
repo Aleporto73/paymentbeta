@@ -37,6 +37,12 @@ const queryClient = new QueryClient({
   },
 });
 const App = () => {
+  const adminRoute = (page: React.ReactNode) => (
+    <ProtectedRoute requiredRole="admin">
+      <Layout enableTheme>{page}</Layout>
+    </ProtectedRoute>
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -52,18 +58,18 @@ const App = () => {
             <Route path="/termos-de-compra" element={<TermsOfPurchase />} />
             <Route path="/privacidade" element={<PrivacyPolicy />} />
             <Route path="/seguranca-pagamento" element={<PaymentSecurity />} />
-            <Route path="/" element={<ProtectedRoute requiredRole="admin"><Layout><Dashboard /></Layout></ProtectedRoute>} />
-            <Route path="/produtos" element={<ProtectedRoute requiredRole="admin"><Layout><Produtos /></Layout></ProtectedRoute>} />
-            <Route path="/produtos/:id" element={<ProtectedRoute requiredRole="admin"><Layout><ProductDetail /></Layout></ProtectedRoute>} />
-            <Route path="/vendas" element={<ProtectedRoute requiredRole="admin"><Layout><Vendas /></Layout></ProtectedRoute>} />
-            <Route path="/assinaturas" element={<ProtectedRoute requiredRole="admin"><Layout><Assinaturas /></Layout></ProtectedRoute>} />
-            <Route path="/clientes" element={<ProtectedRoute requiredRole="admin"><Layout><Clientes /></Layout></ProtectedRoute>} />
-            <Route path="/afiliados" element={<ProtectedRoute requiredRole="admin"><Layout><Afiliados /></Layout></ProtectedRoute>} />
+            <Route path="/" element={adminRoute(<Dashboard />)} />
+            <Route path="/produtos" element={adminRoute(<Produtos />)} />
+            <Route path="/produtos/:id" element={adminRoute(<ProductDetail />)} />
+            <Route path="/vendas" element={adminRoute(<Vendas />)} />
+            <Route path="/assinaturas" element={adminRoute(<Assinaturas />)} />
+            <Route path="/clientes" element={adminRoute(<Clientes />)} />
+            <Route path="/afiliados" element={adminRoute(<Afiliados />)} />
             <Route path="/dashboard-afiliado" element={<ProtectedRoute requiredRole="affiliate"><Layout><AffiliateDashboard /></Layout></ProtectedRoute>} />
-            <Route path="/cupons" element={<ProtectedRoute requiredRole="admin"><Layout><Cupons /></Layout></ProtectedRoute>} />
-            <Route path="/relatorios" element={<ProtectedRoute requiredRole="admin"><Layout><Relatorios /></Layout></ProtectedRoute>} />
-            <Route path="/integracoes" element={<ProtectedRoute requiredRole="admin"><Layout><Integracoes /></Layout></ProtectedRoute>} />
-            <Route path="/webhooks" element={<ProtectedRoute requiredRole="admin"><Layout><Webhooks /></Layout></ProtectedRoute>} />
+            <Route path="/cupons" element={adminRoute(<Cupons />)} />
+            <Route path="/relatorios" element={adminRoute(<Relatorios />)} />
+            <Route path="/integracoes" element={adminRoute(<Integracoes />)} />
+            <Route path="/webhooks" element={adminRoute(<Webhooks />)} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

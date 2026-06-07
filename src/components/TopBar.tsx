@@ -1,6 +1,7 @@
 import { User, LogOut } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +15,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 
-export function TopBar() {
+interface TopBarProps {
+  showThemeToggle?: boolean;
+}
+
+export function TopBar({ showThemeToggle = false }: TopBarProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -42,6 +47,7 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {showThemeToggle && <ThemeToggle />}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="gap-2">
