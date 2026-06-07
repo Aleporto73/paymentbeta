@@ -82,7 +82,7 @@ export function RevenueChart() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Faturamento do mês</CardTitle>
+        <CardTitle className="text-xl">Receita cobrada do mês</CardTitle>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -128,7 +128,7 @@ export function RevenueChart() {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}`,
-                  "Faturamento",
+                  "Receita cobrada",
                 ]}
               />
               <Area

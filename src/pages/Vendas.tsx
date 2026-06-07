@@ -21,6 +21,7 @@ interface Sale {
   customer_phone: string | null;
   customer_state: string | null;
   value: number;
+  net_value?: number | null;
   status: string;
   created_at: string;
   payment_method: string;
@@ -31,6 +32,8 @@ interface Sale {
   order_bumps_selected?: string[] | null;
   order_bumps_amount?: number | null;
   installment_count?: number | null;
+  affiliate_link_id?: string | null;
+  estimated_commission_amount?: number | null;
 }
 
 interface Product {
@@ -111,6 +114,7 @@ export default function Vendas() {
           customer_phone,
           customer_state,
           value,
+          net_value,
           status,
           created_at,
           payment_method,
@@ -169,10 +173,60 @@ export default function Vendas() {
       const { data, count } = await query;
 
       if (data) {
-        const salesWithProductNames = data.map(sale => ({
+        const salesWithProductNames = data.map((sale: any) => ({
           ...sale,
           product_name: (sale.products as any)?.name || "Produto não encontrado"
         }));
+
+        const affiliateSales = salesWithProductNames.filter(
+          (sale) => sale.affiliate_code && sale.product_id && sale.customer_email
+        );
+
+        if (affiliateSales.length > 0) {
+          const productIds = [...new Set(affiliateSales.map((sale) => sale.product_id))];
+          const customerEmails = [...new Set(affiliateSales.map((sale) => sale.customer_email))];
+
+          const { data: productSales } = await supabase
+            .from("product_sales")
+            .select("product_id, customer_email, sale_amount, affiliate_link_id, commission_amount")
+            .in("product_id", productIds)
+            .in("customer_email", customerEmails)
+            .not("commission_amount", "is", null);
+
+          const commissionBySale = new Map<string, { affiliate_link_id: string | null; commission_amount: number | null }>();
+
+          (productSales || []).forEach((productSale) => {
+            const key = [
+              productSale.product_id,
+              productSale.customer_email,
+              Number(productSale.sale_amount).toFixed(2),
+              productSale.affiliate_link_id || "",
+            ].join("|");
+
+            commissionBySale.set(key, {
+              affiliate_link_id: productSale.affiliate_link_id,
+              commission_amount: productSale.commission_amount,
+            });
+          });
+
+          salesWithProductNames.forEach((sale) => {
+            if (!sale.affiliate_code) return;
+
+            const key = [
+              sale.product_id,
+              sale.customer_email,
+              Number(sale.value).toFixed(2),
+              sale.affiliate_code,
+            ].join("|");
+            const commissionData = commissionBySale.get(key);
+
+            if (commissionData) {
+              sale.affiliate_link_id = commissionData.affiliate_link_id;
+              sale.estimated_commission_amount = commissionData.commission_amount;
+            }
+          });
+        }
+
         setSales(salesWithProductNames);
         setTotalCount(count || 0);
       }
@@ -224,7 +278,7 @@ export default function Vendas() {
       "Telefone",
       "Estado",
       "Produto",
-      "Valor",
+      "Valor cobrado",
       "Status",
       "Método de Pagamento",
       "Tipo de Cobrança",
@@ -450,7 +504,7 @@ export default function Vendas() {
                       <TableHead>Data</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Produto</TableHead>
-                      <TableHead>Valor</TableHead>
+                      <TableHead>Valor cobrado</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -572,9 +626,15 @@ export default function Vendas() {
                       <p className="text-sm font-medium mt-1">{selectedSale.product_name}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Valor</p>
+                      <p className="text-xs text-muted-foreground">Valor cobrado</p>
                       <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.value)}</p>
                     </div>
+                    {selectedSale.net_value !== null && selectedSale.net_value !== undefined && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Valor líquido Asaas</p>
+                        <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.net_value)}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -619,10 +679,23 @@ export default function Vendas() {
                 {selectedSale.affiliate_code && (
                   <div>
                     <h3 className="text-base font-semibold mb-3">Informações de Afiliado</h3>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Código do Afiliado</p>
-                      <p className="text-sm font-medium mt-1">{selectedSale.affiliate_code}</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Código/vínculo do afiliado</p>
+                        <p className="text-sm font-medium mt-1">{selectedSale.affiliate_code}</p>
+                      </div>
+                      {selectedSale.estimated_commission_amount !== null && selectedSale.estimated_commission_amount !== undefined && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">Comissão bruta estimada</p>
+                          <p className="text-sm font-semibold mt-1">
+                            R$ {formatCurrency(selectedSale.estimated_commission_amount)}
+                          </p>
+                        </div>
+                      )}
                     </div>
+                    <p className="text-xs text-muted-foreground mt-3">
+                      O split líquido real do Asaas ainda não é salvo neste painel.
+                    </p>
                   </div>
                 )}
               </div>

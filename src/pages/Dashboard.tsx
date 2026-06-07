@@ -134,7 +134,7 @@ export default function Dashboard() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground mt-1">
-          Visão geral do seu negócio em tempo real
+          Visão geral do seu negócio em tempo real com valores cobrados do cliente
         </p>
       </div>
 
@@ -146,7 +146,7 @@ export default function Dashboard() {
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
           <StatCard
-            title="Faturamento Hoje"
+            title="Receita cobrada hoje"
             value={formatCurrency(stats.revenueToday)}
             change={`${revenueChange} vs ontem`}
             changeType={stats.revenueToday >= stats.revenueYesterday ? "positive" : "negative"}

@@ -215,13 +215,13 @@ export default function AffiliateDashboard() {
       <div>
         <h1 className="text-3xl font-bold">Dashboard do Afiliado</h1>
         <p className="text-muted-foreground mt-2">
-          Bem-vindo, {affiliateData.name}! Acompanhe suas vendas e comissões.
+          Bem-vindo, {affiliateData.name}! Acompanhe suas vendas e comissões brutas estimadas.
         </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Comissões Totais"
+          title="Comissões brutas estimadas"
           value={`R$ ${stats.totalCommission.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           icon={DollarSign}
           iconColor="text-success"
@@ -246,13 +246,17 @@ export default function AffiliateDashboard() {
         />
       </div>
 
+      <p className="text-xs text-muted-foreground">
+        Valores podem diferir do split líquido recebido no Asaas por taxas do gateway, parcelamento e arredondamentos.
+      </p>
+
       <AffiliatePerformanceChart sales={sales} totalClicks={stats.totalClicks} />
 
       <Card>
         <CardHeader>
           <CardTitle>Seus Links de Divulgação</CardTitle>
           <CardDescription>
-            Copie e compartilhe seus links para começar a ganhar comissões
+            Copie e compartilhe seus links para gerar comissões brutas estimadas
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -272,7 +276,7 @@ export default function AffiliateDashboard() {
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Comissão: {link.commission_type === 'percentage' 
+                      Regra de comissão: {link.commission_type === 'percentage' 
                         ? `${link.commission_value}%` 
                         : `R$ ${link.commission_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
                       }
@@ -309,7 +313,7 @@ export default function AffiliateDashboard() {
         <CardHeader>
           <CardTitle>Histórico de Vendas</CardTitle>
           <CardDescription>
-            Suas vendas mais recentes e comissões ganhas
+            Suas vendas mais recentes e comissões brutas estimadas
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -324,8 +328,8 @@ export default function AffiliateDashboard() {
                   <TableHead>Data</TableHead>
                   <TableHead>Produto</TableHead>
                   <TableHead>Cliente</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Comissão</TableHead>
+                  <TableHead>Valor cobrado</TableHead>
+                  <TableHead>Comissão bruta estimada</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>

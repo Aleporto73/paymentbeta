@@ -345,12 +345,12 @@ export default function Relatorios() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
+                <CardTitle className="text-sm font-medium">Receita cobrada</CardTitle>
                 <ShoppingCart className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">R$ {formatCurrency(checkoutStats.totalRevenue)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Receita gerada no checkout</p>
+                <p className="text-xs text-muted-foreground mt-1">Valor cobrado do cliente no checkout</p>
               </CardContent>
             </Card>
           </div>
@@ -422,12 +422,12 @@ export default function Relatorios() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
+                <CardTitle className="text-sm font-medium">Receita cobrada</CardTitle>
                 <TrendingUp className="w-4 h-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">R$ {formatCurrency(salesStats.totalRevenue)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Valor total arrecadado</p>
+                <p className="text-xs text-muted-foreground mt-1">Valor cobrado nas vendas</p>
               </CardContent>
             </Card>
 
@@ -444,12 +444,12 @@ export default function Relatorios() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Comissões Pagas</CardTitle>
+                <CardTitle className="text-sm font-medium">Comissões brutas estimadas</CardTitle>
                 <Users className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">R$ {formatCurrency(salesStats.totalCommissions)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Total em comissões</p>
+                <p className="text-xs text-muted-foreground mt-1">Não representa split líquido Asaas</p>
               </CardContent>
             </Card>
           </div>
@@ -471,7 +471,7 @@ export default function Relatorios() {
                     <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
                     <Legend />
                     <Bar dataKey="sales" fill="#3b82f6" name="Vendas" />
-                    <Bar dataKey="revenue" fill="#10b981" name="Receita (R$)" />
+                    <Bar dataKey="revenue" fill="#10b981" name="Receita cobrada (R$)" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (

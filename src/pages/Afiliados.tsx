@@ -469,7 +469,7 @@ export default function Afiliados() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Comissões do Mês</CardTitle>
+            <CardTitle className="text-sm font-medium">Comissão bruta estimada do mês</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -481,7 +481,7 @@ export default function Afiliados() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
+            <CardTitle className="text-sm font-medium">Comissão média estimada</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -515,6 +515,10 @@ export default function Afiliados() {
           </CardContent>
         </Card>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Valores podem diferir do split líquido recebido no Asaas por taxas do gateway, parcelamento e arredondamentos.
+      </p>
 
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
@@ -781,7 +785,7 @@ export default function Afiliados() {
                             <div>
                               <CardTitle className="text-base">{product.product_name}</CardTitle>
                               <p className="text-sm text-muted-foreground mt-1">
-                                Comissão: {formatCommission(product.commission_type, product.commission_value)}
+                                Regra de comissão: {formatCommission(product.commission_type, product.commission_value)}
                               </p>
                             </div>
                             <Badge variant={product.is_active ? "default" : "secondary"}>
@@ -855,7 +859,7 @@ export default function Afiliados() {
                                 </p>
                               </div>
                               <div>
-                                <p className="text-xs text-muted-foreground">Receita Gerada</p>
+                                <p className="text-xs text-muted-foreground">Receita cobrada gerada</p>
                                 <p className="text-lg font-bold">
                                   R$ {formatCurrency(linkStats[product.link_id].revenue)}
                                 </p>

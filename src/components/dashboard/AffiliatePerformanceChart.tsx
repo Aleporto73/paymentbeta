@@ -56,7 +56,7 @@ export function AffiliatePerformanceChart({ sales, totalClicks }: AffiliatePerfo
     <div className="grid gap-6 md:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Vendas e Comissões</CardTitle>
+          <CardTitle>Vendas e comissões brutas estimadas</CardTitle>
           <CardDescription>Últimos 30 dias</CardDescription>
         </CardHeader>
         <CardContent>
@@ -88,14 +88,14 @@ export function AffiliatePerformanceChart({ sales, totalClicks }: AffiliatePerfo
                 }}
                 formatter={(value: number, name: string) => {
                   if (name === 'commission') {
-                    return [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, "Comissão"];
+                    return [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, "Comissão bruta estimada"];
                   }
                   return [value, "Vendas"];
                 }}
               />
               <Legend 
                 wrapperStyle={{ paddingTop: "20px" }}
-                formatter={(value) => value === 'commission' ? 'Comissão' : 'Vendas'}
+                formatter={(value) => value === 'commission' ? 'Comissão bruta estimada' : 'Vendas'}
               />
               <Area 
                 type="monotone" 
