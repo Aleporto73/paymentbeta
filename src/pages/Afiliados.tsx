@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { AffiliateAnalytics } from "@/components/affiliates/AffiliateAnalytics";
 import { Filter, X, Download, Eye, ChevronLeft, ChevronRight, Users, DollarSign, TrendingUp, Copy, ExternalLink } from "lucide-react";
 import { startOfDay, subDays, startOfMonth, format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
@@ -519,6 +520,8 @@ export default function Afiliados() {
       <p className="text-xs text-muted-foreground">
         Valores podem diferir do split líquido recebido no Asaas por taxas do gateway, parcelamento e arredondamentos.
       </p>
+
+      <AffiliateAnalytics />
 
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
