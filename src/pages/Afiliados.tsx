@@ -434,7 +434,14 @@ export default function Afiliados() {
     if (type === 'percentage') {
       return `${value}%`;
     }
-    return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `R$ ${formatCurrency(value)}`;
+  };
+
+  const formatPercent = (value: number) => {
+    return `${value.toLocaleString("pt-BR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}%`;
   };
 
   const viewAffiliateDetails = async (affiliate: Affiliate) => {
@@ -858,7 +865,7 @@ export default function Afiliados() {
                               <div>
                                 <p className="text-xs text-muted-foreground">Taxa de Conversão</p>
                                 <p className="text-lg font-bold">
-                                  {linkStats[product.link_id].conversionRate.toFixed(1)}%
+                                  {formatPercent(linkStats[product.link_id].conversionRate)}
                                 </p>
                               </div>
                               <div>

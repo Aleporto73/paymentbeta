@@ -117,10 +117,17 @@ function formatMetric(value: number, kind: "currency" | "number" | "percent") {
   }
 
   if (kind === "percent") {
-    return `${value.toFixed(1)}%`;
+    return formatPercent(value);
   }
 
   return value.toLocaleString("pt-BR");
+}
+
+function formatPercent(value: number) {
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
 }
 
 function createDailyMetrics(dayKeys: string[]) {
@@ -395,7 +402,7 @@ export function AffiliateAnalytics() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Affiliate Analytics</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Performance de Afiliadas</h2>
         <p className="text-sm text-muted-foreground">
           Comparativo dos últimos 30 dias com receita cobrada, comissão bruta estimada e visitas ao checkout.
         </p>
@@ -443,7 +450,7 @@ export function AffiliateAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {loading ? "..." : `${analytics.averageConversion.toFixed(1)}%`}
+              {loading ? "..." : formatPercent(analytics.averageConversion)}
             </div>
             <p className="text-xs text-muted-foreground">Conversão estimada</p>
           </CardContent>
@@ -610,7 +617,7 @@ export function AffiliateAnalytics() {
                       <TableCell className="font-medium">{affiliate.name}</TableCell>
                       <TableCell className="text-right">{affiliate.visits.toLocaleString("pt-BR")}</TableCell>
                       <TableCell className="text-right">{affiliate.sales.toLocaleString("pt-BR")}</TableCell>
-                      <TableCell className="text-right">{affiliate.conversion.toFixed(1)}%</TableCell>
+                      <TableCell className="text-right">{formatPercent(affiliate.conversion)}</TableCell>
                       <TableCell className="text-right">R$ {formatCurrency(affiliate.revenue)}</TableCell>
                       <TableCell className="text-right">R$ {formatCurrency(affiliate.commission)}</TableCell>
                     </TableRow>
