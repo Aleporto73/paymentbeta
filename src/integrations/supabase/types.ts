@@ -527,6 +527,7 @@ export type Database = {
       product_sales: {
         Row: {
           affiliate_link_id: string | null
+          asaas_payment_id: string | null
           commission_amount: number | null
           created_at: string
           customer_email: string
@@ -537,9 +538,11 @@ export type Database = {
           sale_amount: number
           sale_date: string
           status: string | null
+          transaction_id: string | null
         }
         Insert: {
           affiliate_link_id?: string | null
+          asaas_payment_id?: string | null
           commission_amount?: number | null
           created_at?: string
           customer_email: string
@@ -550,9 +553,11 @@ export type Database = {
           sale_amount: number
           sale_date?: string
           status?: string | null
+          transaction_id?: string | null
         }
         Update: {
           affiliate_link_id?: string | null
+          asaas_payment_id?: string | null
           commission_amount?: number | null
           created_at?: string
           customer_email?: string
@@ -563,6 +568,7 @@ export type Database = {
           sale_amount?: number
           sale_date?: string
           status?: string | null
+          transaction_id?: string | null
         }
         Relationships: [
           {
@@ -584,6 +590,13 @@ export type Database = {
             columns: ["product_price_id"]
             isOneToOne: false
             referencedRelation: "product_prices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_sales_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
         ]
@@ -898,6 +911,82 @@ export type Database = {
           },
         ]
       }
+      transaction_splits: {
+        Row: {
+          affiliate_id: string | null
+          affiliate_link_id: string | null
+          asaas_payment_id: string | null
+          created_at: string
+          id: string
+          planned_amount: number | null
+          raw_payload: Json | null
+          received_amount: number | null
+          split_fixed_value: number | null
+          split_percentage: number | null
+          split_type: string | null
+          status: string
+          transaction_id: string | null
+          updated_at: string
+          wallet_id: string | null
+        }
+        Insert: {
+          affiliate_id?: string | null
+          affiliate_link_id?: string | null
+          asaas_payment_id?: string | null
+          created_at?: string
+          id?: string
+          planned_amount?: number | null
+          raw_payload?: Json | null
+          received_amount?: number | null
+          split_fixed_value?: number | null
+          split_percentage?: number | null
+          split_type?: string | null
+          status?: string
+          transaction_id?: string | null
+          updated_at?: string
+          wallet_id?: string | null
+        }
+        Update: {
+          affiliate_id?: string | null
+          affiliate_link_id?: string | null
+          asaas_payment_id?: string | null
+          created_at?: string
+          id?: string
+          planned_amount?: number | null
+          raw_payload?: Json | null
+          received_amount?: number | null
+          split_fixed_value?: number | null
+          split_percentage?: number | null
+          split_type?: string | null
+          status?: string
+          transaction_id?: string | null
+          updated_at?: string
+          wallet_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transaction_splits_affiliate_id_fkey"
+            columns: ["affiliate_id"]
+            isOneToOne: false
+            referencedRelation: "affiliates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transaction_splits_affiliate_link_id_fkey"
+            columns: ["affiliate_link_id"]
+            isOneToOne: false
+            referencedRelation: "product_affiliate_links"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transaction_splits_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transaction_tokens: {
         Row: {
           asaas_customer_id: string
@@ -945,10 +1034,14 @@ export type Database = {
       transactions: {
         Row: {
           affiliate_code: string | null
+          affiliate_split_total: number | null
           asaas_customer_id: string | null
+          asaas_fee_amount: number | null
           asaas_payment_id: string
+          asaas_raw_payload: Json | null
           billing_type: string
           confirmed_date: string | null
+          coupon_code: string | null
           created_at: string
           credit_card_token: string | null
           credit_date: string | null
@@ -959,10 +1052,12 @@ export type Database = {
           customer_state: string | null
           description: string | null
           device_type: string | null
+          discount_amount: number | null
           due_date: string | null
           external_reference: string | null
           id: string
           installment_count: number | null
+          installment_fee_amount: number | null
           installment_value: number | null
           ip_address: string | null
           net_value: number | null
@@ -971,7 +1066,10 @@ export type Database = {
           payment_date: string | null
           payment_method: string
           price_id: string | null
+          producer_net_amount: number | null
           product_id: string | null
+          reconciliation_notes: string | null
+          reconciliation_status: string | null
           status: string
           updated_at: string
           user_agent: string | null
@@ -980,10 +1078,14 @@ export type Database = {
         }
         Insert: {
           affiliate_code?: string | null
+          affiliate_split_total?: number | null
           asaas_customer_id?: string | null
+          asaas_fee_amount?: number | null
           asaas_payment_id: string
+          asaas_raw_payload?: Json | null
           billing_type: string
           confirmed_date?: string | null
+          coupon_code?: string | null
           created_at?: string
           credit_card_token?: string | null
           credit_date?: string | null
@@ -994,10 +1096,12 @@ export type Database = {
           customer_state?: string | null
           description?: string | null
           device_type?: string | null
+          discount_amount?: number | null
           due_date?: string | null
           external_reference?: string | null
           id?: string
           installment_count?: number | null
+          installment_fee_amount?: number | null
           installment_value?: number | null
           ip_address?: string | null
           net_value?: number | null
@@ -1006,7 +1110,10 @@ export type Database = {
           payment_date?: string | null
           payment_method: string
           price_id?: string | null
+          producer_net_amount?: number | null
           product_id?: string | null
+          reconciliation_notes?: string | null
+          reconciliation_status?: string | null
           status: string
           updated_at?: string
           user_agent?: string | null
@@ -1015,10 +1122,14 @@ export type Database = {
         }
         Update: {
           affiliate_code?: string | null
+          affiliate_split_total?: number | null
           asaas_customer_id?: string | null
+          asaas_fee_amount?: number | null
           asaas_payment_id?: string
+          asaas_raw_payload?: Json | null
           billing_type?: string
           confirmed_date?: string | null
+          coupon_code?: string | null
           created_at?: string
           credit_card_token?: string | null
           credit_date?: string | null
@@ -1029,10 +1140,12 @@ export type Database = {
           customer_state?: string | null
           description?: string | null
           device_type?: string | null
+          discount_amount?: number | null
           due_date?: string | null
           external_reference?: string | null
           id?: string
           installment_count?: number | null
+          installment_fee_amount?: number | null
           installment_value?: number | null
           ip_address?: string | null
           net_value?: number | null
@@ -1041,7 +1154,10 @@ export type Database = {
           payment_date?: string | null
           payment_method?: string
           price_id?: string | null
+          producer_net_amount?: number | null
           product_id?: string | null
+          reconciliation_notes?: string | null
+          reconciliation_status?: string | null
           status?: string
           updated_at?: string
           user_agent?: string | null
