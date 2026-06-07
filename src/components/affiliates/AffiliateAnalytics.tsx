@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +20,7 @@ import {
 } from "recharts";
 
 type MetricKey = "revenue" | "sales" | "commission" | "visits" | "conversion";
+type ReconciliationStatusKey = "pending" | "partial" | "reconciled" | "divergent" | "not_applicable";
 
 interface AffiliateRow {
   id: string;
@@ -35,10 +37,27 @@ interface AffiliateLinkRow {
 interface ProductSaleRow {
   id: string;
   affiliate_link_id: string | null;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
   sale_date: string;
   sale_amount: number | null;
   commission_amount: number | null;
   product_affiliate_links?: AffiliateLinkRow | AffiliateLinkRow[] | null;
+}
+
+interface AffiliateTransactionRow {
+  id: string;
+  asaas_payment_id: string | null;
+  affiliate_split_total: number | null;
+  reconciliation_status: string | null;
+}
+
+interface AffiliateSplitRow {
+  id: string;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
+  planned_amount: number | null;
+  received_amount: number | null;
 }
 
 interface CheckoutEventRow {
@@ -61,7 +80,10 @@ interface AffiliateSummary {
   isActive: boolean;
   revenue: number;
   sales: number;
-  commission: number;
+  commission: number | null;
+  splitPlanned: number | null;
+  splitReceived: number | null;
+  reconciliation: Record<ReconciliationStatusKey, number>;
   visits: number;
   conversion: number;
   daily: Record<string, DailyMetrics>;
@@ -71,7 +93,7 @@ interface AnalyticsData {
   activeAffiliates: number;
   summaries: AffiliateSummary[];
   totalRevenue: number;
-  totalCommission: number;
+  totalCommission: number | null;
   totalSales: number;
   totalVisits: number;
   averageConversion: number;
@@ -93,11 +115,30 @@ const metricOptions: Record<MetricKey, { label: string; kind: "currency" | "numb
   conversion: { label: "Conversão estimada", kind: "percent" },
 };
 
+const reconciliationStatusLabels: Record<ReconciliationStatusKey, string> = {
+  pending: "Pendente",
+  partial: "Parcial",
+  reconciled: "Conciliado",
+  divergent: "Divergente",
+  not_applicable: "Não aplicável",
+};
+
+const reconciliationBadgeVariants: Record<
+  ReconciliationStatusKey,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  pending: "secondary",
+  partial: "outline",
+  reconciled: "default",
+  divergent: "destructive",
+  not_applicable: "secondary",
+};
+
 const emptyAnalytics: AnalyticsData = {
   activeAffiliates: 0,
   summaries: [],
   totalRevenue: 0,
-  totalCommission: 0,
+  totalCommission: null,
   totalSales: 0,
   totalVisits: 0,
   averageConversion: 0,
@@ -109,6 +150,49 @@ function getRelation<T>(relation: T | T[] | null | undefined): T | null {
   }
 
   return relation ?? null;
+}
+
+function createEmptyReconciliationCounts() {
+  return {
+    pending: 0,
+    partial: 0,
+    reconciled: 0,
+    divergent: 0,
+    not_applicable: 0,
+  };
+}
+
+function getReconciliationStatus(status?: string | null): ReconciliationStatusKey {
+  return status && status in reconciliationStatusLabels ? (status as ReconciliationStatusKey) : "pending";
+}
+
+function getNumberOrNull(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function sumMoney(values: Array<number | null | undefined>) {
+  const validValues = values
+    .map(getNumberOrNull)
+    .filter((value): value is number => value !== null);
+
+  if (validValues.length === 0) {
+    return null;
+  }
+
+  return validValues.reduce((sum, value) => sum + value, 0);
+}
+
+function addNullableMoney(current: number | null, value: number | null) {
+  if (value === null) {
+    return current;
+  }
+
+  return (current ?? 0) + value;
 }
 
 function formatMetric(value: number, kind: "currency" | "number" | "percent") {
@@ -123,6 +207,15 @@ function formatMetric(value: number, kind: "currency" | "number" | "percent") {
   return value.toLocaleString("pt-BR");
 }
 
+function formatMoneyOrDash(value?: number | null) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? `R$ ${formatCurrency(parsedValue)}` : "—";
+}
+
 function formatPercent(value: number) {
   return `${value.toLocaleString("pt-BR", {
     minimumFractionDigits: 1,
@@ -135,7 +228,7 @@ function createDailyMetrics(dayKeys: string[]) {
     acc[dayKey] = {
       revenue: 0,
       sales: 0,
-      commission: 0,
+      commission: null,
       visits: 0,
       conversion: 0,
     };
@@ -186,6 +279,9 @@ export function AffiliateAnalytics() {
       revenue: 0,
       sales: 0,
       commission: 0,
+      splitPlanned: null,
+      splitReceived: null,
+      reconciliation: createEmptyReconciliationCounts(),
       visits: 0,
       conversion: 0,
       daily: createDailyMetrics(period.dayKeys),
@@ -246,6 +342,8 @@ export function AffiliateAnalytics() {
               `
                 id,
                 affiliate_link_id,
+                transaction_id,
+                asaas_payment_id,
                 sale_date,
                 sale_amount,
                 commission_amount,
@@ -271,7 +369,113 @@ export function AffiliateAnalytics() {
       if (salesError) throw salesError;
       if (visitsError) throw visitsError;
 
-      ((salesData || []) as unknown as ProductSaleRow[]).forEach((sale) => {
+      const salesList = (salesData || []) as unknown as ProductSaleRow[];
+      const transactionIds = salesList
+        .map((sale) => sale.transaction_id)
+        .filter((transactionId): transactionId is string => Boolean(transactionId));
+      const asaasPaymentIds = salesList
+        .map((sale) => sale.asaas_payment_id)
+        .filter((paymentId): paymentId is string => Boolean(paymentId));
+      const transactionsByKey = new Map<string, AffiliateTransactionRow>();
+      const splitRowsByKey = new Map<string, AffiliateSplitRow[]>();
+
+      const appendTransactions = (rows: AffiliateTransactionRow[] | null) => {
+        (rows || []).forEach((transaction) => {
+          transactionsByKey.set(`transaction:${transaction.id}`, transaction);
+          if (transaction.asaas_payment_id) {
+            transactionsByKey.set(`asaas:${transaction.asaas_payment_id}`, transaction);
+          }
+        });
+      };
+
+      const appendSplitRows = (rows: AffiliateSplitRow[] | null) => {
+        (rows || []).forEach((split) => {
+          const keys = [
+            split.transaction_id ? `transaction:${split.transaction_id}` : null,
+            split.asaas_payment_id ? `asaas:${split.asaas_payment_id}` : null,
+          ].filter(Boolean) as string[];
+
+          keys.forEach((key) => {
+            const currentRows = splitRowsByKey.get(key) || [];
+            if (!currentRows.some((row) => row.id === split.id)) {
+              currentRows.push(split);
+            }
+            splitRowsByKey.set(key, currentRows);
+          });
+        });
+      };
+
+      if (transactionIds.length > 0) {
+        const { data: transactionsById } = await supabase
+          .from("transactions")
+          .select("id, asaas_payment_id, affiliate_split_total, reconciliation_status")
+          .in("id", transactionIds);
+
+        appendTransactions((transactionsById || []) as AffiliateTransactionRow[]);
+
+        const { data: splitRowsByTransaction } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("transaction_id", transactionIds);
+
+        appendSplitRows((splitRowsByTransaction || []) as AffiliateSplitRow[]);
+      }
+
+      if (asaasPaymentIds.length > 0) {
+        const { data: transactionsByPayment } = await supabase
+          .from("transactions")
+          .select("id, asaas_payment_id, affiliate_split_total, reconciliation_status")
+          .in("asaas_payment_id", asaasPaymentIds);
+
+        appendTransactions((transactionsByPayment || []) as AffiliateTransactionRow[]);
+
+        const { data: splitRowsByPayment } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("asaas_payment_id", asaasPaymentIds);
+
+        appendSplitRows((splitRowsByPayment || []) as AffiliateSplitRow[]);
+      }
+
+      const getTransactionForSale = (sale: ProductSaleRow) => {
+        if (sale.transaction_id) {
+          const transaction = transactionsByKey.get(`transaction:${sale.transaction_id}`);
+          if (transaction) return transaction;
+        }
+
+        return sale.asaas_payment_id ? transactionsByKey.get(`asaas:${sale.asaas_payment_id}`) || null : null;
+      };
+
+      const getSplitsForSale = (sale: ProductSaleRow) => {
+        const byTransaction = sale.transaction_id
+          ? splitRowsByKey.get(`transaction:${sale.transaction_id}`) || []
+          : [];
+        const byPayment = sale.asaas_payment_id
+          ? splitRowsByKey.get(`asaas:${sale.asaas_payment_id}`) || []
+          : [];
+        const splitMap = new Map<string, AffiliateSplitRow>();
+
+        [...byTransaction, ...byPayment].forEach((split) => {
+          splitMap.set(split.id, split);
+        });
+
+        return Array.from(splitMap.values());
+      };
+
+      const getSaleSplitPlannedAmount = (sale: ProductSaleRow) => {
+        const transactionPlannedAmount = getNumberOrNull(getTransactionForSale(sale)?.affiliate_split_total);
+
+        if (transactionPlannedAmount !== null) {
+          return transactionPlannedAmount;
+        }
+
+        return sumMoney(getSplitsForSale(sale).map((split) => split.planned_amount));
+      };
+
+      const getSaleSplitReceivedAmount = (sale: ProductSaleRow) =>
+        sumMoney(getSplitsForSale(sale).map((split) => split.received_amount));
+
+      salesList.forEach((sale) => {
         const link = getRelation(sale.product_affiliate_links);
         const affiliate = getRelation(link?.affiliates);
         const affiliateId = affiliate?.id || link?.affiliate_id;
@@ -286,16 +490,24 @@ export function AffiliateAnalytics() {
         const dayKey = format(startOfDay(new Date(sale.sale_date)), "yyyy-MM-dd");
         const daily = summary.daily[dayKey];
         const revenue = Number(sale.sale_amount || 0);
-        const commission = Number(sale.commission_amount || 0);
+        const commission = getNumberOrNull(sale.commission_amount);
+        const splitPlanned = getSaleSplitPlannedAmount(sale);
+        const splitReceived = getSaleSplitReceivedAmount(sale);
+        const reconciliationStatus = getReconciliationStatus(getTransactionForSale(sale)?.reconciliation_status);
 
         summary.sales += 1;
         summary.revenue += revenue;
-        summary.commission += commission;
+        summary.commission = addNullableMoney(summary.commission, commission);
+        summary.splitPlanned = addNullableMoney(summary.splitPlanned, splitPlanned);
+        summary.splitReceived = addNullableMoney(summary.splitReceived, splitReceived);
+        summary.reconciliation[reconciliationStatus] += 1;
 
         if (daily) {
           daily.sales += 1;
           daily.revenue += revenue;
-          daily.commission += commission;
+          if (commission !== null) {
+            daily.commission += commission;
+          }
         }
       });
 
@@ -341,7 +553,7 @@ export function AffiliateAnalytics() {
       });
 
       const totalRevenue = sortedSummaries.reduce((sum, item) => sum + item.revenue, 0);
-      const totalCommission = sortedSummaries.reduce((sum, item) => sum + item.commission, 0);
+      const totalCommission = sumMoney(sortedSummaries.map((item) => item.commission));
       const totalSales = sortedSummaries.reduce((sum, item) => sum + item.sales, 0);
       const totalVisits = sortedSummaries.reduce((sum, item) => sum + item.visits, 0);
 
@@ -364,7 +576,13 @@ export function AffiliateAnalytics() {
 
   const activeMetric = metricOptions[metric];
   const chartAffiliates = analytics.summaries
-    .filter((affiliate) => affiliate.revenue > 0 || affiliate.sales > 0 || affiliate.commission > 0 || affiliate.visits > 0)
+    .filter(
+      (affiliate) =>
+        affiliate.revenue > 0 ||
+        affiliate.sales > 0 ||
+        (affiliate.commission ?? 0) > 0 ||
+        affiliate.visits > 0,
+    )
     .slice(0, 5);
 
   const chartSeries = chartAffiliates.map((affiliate, index) => ({
@@ -398,13 +616,39 @@ export function AffiliateAnalytics() {
   const noTrafficAffiliate = analytics.summaries
     .filter((affiliate) => affiliate.isActive && affiliate.visits === 0)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))[0];
+  const getAffiliateReconciliationStatus = (affiliate: AffiliateSummary): ReconciliationStatusKey | null => {
+    const counts = affiliate.reconciliation;
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+
+    if (total === 0) return null;
+    if (counts.divergent > 0) return "divergent";
+    if (counts.partial > 0) return "partial";
+    if (counts.pending > 0) return "pending";
+    if (counts.reconciled > 0) return "reconciled";
+    if (counts.not_applicable > 0) return "not_applicable";
+
+    return null;
+  };
+  const getReconciliationBadge = (affiliate: AffiliateSummary) => {
+    const status = getAffiliateReconciliationStatus(affiliate);
+
+    if (!status) {
+      return "—";
+    }
+
+    return (
+      <Badge variant={reconciliationBadgeVariants[status]}>
+        {reconciliationStatusLabels[status]}
+      </Badge>
+    );
+  };
 
   return (
     <section className="space-y-4">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Performance de Afiliadas</h2>
         <p className="text-sm text-muted-foreground">
-          Comparativo dos últimos 30 dias com receita cobrada, comissão bruta estimada e visitas ao checkout.
+          Comparativo dos últimos 30 dias com receita cobrada, comissão bruta estimada, split e visitas ao checkout.
         </p>
       </div>
 
@@ -438,7 +682,7 @@ export function AffiliateAnalytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {loading ? "..." : `R$ ${formatCurrency(analytics.totalCommission)}`}
+              {loading ? "..." : formatMoneyOrDash(analytics.totalCommission)}
             </div>
           </CardContent>
         </Card>
@@ -609,6 +853,9 @@ export function AffiliateAnalytics() {
                     <TableHead className="text-right">Conversão estimada</TableHead>
                     <TableHead className="text-right">Receita cobrada</TableHead>
                     <TableHead className="text-right">Comissão bruta estimada</TableHead>
+                    <TableHead className="text-right">Split planejado</TableHead>
+                    <TableHead className="text-right">Split recebido Asaas</TableHead>
+                    <TableHead>Status de conciliação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -619,7 +866,10 @@ export function AffiliateAnalytics() {
                       <TableCell className="text-right">{affiliate.sales.toLocaleString("pt-BR")}</TableCell>
                       <TableCell className="text-right">{formatPercent(affiliate.conversion)}</TableCell>
                       <TableCell className="text-right">R$ {formatCurrency(affiliate.revenue)}</TableCell>
-                      <TableCell className="text-right">R$ {formatCurrency(affiliate.commission)}</TableCell>
+                      <TableCell className="text-right">{formatMoneyOrDash(affiliate.commission)}</TableCell>
+                      <TableCell className="text-right">{formatMoneyOrDash(affiliate.splitPlanned)}</TableCell>
+                      <TableCell className="text-right">{formatMoneyOrDash(affiliate.splitReceived)}</TableCell>
+                      <TableCell>{getReconciliationBadge(affiliate)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

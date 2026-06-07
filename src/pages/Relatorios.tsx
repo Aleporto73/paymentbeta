@@ -25,8 +25,80 @@ import {
 } from "recharts";
 
 type DateFilter = "today" | "7days" | "30days" | "custom";
+type ReconciliationStatusKey = "pending" | "partial" | "reconciled" | "divergent" | "not_applicable";
 
 const APPROVED_TRANSACTION_STATUSES = ["RECEIVED", "CONFIRMED"];
+const RECONCILIATION_STATUS_LABELS: Record<ReconciliationStatusKey, string> = {
+  pending: "Pendente",
+  partial: "Parcial",
+  reconciled: "Conciliado",
+  divergent: "Divergente",
+  not_applicable: "Não aplicável",
+};
+
+interface ReportTransaction {
+  id: string;
+  asaas_payment_id: string | null;
+  value: number | null;
+  order_bumps_amount: number | null;
+  order_bumps_selected: string[] | null;
+  asaas_fee_amount: number | null;
+  affiliate_split_total: number | null;
+  reconciliation_status: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface ReportSale {
+  sale_amount: number | null;
+  commission_amount: number | null;
+}
+
+interface ReportSplit {
+  id: string;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
+  planned_amount: number | null;
+  received_amount: number | null;
+}
+
+const createEmptyReconciliationCounts = () => ({
+  pending: 0,
+  partial: 0,
+  reconciled: 0,
+  divergent: 0,
+  not_applicable: 0,
+});
+
+const getNumberOrNull = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
+const sumMoney = (values: Array<number | null | undefined>) => {
+  const validValues = values
+    .map(getNumberOrNull)
+    .filter((value): value is number => value !== null);
+
+  if (validValues.length === 0) {
+    return null;
+  }
+
+  return validValues.reduce((sum, value) => sum + value, 0);
+};
+
+const formatMoneyOrDash = (value?: number | null) => {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? `R$ ${formatCurrency(parsedValue)}` : "—";
+};
 
 export default function Relatorios() {
   const [loading, setLoading] = useState(true);
@@ -47,8 +119,16 @@ export default function Relatorios() {
   const [salesStats, setSalesStats] = useState({
     totalSales: 0,
     totalRevenue: 0,
-    totalCommissions: 0,
+    totalCommissions: null as number | null,
     averageTicket: 0,
+  });
+  const [reconciliationStats, setReconciliationStats] = useState({
+    revenueCharged: 0,
+    asaasFeesEstimated: null as number | null,
+    grossEstimatedCommission: null as number | null,
+    splitPlanned: null as number | null,
+    splitReceived: null as number | null,
+    statuses: createEmptyReconciliationCounts(),
   });
   const [productsPerformance, setProductsPerformance] = useState<any[]>([]);
   const [checkoutFunnel, setCheckoutFunnel] = useState<any[]>([]);
@@ -103,14 +183,95 @@ export default function Relatorios() {
       const views = checkoutEventList.filter((e) => e.event_type === "view").length;
       const abandons = checkoutEventList.filter((e) => e.event_type === "abandon").length;
       
-      const { data: approvedTransactions } = await supabase
+      const { data: transactionRows } = await supabase
         .from("transactions")
-        .select("value, order_bumps_amount, order_bumps_selected")
-        .in("status", APPROVED_TRANSACTION_STATUSES)
+        .select(`
+          id,
+          asaas_payment_id,
+          value,
+          order_bumps_amount,
+          order_bumps_selected,
+          asaas_fee_amount,
+          affiliate_split_total,
+          reconciliation_status,
+          status,
+          created_at
+        `)
         .gte("created_at", startDate)
         .lte("created_at", endDate);
 
-      const approvedTransactionList = approvedTransactions || [];
+      const transactionList = (transactionRows || []) as ReportTransaction[];
+      const approvedTransactionList = transactionList.filter((transaction) =>
+        APPROVED_TRANSACTION_STATUSES.includes(transaction.status)
+      );
+      const approvedTransactionIds = approvedTransactionList.map((transaction) => transaction.id);
+      const approvedAsaasPaymentIds = approvedTransactionList
+        .map((transaction) => transaction.asaas_payment_id)
+        .filter((paymentId): paymentId is string => Boolean(paymentId));
+      const splitRowsByKey = new Map<string, ReportSplit[]>();
+
+      const appendSplitRows = (rows: ReportSplit[] | null) => {
+        (rows || []).forEach((split) => {
+          const keys = [
+            split.transaction_id ? `transaction:${split.transaction_id}` : null,
+            split.asaas_payment_id ? `asaas:${split.asaas_payment_id}` : null,
+          ].filter(Boolean) as string[];
+
+          keys.forEach((key) => {
+            const currentRows = splitRowsByKey.get(key) || [];
+            if (!currentRows.some((row) => row.id === split.id)) {
+              currentRows.push(split);
+            }
+            splitRowsByKey.set(key, currentRows);
+          });
+        });
+      };
+
+      if (approvedTransactionIds.length > 0) {
+        const { data: splitRowsByTransaction } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("transaction_id", approvedTransactionIds);
+
+        appendSplitRows((splitRowsByTransaction || []) as ReportSplit[]);
+      }
+
+      if (approvedAsaasPaymentIds.length > 0) {
+        const { data: splitRowsByPayment } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("asaas_payment_id", approvedAsaasPaymentIds);
+
+        appendSplitRows((splitRowsByPayment || []) as ReportSplit[]);
+      }
+
+      const getSplitsForTransaction = (transaction: ReportTransaction) => {
+        const byTransaction = splitRowsByKey.get(`transaction:${transaction.id}`) || [];
+        const byPayment = transaction.asaas_payment_id
+          ? splitRowsByKey.get(`asaas:${transaction.asaas_payment_id}`) || []
+          : [];
+        const splitMap = new Map<string, ReportSplit>();
+
+        [...byTransaction, ...byPayment].forEach((split) => {
+          splitMap.set(split.id, split);
+        });
+
+        return Array.from(splitMap.values());
+      };
+
+      const getTransactionSplitPlannedAmount = (transaction: ReportTransaction) => {
+        const transactionPlannedAmount = getNumberOrNull(transaction.affiliate_split_total);
+
+        if (transactionPlannedAmount !== null) {
+          return transactionPlannedAmount;
+        }
+
+        return sumMoney(getSplitsForTransaction(transaction).map((split) => split.planned_amount));
+      };
+
+      const getTransactionSplitReceivedAmount = (transaction: ReportTransaction) =>
+        sumMoney(getSplitsForTransaction(transaction).map((split) => split.received_amount));
+
       const conversions = approvedTransactionList.length;
       const totalRevenue = approvedTransactionList.reduce(
         (sum, transaction) => sum + Number(transaction.value || 0),
@@ -147,22 +308,40 @@ export default function Relatorios() {
       // Buscar vendas
       const { data: sales } = await supabase
         .from("product_sales")
-        .select("*")
+        .select("sale_amount, commission_amount")
         .gte("sale_date", startDate)
         .lte("sale_date", endDate)
         .order("sale_date", { ascending: false });
 
-      if (sales) {
-        const totalRevenue = sales.reduce((sum, s) => sum + Number(s.sale_amount), 0);
-        const totalCommissions = sales.reduce((sum, s) => sum + Number(s.commission_amount || 0), 0);
+      const salesList = (sales || []) as ReportSale[];
+      const salesRevenue = salesList.reduce((sum, sale) => sum + Number(sale.sale_amount || 0), 0);
+      const grossEstimatedCommission = sumMoney(salesList.map((sale) => sale.commission_amount));
+      const reconciliationCounts = transactionList.reduce(
+        (counts, transaction) => {
+          const status = transaction.reconciliation_status || "pending";
+          if (status in counts) {
+            counts[status as ReconciliationStatusKey] += 1;
+          }
+          return counts;
+        },
+        createEmptyReconciliationCounts(),
+      );
 
-        setSalesStats({
-          totalSales: sales.length,
-          totalRevenue,
-          totalCommissions,
-          averageTicket: sales.length > 0 ? totalRevenue / sales.length : 0,
-        });
-      }
+      setSalesStats({
+        totalSales: salesList.length,
+        totalRevenue: salesRevenue,
+        totalCommissions: grossEstimatedCommission,
+        averageTicket: salesList.length > 0 ? salesRevenue / salesList.length : 0,
+      });
+
+      setReconciliationStats({
+        revenueCharged: totalRevenue,
+        asaasFeesEstimated: sumMoney(approvedTransactionList.map((transaction) => transaction.asaas_fee_amount)),
+        grossEstimatedCommission,
+        splitPlanned: sumMoney(approvedTransactionList.map(getTransactionSplitPlannedAmount)),
+        splitReceived: sumMoney(approvedTransactionList.map(getTransactionSplitReceivedAmount)),
+        statuses: reconciliationCounts,
+      });
 
       // Buscar produtos com suas vendas
       const { data: products } = await supabase
@@ -221,6 +400,10 @@ export default function Relatorios() {
   }
 
   const COLORS = ["#3b82f6", "#10b981", "#ef4444", "#f59e0b", "#8b5cf6"];
+  const reconciliationTotal = Object.values(reconciliationStats.statuses).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -404,6 +587,7 @@ export default function Relatorios() {
               </CardContent>
             </Card>
           </div>
+
         </TabsContent>
 
         {/* Sales Analytics */}
@@ -444,15 +628,60 @@ export default function Relatorios() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Comissões brutas estimadas</CardTitle>
+                <CardTitle className="text-sm font-medium">Comissão bruta estimada</CardTitle>
                 <Users className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">R$ {formatCurrency(salesStats.totalCommissions)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Não representa split líquido Asaas</p>
+                <div className="text-2xl font-bold">{formatMoneyOrDash(salesStats.totalCommissions)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Não representa Split recebido Asaas</p>
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Conciliação</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Taxas Asaas estimadas</p>
+                  <p className="mt-1 text-2xl font-bold">{formatMoneyOrDash(reconciliationStats.asaasFeesEstimated)}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Receita cobrada: R$ {formatCurrency(reconciliationStats.revenueCharged)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Comissão bruta estimada: {formatMoneyOrDash(reconciliationStats.grossEstimatedCommission)}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Split planejado</p>
+                  <p className="mt-1 text-2xl font-bold">{formatMoneyOrDash(reconciliationStats.splitPlanned)}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Split recebido Asaas: {formatMoneyOrDash(reconciliationStats.splitReceived)}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">Conciliação</p>
+                  <p className="mt-1 text-2xl font-bold">{reconciliationTotal} registros</p>
+                  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    {(Object.entries(RECONCILIATION_STATUS_LABELS) as Array<[ReconciliationStatusKey, string]>).map(
+                      ([status, label]) => (
+                        <div key={status} className="flex items-center justify-between gap-2">
+                          <span>{label}</span>
+                          <span className="font-medium text-foreground">
+                            {reconciliationStats.statuses[status]}
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Products Performance */}

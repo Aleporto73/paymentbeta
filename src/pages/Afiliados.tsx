@@ -36,11 +36,16 @@ interface AffiliateProduct {
 interface AffiliateMetrics {
   activeCount: number;
   monthlyCommissions: number;
+  monthlySplitPlanned: number | null;
+  monthlySplitReceived: number | null;
+  monthlyCommissionSplitDifference: number | null;
   averageTicket: number;
   topAffiliates: {
     name: string;
     sales: number;
     commissions: number;
+    splitPlanned: number | null;
+    splitReceived: number | null;
   }[];
 }
 
@@ -50,6 +55,71 @@ interface LinkStats {
   conversionRate: number;
   revenue: number;
 }
+
+interface AffiliateSaleRow {
+  commission_amount: number | null;
+  affiliate_link_id: string | null;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
+  product_affiliate_links?: {
+    affiliate_id: string | null;
+    affiliates?: { name: string } | { name: string }[] | null;
+  } | {
+    affiliate_id: string | null;
+    affiliates?: { name: string } | { name: string }[] | null;
+  }[] | null;
+}
+
+interface AffiliateTransactionRow {
+  id: string;
+  asaas_payment_id: string | null;
+  affiliate_split_total: number | null;
+}
+
+interface AffiliateSplitRow {
+  id: string;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
+  planned_amount: number | null;
+  received_amount: number | null;
+}
+
+const getNumberOrNull = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+};
+
+const sumMoney = (values: Array<number | null | undefined>) => {
+  const validValues = values
+    .map(getNumberOrNull)
+    .filter((value): value is number => value !== null);
+
+  if (validValues.length === 0) {
+    return null;
+  }
+
+  return validValues.reduce((sum, value) => sum + value, 0);
+};
+
+const addNullableMoney = (current: number | null, value: number | null) => {
+  if (value === null) {
+    return current;
+  }
+
+  return (current ?? 0) + value;
+};
+
+const getRelation = <T,>(relation: T | T[] | null | undefined): T | null => {
+  if (Array.isArray(relation)) {
+    return relation[0] ?? null;
+  }
+
+  return relation ?? null;
+};
 
 export default function Afiliados() {
   const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
@@ -65,6 +135,9 @@ export default function Afiliados() {
   const [metrics, setMetrics] = useState<AffiliateMetrics>({
     activeCount: 0,
     monthlyCommissions: 0,
+    monthlySplitPlanned: null,
+    monthlySplitReceived: null,
+    monthlyCommissionSplitDifference: null,
     averageTicket: 0,
     topAffiliates: [],
   });
@@ -177,18 +250,139 @@ export default function Afiliados() {
       const startOfCurrentMonth = startOfMonth(new Date()).toISOString();
       const { data: salesData } = await supabase
         .from("product_sales")
-        .select("commission_amount, affiliate_link_id, product_affiliate_links!inner(affiliate_id, affiliates!inner(name))")
+        .select(`
+          commission_amount,
+          affiliate_link_id,
+          transaction_id,
+          asaas_payment_id,
+          product_affiliate_links!inner(
+            affiliate_id,
+            affiliates!inner(name)
+          )
+        `)
         .gte("created_at", startOfCurrentMonth)
         .not("commission_amount", "is", null);
 
-      const monthlyCommissions = (salesData || []).reduce((sum, sale) => sum + (sale.commission_amount || 0), 0);
-      const salesCount = salesData?.length || 0;
+      const salesList = (salesData || []) as unknown as AffiliateSaleRow[];
+      const transactionIds = salesList
+        .map((sale) => sale.transaction_id)
+        .filter((transactionId): transactionId is string => Boolean(transactionId));
+      const asaasPaymentIds = salesList
+        .map((sale) => sale.asaas_payment_id)
+        .filter((paymentId): paymentId is string => Boolean(paymentId));
+      const transactionsByKey = new Map<string, AffiliateTransactionRow>();
+      const splitRowsByKey = new Map<string, AffiliateSplitRow[]>();
+
+      const appendTransactions = (rows: AffiliateTransactionRow[] | null) => {
+        (rows || []).forEach((transaction) => {
+          transactionsByKey.set(`transaction:${transaction.id}`, transaction);
+          if (transaction.asaas_payment_id) {
+            transactionsByKey.set(`asaas:${transaction.asaas_payment_id}`, transaction);
+          }
+        });
+      };
+
+      const appendSplitRows = (rows: AffiliateSplitRow[] | null) => {
+        (rows || []).forEach((split) => {
+          const keys = [
+            split.transaction_id ? `transaction:${split.transaction_id}` : null,
+            split.asaas_payment_id ? `asaas:${split.asaas_payment_id}` : null,
+          ].filter(Boolean) as string[];
+
+          keys.forEach((key) => {
+            const currentRows = splitRowsByKey.get(key) || [];
+            if (!currentRows.some((row) => row.id === split.id)) {
+              currentRows.push(split);
+            }
+            splitRowsByKey.set(key, currentRows);
+          });
+        });
+      };
+
+      if (transactionIds.length > 0) {
+        const { data: transactionsById } = await supabase
+          .from("transactions")
+          .select("id, asaas_payment_id, affiliate_split_total")
+          .in("id", transactionIds);
+
+        appendTransactions((transactionsById || []) as AffiliateTransactionRow[]);
+
+        const { data: splitRowsByTransaction } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("transaction_id", transactionIds);
+
+        appendSplitRows((splitRowsByTransaction || []) as AffiliateSplitRow[]);
+      }
+
+      if (asaasPaymentIds.length > 0) {
+        const { data: transactionsByPayment } = await supabase
+          .from("transactions")
+          .select("id, asaas_payment_id, affiliate_split_total")
+          .in("asaas_payment_id", asaasPaymentIds);
+
+        appendTransactions((transactionsByPayment || []) as AffiliateTransactionRow[]);
+
+        const { data: splitRowsByPayment } = await supabase
+          .from("transaction_splits")
+          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
+          .in("asaas_payment_id", asaasPaymentIds);
+
+        appendSplitRows((splitRowsByPayment || []) as AffiliateSplitRow[]);
+      }
+
+      const getTransactionForSale = (sale: AffiliateSaleRow) => {
+        if (sale.transaction_id) {
+          const transaction = transactionsByKey.get(`transaction:${sale.transaction_id}`);
+          if (transaction) return transaction;
+        }
+
+        return sale.asaas_payment_id ? transactionsByKey.get(`asaas:${sale.asaas_payment_id}`) || null : null;
+      };
+
+      const getSplitsForSale = (sale: AffiliateSaleRow) => {
+        const byTransaction = sale.transaction_id
+          ? splitRowsByKey.get(`transaction:${sale.transaction_id}`) || []
+          : [];
+        const byPayment = sale.asaas_payment_id
+          ? splitRowsByKey.get(`asaas:${sale.asaas_payment_id}`) || []
+          : [];
+        const splitMap = new Map<string, AffiliateSplitRow>();
+
+        [...byTransaction, ...byPayment].forEach((split) => {
+          splitMap.set(split.id, split);
+        });
+
+        return Array.from(splitMap.values());
+      };
+
+      const getSaleSplitPlannedAmount = (sale: AffiliateSaleRow) => {
+        const transactionPlannedAmount = getNumberOrNull(getTransactionForSale(sale)?.affiliate_split_total);
+
+        if (transactionPlannedAmount !== null) {
+          return transactionPlannedAmount;
+        }
+
+        return sumMoney(getSplitsForSale(sale).map((split) => split.planned_amount));
+      };
+
+      const getSaleSplitReceivedAmount = (sale: AffiliateSaleRow) =>
+        sumMoney(getSplitsForSale(sale).map((split) => split.received_amount));
+
+      const monthlyCommissions = sumMoney(salesList.map((sale) => sale.commission_amount)) ?? 0;
+      const monthlySplitPlanned = sumMoney(salesList.map(getSaleSplitPlannedAmount));
+      const monthlySplitReceived = sumMoney(salesList.map(getSaleSplitReceivedAmount));
+      const monthlyCommissionSplitDifference =
+        monthlySplitReceived !== null ? monthlyCommissions - monthlySplitReceived : null;
+      const salesCount = salesList.length;
       const averageTicket = salesCount > 0 ? monthlyCommissions / salesCount : 0;
 
       // Get top 3 affiliates
-      const affiliateSales = (salesData || []).reduce((acc: any, sale: any) => {
-        const affiliateId = sale.product_affiliate_links?.affiliate_id;
-        const affiliateName = sale.product_affiliate_links?.affiliates?.name;
+      const affiliateSales = salesList.reduce((acc: any, sale: AffiliateSaleRow) => {
+        const productAffiliateLink = getRelation(sale.product_affiliate_links);
+        const affiliate = getRelation(productAffiliateLink?.affiliates);
+        const affiliateId = productAffiliateLink?.affiliate_id;
+        const affiliateName = affiliate?.name;
         if (!affiliateId || !affiliateName) return acc;
 
         if (!acc[affiliateId]) {
@@ -196,20 +390,33 @@ export default function Afiliados() {
             name: affiliateName,
             sales: 0,
             commissions: 0,
+            splitPlanned: null,
+            splitReceived: null,
           };
         }
         acc[affiliateId].sales += 1;
         acc[affiliateId].commissions += sale.commission_amount || 0;
+        acc[affiliateId].splitPlanned = addNullableMoney(acc[affiliateId].splitPlanned, getSaleSplitPlannedAmount(sale));
+        acc[affiliateId].splitReceived = addNullableMoney(acc[affiliateId].splitReceived, getSaleSplitReceivedAmount(sale));
         return acc;
       }, {});
 
       const topAffiliates = Object.values(affiliateSales)
         .sort((a: any, b: any) => b.sales - a.sales)
-        .slice(0, 3) as { name: string; sales: number; commissions: number; }[];
+        .slice(0, 3) as {
+          name: string;
+          sales: number;
+          commissions: number;
+          splitPlanned: number | null;
+          splitReceived: number | null;
+        }[];
 
       setMetrics({
         activeCount: activeCount || 0,
         monthlyCommissions,
+        monthlySplitPlanned,
+        monthlySplitReceived,
+        monthlyCommissionSplitDifference,
         averageTicket,
         topAffiliates,
       });
@@ -437,6 +644,15 @@ export default function Afiliados() {
     return `R$ ${formatCurrency(value)}`;
   };
 
+  const formatMoneyOrDash = (value?: number | null) => {
+    if (value === null || value === undefined) {
+      return "—";
+    }
+
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) ? `R$ ${formatCurrency(parsedValue)}` : "—";
+  };
+
   const formatPercent = (value: number) => {
     return `${value.toLocaleString("pt-BR", {
       minimumFractionDigits: 1,
@@ -484,23 +700,54 @@ export default function Afiliados() {
             <div className="text-2xl font-bold">
               {loadingMetrics ? "..." : `R$ ${formatCurrency(metrics.monthlyCommissions)}`}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Média: {loadingMetrics ? "..." : `R$ ${formatCurrency(metrics.averageTicket)}`}
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Comissão média estimada</CardTitle>
+            <CardTitle className="text-sm font-medium">Split planejado</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {loadingMetrics ? "..." : `R$ ${formatCurrency(metrics.averageTicket)}`}
+              {loadingMetrics ? "..." : formatMoneyOrDash(metrics.monthlySplitPlanned)}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Split recebido Asaas</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loadingMetrics ? "..." : formatMoneyOrDash(metrics.monthlySplitReceived)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Diferença entre comissão estimada e split recebido</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {loadingMetrics ? "..." : formatMoneyOrDash(metrics.monthlyCommissionSplitDifference)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Calculada apenas quando há Split recebido Asaas.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Top Afiliados</CardTitle>
           </CardHeader>
           <CardContent>
@@ -509,12 +756,12 @@ export default function Afiliados() {
             ) : metrics.topAffiliates.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sem dados</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {metrics.topAffiliates.map((affiliate, index) => (
-                  <div key={index} className="text-xs">
+                  <div key={index} className="flex items-center justify-between gap-3 text-xs">
                     <span className="font-medium">{index + 1}. {affiliate.name}</span>
-                    <span className="text-muted-foreground ml-2">
-                      {affiliate.sales} vendas
+                    <span className="text-right text-muted-foreground">
+                      {affiliate.sales} vendas · {formatMoneyOrDash(affiliate.splitReceived)}
                     </span>
                   </div>
                 ))}
@@ -525,7 +772,7 @@ export default function Afiliados() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Valores podem diferir do split líquido recebido no Asaas por taxas do gateway, parcelamento e arredondamentos.
+        Comissão bruta estimada, Split planejado e Split recebido Asaas podem divergir por taxas do gateway, parcelamento e arredondamentos.
       </p>
 
       <AffiliateAnalytics />
