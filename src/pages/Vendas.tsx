@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 
 interface Sale {
   id: string;
+  asaas_payment_id?: string | null;
   customer_name: string;
   customer_email: string;
   customer_cpf_cnpj: string | null;
@@ -22,6 +23,13 @@ interface Sale {
   customer_state: string | null;
   value: number;
   net_value?: number | null;
+  discount_amount?: number | null;
+  installment_fee_amount?: number | null;
+  asaas_fee_amount?: number | null;
+  affiliate_split_total?: number | null;
+  producer_net_amount?: number | null;
+  reconciliation_status?: string | null;
+  reconciliation_notes?: string | null;
   status: string;
   created_at: string;
   payment_method: string;
@@ -34,6 +42,17 @@ interface Sale {
   installment_count?: number | null;
   affiliate_link_id?: string | null;
   estimated_commission_amount?: number | null;
+  transaction_splits?: TransactionSplit[];
+}
+
+interface TransactionSplit {
+  id?: string;
+  transaction_id: string | null;
+  asaas_payment_id: string | null;
+  planned_amount: number | null;
+  received_amount: number | null;
+  status: string;
+  wallet_id: string | null;
 }
 
 interface Product {
@@ -108,6 +127,7 @@ export default function Vendas() {
         .from("transactions")
         .select(`
           id,
+          asaas_payment_id,
           customer_name,
           customer_email,
           customer_cpf_cnpj,
@@ -115,6 +135,13 @@ export default function Vendas() {
           customer_state,
           value,
           net_value,
+          discount_amount,
+          installment_fee_amount,
+          asaas_fee_amount,
+          affiliate_split_total,
+          producer_net_amount,
+          reconciliation_status,
+          reconciliation_notes,
           status,
           created_at,
           payment_method,
@@ -188,7 +215,7 @@ export default function Vendas() {
 
           const { data: productSales } = await supabase
             .from("product_sales")
-            .select("product_id, customer_email, sale_amount, affiliate_link_id, commission_amount")
+            .select("product_id, customer_email, sale_amount, affiliate_link_id, commission_amount, transaction_id, asaas_payment_id")
             .in("product_id", productIds)
             .in("customer_email", customerEmails)
             .not("commission_amount", "is", null);
@@ -196,14 +223,28 @@ export default function Vendas() {
           const commissionBySale = new Map<string, { affiliate_link_id: string | null; commission_amount: number | null }>();
 
           (productSales || []).forEach((productSale) => {
-            const key = [
+            if (productSale.transaction_id) {
+              commissionBySale.set(`transaction:${productSale.transaction_id}`, {
+                affiliate_link_id: productSale.affiliate_link_id,
+                commission_amount: productSale.commission_amount,
+              });
+            }
+
+            if (productSale.asaas_payment_id) {
+              commissionBySale.set(`asaas:${productSale.asaas_payment_id}`, {
+                affiliate_link_id: productSale.affiliate_link_id,
+                commission_amount: productSale.commission_amount,
+              });
+            }
+
+            const legacyKey = [
               productSale.product_id,
               productSale.customer_email,
               Number(productSale.sale_amount).toFixed(2),
               productSale.affiliate_link_id || "",
             ].join("|");
 
-            commissionBySale.set(key, {
+            commissionBySale.set(legacyKey, {
               affiliate_link_id: productSale.affiliate_link_id,
               commission_amount: productSale.commission_amount,
             });
@@ -218,7 +259,10 @@ export default function Vendas() {
               Number(sale.value).toFixed(2),
               sale.affiliate_code,
             ].join("|");
-            const commissionData = commissionBySale.get(key);
+            const commissionData =
+              commissionBySale.get(`transaction:${sale.id}`) ||
+              (sale.asaas_payment_id ? commissionBySale.get(`asaas:${sale.asaas_payment_id}`) : undefined) ||
+              commissionBySale.get(key);
 
             if (commissionData) {
               sale.affiliate_link_id = commissionData.affiliate_link_id;
@@ -226,6 +270,61 @@ export default function Vendas() {
             }
           });
         }
+
+        const transactionIds = salesWithProductNames.map((sale) => sale.id);
+        const asaasPaymentIds = salesWithProductNames
+          .map((sale) => sale.asaas_payment_id)
+          .filter((paymentId): paymentId is string => Boolean(paymentId));
+        const splitRowsByKey = new Map<string, TransactionSplit[]>();
+
+        const appendSplitRows = (rows: TransactionSplit[] | null) => {
+          (rows || []).forEach((split) => {
+            const keys = [
+              split.transaction_id ? `transaction:${split.transaction_id}` : null,
+              split.asaas_payment_id ? `asaas:${split.asaas_payment_id}` : null,
+            ].filter(Boolean) as string[];
+
+            keys.forEach((key) => {
+              const currentRows = splitRowsByKey.get(key) || [];
+              if (!currentRows.some((row) => row.id && row.id === split.id)) {
+                currentRows.push(split);
+              }
+              splitRowsByKey.set(key, currentRows);
+            });
+          });
+        };
+
+        if (transactionIds.length > 0) {
+          const { data: splitRowsByTransaction } = await supabase
+            .from("transaction_splits")
+            .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount, status, wallet_id")
+            .in("transaction_id", transactionIds);
+
+          appendSplitRows((splitRowsByTransaction || []) as TransactionSplit[]);
+        }
+
+        if (asaasPaymentIds.length > 0) {
+          const { data: splitRowsByPayment } = await supabase
+            .from("transaction_splits")
+            .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount, status, wallet_id")
+            .in("asaas_payment_id", asaasPaymentIds);
+
+          appendSplitRows((splitRowsByPayment || []) as TransactionSplit[]);
+        }
+
+        salesWithProductNames.forEach((sale) => {
+          const splitsByTransaction = splitRowsByKey.get(`transaction:${sale.id}`) || [];
+          const splitsByPayment = sale.asaas_payment_id
+            ? splitRowsByKey.get(`asaas:${sale.asaas_payment_id}`) || []
+            : [];
+          const splitMap = new Map<string, TransactionSplit>();
+
+          [...splitsByTransaction, ...splitsByPayment].forEach((split, index) => {
+            splitMap.set(split.id || `${split.transaction_id}-${split.asaas_payment_id}-${index}`, split);
+          });
+
+          sale.transaction_splits = Array.from(splitMap.values());
+        });
 
         setSales(salesWithProductNames);
         setTotalCount(count || 0);
@@ -278,7 +377,7 @@ export default function Vendas() {
       "Telefone",
       "Estado",
       "Produto",
-      "Valor cobrado",
+      "Receita cobrada",
       "Status",
       "Método de Pagamento",
       "Tipo de Cobrança",
@@ -338,6 +437,62 @@ export default function Vendas() {
 
     const config = statusConfig[status] || { label: status, variant: "outline" };
     return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
+  const getReconciliationBadge = (status?: string | null) => {
+    const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+      pending: { label: "Pendente", variant: "secondary" },
+      partial: { label: "Parcial", variant: "outline" },
+      reconciled: { label: "Conciliado", variant: "default" },
+      divergent: { label: "Divergente", variant: "destructive" },
+      not_applicable: { label: "Não aplicável", variant: "secondary" },
+    };
+    const normalizedStatus = status || "pending";
+    const config = statusConfig[normalizedStatus] || { label: normalizedStatus, variant: "outline" };
+
+    return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
+  const formatMoneyOrDash = (value?: number | null) => {
+    if (value === null || value === undefined) {
+      return "—";
+    }
+
+    const parsedValue = Number(value);
+
+    return Number.isFinite(parsedValue) ? `R$ ${formatCurrency(parsedValue)}` : "—";
+  };
+
+  const sumMoney = (values: Array<number | null | undefined>) => {
+    const validValues = values
+      .filter((value) => value !== null && value !== undefined)
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+
+    if (validValues.length === 0) {
+      return null;
+    }
+
+    return validValues.reduce((sum, value) => sum + value, 0);
+  };
+
+  const getSplitPlannedAmount = (sale: Sale) => {
+    const transactionPlannedAmount = Number(sale.affiliate_split_total);
+
+    if (Number.isFinite(transactionPlannedAmount) && transactionPlannedAmount > 0) {
+      return transactionPlannedAmount;
+    }
+
+    return sumMoney((sale.transaction_splits || []).map((split) => split.planned_amount));
+  };
+
+  const getSplitReceivedAmount = (sale: Sale) =>
+    sumMoney((sale.transaction_splits || []).map((split) => split.received_amount));
+
+  const hasPlannedSplit = (sale: Sale) => {
+    const plannedAmount = getSplitPlannedAmount(sale);
+
+    return Boolean((plannedAmount && plannedAmount > 0) || (sale.transaction_splits || []).length > 0);
   };
 
   const viewSaleDetails = (sale: Sale) => {
@@ -504,7 +659,7 @@ export default function Vendas() {
                       <TableHead>Data</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Produto</TableHead>
-                      <TableHead>Valor cobrado</TableHead>
+                      <TableHead>Receita cobrada</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -626,15 +781,9 @@ export default function Vendas() {
                       <p className="text-sm font-medium mt-1">{selectedSale.product_name}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Valor cobrado</p>
+                      <p className="text-xs text-muted-foreground">Receita cobrada</p>
                       <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.value)}</p>
                     </div>
-                    {selectedSale.net_value !== null && selectedSale.net_value !== undefined && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Líquido Asaas registrado</p>
-                        <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.net_value)}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -676,6 +825,76 @@ export default function Vendas() {
                   </div>
                 )}
 
+                {(() => {
+                  const splitPlannedAmount = getSplitPlannedAmount(selectedSale);
+                  const splitReceivedAmount = getSplitReceivedAmount(selectedSale);
+                  const plannedSplitExists = hasPlannedSplit(selectedSale);
+
+                  return (
+                    <div className="pb-4 border-b">
+                      <h3 className="text-base font-semibold mb-3">Conciliação financeira</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Receita cobrada</p>
+                          <p className="text-sm font-semibold mt-1">{formatMoneyOrDash(selectedSale.value)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Desconto aplicado</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(selectedSale.discount_amount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Taxa de parcelamento</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(selectedSale.installment_fee_amount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Líquido Asaas registrado</p>
+                          <p className="text-sm font-semibold mt-1">{formatMoneyOrDash(selectedSale.net_value)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Taxa Asaas estimada</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(selectedSale.asaas_fee_amount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Comissão bruta estimada</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(selectedSale.estimated_commission_amount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Split planejado</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(splitPlannedAmount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Split recebido Asaas</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(splitReceivedAmount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Líquido estimado do produtor</p>
+                          <p className="text-sm font-medium mt-1">{formatMoneyOrDash(selectedSale.producer_net_amount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Status da conciliação</p>
+                          <div className="mt-1">{getReconciliationBadge(selectedSale.reconciliation_status)}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-xs text-muted-foreground">Notas de conciliação</p>
+                          <p className="text-sm font-medium mt-1">{selectedSale.reconciliation_notes || "—"}</p>
+                        </div>
+                      </div>
+
+                      {!plannedSplitExists && (
+                        <p className="text-sm text-muted-foreground mt-3">
+                          Sem split planejado para esta venda
+                        </p>
+                      )}
+
+                      {plannedSplitExists && splitReceivedAmount === null && (
+                        <p className="text-sm text-muted-foreground mt-3">
+                          Split planejado aguardando retorno detalhado do Asaas
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {selectedSale.affiliate_code && (
                   <div>
                     <h3 className="text-base font-semibold mb-3">Informações de Afiliado</h3>
@@ -684,18 +903,7 @@ export default function Vendas() {
                         <p className="text-xs text-muted-foreground">Código/vínculo do afiliado</p>
                         <p className="text-sm font-medium mt-1">{selectedSale.affiliate_code}</p>
                       </div>
-                      {selectedSale.estimated_commission_amount !== null && selectedSale.estimated_commission_amount !== undefined && (
-                        <div>
-                          <p className="text-xs text-muted-foreground">Comissão bruta estimada</p>
-                          <p className="text-sm font-semibold mt-1">
-                            R$ {formatCurrency(selectedSale.estimated_commission_amount)}
-                          </p>
-                        </div>
-                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-3">
-                      O split líquido real do Asaas ainda não é salvo neste painel.
-                    </p>
                   </div>
                 )}
               </div>
