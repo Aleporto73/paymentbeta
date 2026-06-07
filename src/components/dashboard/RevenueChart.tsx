@@ -12,6 +12,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { formatCurrency } from "@/lib/utils";
 
 interface RevenueData {
   name: string;
@@ -113,9 +114,7 @@ export function RevenueChart() {
               <YAxis
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={12}
-                tickFormatter={(value) =>
-                  value >= 1000 ? `R$ ${(value / 1000).toFixed(1)}k` : `R$ ${value}`
-                }
+                tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`}
               />
               <Tooltip
                 contentStyle={{
@@ -124,10 +123,7 @@ export function RevenueChart() {
                   borderRadius: "8px",
                 }}
                 formatter={(value: number) => [
-                  `R$ ${value.toLocaleString("pt-BR", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}`,
+                  `R$ ${formatCurrency(Number(value))}`,
                   "Receita cobrada",
                 ]}
               />

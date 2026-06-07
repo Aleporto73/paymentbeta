@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, subDays, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { formatCurrency } from "@/lib/utils";
 
 interface Sale {
   sale_date: string;
@@ -78,7 +79,7 @@ export function AffiliatePerformanceChart({ sales, totalClicks }: AffiliatePerfo
               <YAxis 
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={12}
-                tickFormatter={(value) => `R$ ${value.toFixed(0)}`}
+                tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`}
               />
               <Tooltip 
                 contentStyle={{
@@ -88,7 +89,7 @@ export function AffiliatePerformanceChart({ sales, totalClicks }: AffiliatePerfo
                 }}
                 formatter={(value: number, name: string) => {
                   if (name === 'commission') {
-                    return [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, "Comissão bruta estimada"];
+                    return [`R$ ${formatCurrency(Number(value))}`, "Comissão bruta estimada"];
                   }
                   return [value, "Vendas"];
                 }}

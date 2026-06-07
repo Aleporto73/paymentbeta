@@ -467,11 +467,22 @@ export default function Relatorios() {
                   <BarChart data={productsPerformance}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
+                    <YAxis yAxisId="sales" />
+                    <YAxis
+                      yAxisId="revenue"
+                      orientation="right"
+                      tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`}
+                    />
+                    <Tooltip
+                      formatter={(value, name) =>
+                        name === "Vendas"
+                          ? [Number(value).toLocaleString("pt-BR"), "Vendas"]
+                          : [`R$ ${formatCurrency(Number(value))}`, name]
+                      }
+                    />
                     <Legend />
-                    <Bar dataKey="sales" fill="#3b82f6" name="Vendas" />
-                    <Bar dataKey="revenue" fill="#10b981" name="Receita cobrada (R$)" />
+                    <Bar yAxisId="sales" dataKey="sales" fill="#3b82f6" name="Vendas" />
+                    <Bar yAxisId="revenue" dataKey="revenue" fill="#10b981" name="Receita cobrada (R$)" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -511,7 +522,7 @@ export default function Relatorios() {
                         </div>
                         <div>
                           <p className="text-muted-foreground">Receita</p>
-                          <p className="text-sm font-medium">R$ {Number(bump.revenue).toFixed(2)}</p>
+                          <p className="text-sm font-medium">R$ {formatCurrency(Number(bump.revenue))}</p>
                         </div>
                       </div>
                     </div>

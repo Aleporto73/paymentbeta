@@ -631,7 +631,7 @@ export default function Vendas() {
                     </div>
                     {selectedSale.net_value !== null && selectedSale.net_value !== undefined && (
                       <div>
-                        <p className="text-xs text-muted-foreground">Valor líquido Asaas</p>
+                        <p className="text-xs text-muted-foreground">Líquido Asaas registrado</p>
                         <p className="text-sm font-semibold mt-1">R$ {formatCurrency(selectedSale.net_value)}</p>
                       </div>
                     )}
