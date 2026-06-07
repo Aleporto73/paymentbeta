@@ -104,6 +104,42 @@ export type Database = {
         }
         Relationships: []
       }
+      asaas_webhook_events: {
+        Row: {
+          asaas_event_id: string | null
+          asaas_payment_id: string
+          created_at: string
+          event_type: string
+          id: string
+          processed_at: string | null
+          raw_payload: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          asaas_event_id?: string | null
+          asaas_payment_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          processed_at?: string | null
+          raw_payload?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          asaas_event_id?: string | null
+          asaas_payment_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          processed_at?: string | null
+          raw_payload?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       checkout_events: {
         Row: {
           affiliate_code: string | null
