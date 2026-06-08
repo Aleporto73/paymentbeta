@@ -219,10 +219,10 @@ const normalizePublicBaseUrl = (value: unknown) => {
 };
 
 const formatResendFrom = (productName: string, fromEmail: string) => {
-  const cleanProductName = productName.replace(/[<>\r\n]/g, '').trim() || 'Psiform';
+  const cleanProductName = productName.replace(/[<>\r\n]/g, '').trim() || 'Produto';
   const cleanFromEmail = fromEmail.replace(/[<>\r\n]/g, '').trim();
 
-  return `${cleanProductName} via Psiform <${cleanFromEmail}>`;
+  return `${cleanProductName} <${cleanFromEmail}>`;
 };
 
 const isEmailEventPendingStale = (updatedAt: unknown) => {
@@ -1310,6 +1310,7 @@ async function sendSubscriptionManagementEmail(
     const managementUrl = `${appPublicUrl}/minha-assinatura?token=${encodeURIComponent(rawToken)}`;
     const productName = emailContext.productName;
     const customerName = emailContext.customerName;
+    const supportEmail = resendFromEmail;
     const subject = `Gerencie sua assinatura - ${productName}`;
     const text = [
       `Ola, ${customerName}.`,
@@ -1322,7 +1323,7 @@ async function sendSubscriptionManagementEmail(
       '',
       'Por seguranca, nao compartilhe este link.',
       '',
-      'Suporte: suporte@psiform.com.br',
+      `Suporte: ${supportEmail}`,
     ].join('\n');
     const html = `
       <p>Ola, ${escapeHtml(customerName)}.</p>
@@ -1330,7 +1331,7 @@ async function sendSubscriptionManagementEmail(
       <p>Use o link abaixo para consultar ou cancelar sua assinatura:</p>
       <p><a href="${escapeHtml(managementUrl)}">Gerenciar minha assinatura</a></p>
       <p>Por seguranca, nao compartilhe este link.</p>
-      <p>Suporte: suporte@psiform.com.br</p>
+      <p>Suporte: ${escapeHtml(supportEmail)}</p>
     `;
 
     const resendMessageId = await sendResendEmail({
