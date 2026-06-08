@@ -239,7 +239,10 @@ export default function Checkout() {
     maxInstallments,
   );
   const selectedInstallmentDetails = getInstallmentDetails(selectedInstallmentCount);
-  const hasInstallmentFee = paymentMethod === "card" && selectedInstallmentDetails.interestRate > 0;
+  const isRecurringCheckout = product?.product_type === "recorrente" && Boolean(price?.subscription_period);
+  const availablePaymentMethods = isRecurringCheckout ? ["card"] : ["pix", "card"];
+  const selectedPaymentMethod = isRecurringCheckout ? "card" : paymentMethod;
+  const hasInstallmentFee = selectedPaymentMethod === "card" && selectedInstallmentDetails.interestRate > 0;
   const totalParcelado = hasInstallmentFee ? selectedInstallmentDetails.totalWithInterest : totalPrice;
   const installmentFeeAmount = Math.max(0, totalParcelado - totalPrice);
 
@@ -252,6 +255,12 @@ export default function Checkout() {
       setCardData((prev) => ({ ...prev, installments: normalizedInstallments.toString() }));
     }
   }, [cardData.installments, maxInstallments]);
+
+  useEffect(() => {
+    if (isRecurringCheckout && paymentMethod !== "card") {
+      setPaymentMethod("card");
+    }
+  }, [isRecurringCheckout, paymentMethod]);
 
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
@@ -785,13 +794,19 @@ export default function Checkout() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isRecurringCheckout && paymentMethod === "pix") {
+      setPaymentMethod("card");
+      toast.error("Assinaturas são pagas por cartão de crédito.");
+      return;
+    }
+
     if (!formData.fullName || !formData.email || !formData.cpf) {
       toast.error("Por favor, preencha todos os campos obrigatórios");
       return;
     }
 
     // Validar campos adicionais baseado no método de pagamento
-    if (paymentMethod === "card") {
+    if (selectedPaymentMethod === "card") {
       if (
         !cardData.cardholderName ||
         !cardData.cardNumber ||
@@ -810,7 +825,7 @@ export default function Checkout() {
     }
 
     // Se for PIX, abrir modal
-    if (paymentMethod === "pix") {
+    if (selectedPaymentMethod === "pix") {
       setShowPixModal(true);
     }
 
@@ -833,7 +848,7 @@ export default function Checkout() {
       };
 
       // Preparar dados do pagamento
-      const billingType = paymentMethod === "pix" ? "PIX" : "CREDIT_CARD";
+      const billingType = selectedPaymentMethod === "pix" ? "PIX" : "CREDIT_CARD";
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 7); // Vencimento em 7 dias
 
@@ -846,7 +861,7 @@ export default function Checkout() {
       };
 
       // Adicionar dados do cartão se for pagamento com cartão
-      if (paymentMethod === "card") {
+      if (selectedPaymentMethod === "card") {
         const [month, year] = cardData.expiryDate.split("/");
         paymentData.creditCard = {
           holderName: cardData.cardholderName,
@@ -906,7 +921,7 @@ export default function Checkout() {
 
       setPaymentResult(data);
 
-      if (paymentMethod === "pix") {
+      if (selectedPaymentMethod === "pix") {
         // Modal já está aberto, iniciar polling
         setPixPollingEnabled(true);
       } else {
@@ -1226,50 +1241,67 @@ export default function Checkout() {
 
               {/* Métodos de Pagamento */}
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "pix"
-                        ? "border-blue-500 bg-white"
-                        : "border-gray-200 bg-white hover:border-gray-300"
-                    }`}
-                    onClick={() => setPaymentMethod("pix")}
-                  >
-                    <svg className="w-5 h-5 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
-                      <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
-                    </svg>
-                    <span className="font-medium text-sm text-gray-700">Pix</span>
-                  </button>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Método de pagamento</p>
+                  </div>
+                  <div className={`grid gap-3 ${availablePaymentMethods.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                    {!isRecurringCheckout && (
+                      <button
+                        type="button"
+                        className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
+                          selectedPaymentMethod === "pix"
+                            ? "border-blue-500 bg-white"
+                            : "border-gray-200 bg-white hover:border-gray-300"
+                        }`}
+                        onClick={() => setPaymentMethod("pix")}
+                      >
+                        <svg className="w-5 h-5 text-teal-500" viewBox="0 0 512 512" fill="currentColor">
+                          <path d="M242.4 292.5C247.8 287.1 257.1 287.1 262.5 292.5L339.5 369.5C353.7 383.7 372.6 391.5 392.6 391.5H407.7L310.6 488.6C280.3 518.1 231.1 518.1 200.8 488.6L103.3 391.5H112.6C132.6 391.5 151.5 383.7 165.7 369.5L242.4 292.5zM262.5 219.5C257.1 224.9 247.8 224.9 242.4 219.5L165.7 142.5C151.5 128.3 132.6 120.5 112.6 120.5H103.3L200.8 23.4C231.1-6.9 280.3-6.9 310.6 23.4L407.7 120.5H392.6C372.6 120.5 353.7 128.3 339.5 142.5L262.5 219.5zM112.6 142.5C126.4 142.5 139.1 148.3 149.7 158.1L226.4 234.1C233.6 241.3 243.1 245.5 252.5 245.5C261.9 245.5 271.4 241.3 278.6 234.1L355.3 158.1C365.9 148.3 378.6 142.5 392.4 142.5H407.7L488.6 221.9C518.9 252.2 518.9 301.4 488.6 331.7L407.7 410.5H392.6C378.8 410.5 366.1 404.7 355.5 394.9L278.8 318.9C271.6 311.7 262.1 307.5 252.7 307.5C243.3 307.5 233.8 311.7 226.6 318.9L149.9 394.9C139.3 404.7 126.6 410.5 112.8 410.5H103.3L23.4 331.7C-6.9 301.4-6.9 252.2 23.4 221.9L103.3 142.5H112.6z" />
+                        </svg>
+                        <span className="font-medium text-sm text-gray-700">Pix</span>
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
-                      paymentMethod === "card"
-                        ? "border-blue-500 bg-white"
-                        : "border-gray-200 bg-white hover:border-gray-300"
-                    }`}
-                    onClick={() => setPaymentMethod("card")}
-                  >
-                    <CreditCard className="w-5 h-5 text-emerald-500" />
-                    <span className="font-medium text-sm text-gray-700">Cartão de crédito</span>
-                  </button>
+                    <button
+                      type="button"
+                      className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
+                        selectedPaymentMethod === "card"
+                          ? "border-blue-500 bg-white"
+                          : "border-gray-200 bg-white hover:border-gray-300"
+                      }`}
+                      onClick={() => setPaymentMethod("card")}
+                    >
+                      <CreditCard className="w-5 h-5 text-emerald-500" />
+                      <span className="font-medium text-sm text-gray-700">Cartão de crédito</span>
+                    </button>
+                  </div>
+
+                  {isRecurringCheckout && (
+                    <Card className="bg-muted/40 border-border">
+                      <CardContent className="p-4">
+                        <p className="text-sm text-muted-foreground">
+                          Assinaturas são pagas por cartão de crédito. A liberação ocorre após a confirmação do pagamento.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               </div>
 
               {/* Informações PIX */}
-              {paymentMethod === "pix" && (
+              {selectedPaymentMethod === "pix" && !isRecurringCheckout && (
                 <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
                       <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                       <div className="flex-1">
-                        <h3 className="font-semibold text-base mb-2">Informações sobre o pagamento via PIX</h3>
+                        <h3 className="font-semibold text-base mb-2">Pagamento via PIX</h3>
                         <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                          O pagamento é instantâneo e liberação imediata.
+                          Ao gerar o PIX, você receberá um QR Code e um código Pix Copia e Cola.
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-300">
-                          Ao clicar em Gerar PIX, o sistema criará um QR Code e código Pix Copia e Cola para pagamento seguro.
+                          A liberação do acesso acontece automaticamente após a confirmação do pagamento.
                         </p>
                       </div>
                     </div>
@@ -1278,7 +1310,7 @@ export default function Checkout() {
               )}
 
               {/* Formulário do Cartão */}
-              {paymentMethod === "card" && (
+              {selectedPaymentMethod === "card" && (
                 <div className="space-y-4  border border-gray-200 rounded-lg p-4 ">
                   <div>
                     <Label htmlFor="cardholderName" className="text-sm">
@@ -1290,7 +1322,7 @@ export default function Checkout() {
                       value={cardData.cardholderName}
                       onChange={(e) => setCardData({ ...cardData, cardholderName: e.target.value })}
                       className="mt-1"
-                      required={paymentMethod === "card"}
+                      required={selectedPaymentMethod === "card"}
                     />
                   </div>
 
@@ -1318,7 +1350,7 @@ export default function Checkout() {
                                 : "pr-20"
                           }
                           maxLength={19}
-                          required={paymentMethod === "card"}
+                          required={selectedPaymentMethod === "card"}
                         />
                         {cardBrand && (
                           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded">
@@ -1344,7 +1376,7 @@ export default function Checkout() {
                         }}
                         className="mt-1"
                         maxLength={9}
-                        required={paymentMethod === "card"}
+                        required={selectedPaymentMethod === "card"}
                       />
                     </div>
                   </div>
@@ -1369,7 +1401,7 @@ export default function Checkout() {
                         }}
                         className={`mt-1 ${expiryError ? "border-destructive" : cardData.expiryDate && !expiryError ? "border-green-500" : ""}`}
                         maxLength={5}
-                        required={paymentMethod === "card"}
+                        required={selectedPaymentMethod === "card"}
                       />
                       {expiryError && <p className="text-sm text-destructive mt-1">{expiryError}</p>}
                     </div>
@@ -1388,7 +1420,7 @@ export default function Checkout() {
                         }}
                         className="mt-1"
                         maxLength={cardBrand === "Amex" ? 4 : 3}
-                        required={paymentMethod === "card"}
+                        required={selectedPaymentMethod === "card"}
                       />
                     </div>
                     <div>
@@ -1584,17 +1616,17 @@ export default function Checkout() {
                     className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
                     disabled={processing || isBelowMinimum}
                   >
-                    {processing ? "Processando..." : paymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
+                    {processing ? "Processando..." : selectedPaymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
                   </Button>
 
                   {/* Termos */}
-                  <p className="text-center text-xs text-muted-foreground">
+                  <p className="text-center text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
                     Ao clicar em "Comprar agora", você concorda com os{" "}
                     <a
                       href="/termos-de-compra"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
+                      className="font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
                     >
                       Termos de Compra
                     </a>{" "}
@@ -1603,7 +1635,7 @@ export default function Checkout() {
                       href="/privacidade"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
+                      className="font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
                     >
                       Política de Privacidade
                     </a>
@@ -1700,7 +1732,7 @@ export default function Checkout() {
         </Dialog>
 
         {/* Payment Result for Card - mostrar após processamento */}
-        {paymentResult && paymentMethod === "card" && (
+        {paymentResult && selectedPaymentMethod === "card" && (
           <Card className="mt-6 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-4">
