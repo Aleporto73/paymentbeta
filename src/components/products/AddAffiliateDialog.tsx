@@ -125,7 +125,7 @@ export function AddAffiliateDialog({
       <DialogTrigger asChild>
         <Button disabled={!isCommissionConfigured}>
           <UserPlus className="w-4 h-4 mr-2" />
-          Adicionar Afiliado
+          Cadastrar novo afiliado
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">

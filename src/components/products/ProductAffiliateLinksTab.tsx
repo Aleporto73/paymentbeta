@@ -14,6 +14,7 @@ import { ProductAffiliateLink, CommissionType, Product } from "@/types/product";
 import { formatCurrency, parseCurrency } from "@/lib/utils";
 import { AddAffiliateDialog } from "./AddAffiliateDialog";
 import { EditAffiliateDialog } from "./EditAffiliateDialog";
+import { LinkExistingAffiliateDialog } from "./LinkExistingAffiliateDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -217,6 +218,10 @@ export function ProductAffiliateLinksTab({
     return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const linkedAffiliateIds = affiliateLinks
+    .map((link) => link.affiliate_id)
+    .filter((affiliateId): affiliateId is string => Boolean(affiliateId));
+
   return (
     <Card>
       <CardHeader>
@@ -226,6 +231,13 @@ export function ProductAffiliateLinksTab({
             <CardDescription>Gerencie os afiliados e suas comissões</CardDescription>
           </div>
           <div className="flex gap-2">
+            <LinkExistingAffiliateDialog
+              productId={productId}
+              linkedAffiliateIds={linkedAffiliateIds}
+              defaultCommissionType={defaultCommissionType}
+              defaultCommissionValue={defaultCommissionValue}
+              onSuccess={onUpdate}
+            />
             <AddAffiliateDialog
               productId={productId}
               defaultCommissionType={defaultCommissionType}
@@ -336,8 +348,8 @@ export function ProductAffiliateLinksTab({
       <CardContent>
         {affiliateLinks.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p>Nenhum afiliado cadastrado</p>
-            <p className="text-sm mt-2">Configure a comissão para começar a trabalhar com afiliados</p>
+            <p>Nenhum afiliado vinculado</p>
+            <p className="text-sm mt-2">Vincule um afiliado existente ou cadastre um novo para este produto</p>
           </div>
         ) : (
           <div className="space-y-4">

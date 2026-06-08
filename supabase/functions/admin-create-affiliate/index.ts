@@ -16,6 +16,7 @@ class HttpError extends Error {
 }
 
 interface CreateAffiliateRequest {
+  affiliateId?: string;
   productId?: string;
   name?: string;
   email?: string;
@@ -172,9 +173,10 @@ serve(async (req) => {
     await requireAdminUser(req, supabaseAdmin);
 
     const body = (await req.json()) as CreateAffiliateRequest;
+    const affiliateId = typeof body.affiliateId === "string" && body.affiliateId.trim()
+      ? body.affiliateId.trim()
+      : null;
     const productId = requireString(body.productId, "Produto");
-    const name = requireString(body.name, "Nome");
-    const email = requireString(body.email, "Email").toLowerCase();
     const commissionType = requireString(body.commissionType, "Tipo de comissao");
     const commissionValue = parseCommissionValue(body.commissionValue);
     const asaasWalletId = parseOptionalWalletId(body.asaasWalletId);
@@ -198,69 +200,132 @@ serve(async (req) => {
       throw new HttpError("Produto nao encontrado", 404);
     }
 
-    const { data: existingAffiliate, error: existingAffiliateError } = await supabaseAdmin
-      .from("affiliates")
-      .select("id, user_id, name, email, asaas_wallet_id")
-      .eq("email", email)
-      .maybeSingle();
+    let affiliate: {
+      id: string;
+      user_id: string;
+      name: string;
+      email: string;
+      asaas_wallet_id: string | null;
+      is_active?: boolean | null;
+    } | null = null;
+    let reusedAffiliate = false;
 
-    if (existingAffiliateError) {
-      console.error("Error checking existing affiliate:", existingAffiliateError);
-      throw new HttpError("Erro ao verificar afiliado", 500);
+    if (affiliateId) {
+      if (!isUuid(affiliateId)) {
+        throw new HttpError("Afiliado invalido");
+      }
+
+      const { data: existingAffiliateById, error: existingAffiliateByIdError } = await supabaseAdmin
+        .from("affiliates")
+        .select("id, user_id, name, email, asaas_wallet_id, is_active")
+        .eq("id", affiliateId)
+        .maybeSingle();
+
+      if (existingAffiliateByIdError) {
+        console.error("Error checking existing affiliate by id:", existingAffiliateByIdError);
+        throw new HttpError("Erro ao verificar afiliado", 500);
+      }
+
+      if (!existingAffiliateById) {
+        throw new HttpError("Afiliado nao encontrado", 404);
+      }
+
+      if (existingAffiliateById.is_active === false) {
+        throw new HttpError("Afiliado inativo");
+      }
+
+      if (asaasWalletId && existingAffiliateById.asaas_wallet_id !== asaasWalletId) {
+        const { data: updatedAffiliate, error: updateAffiliateError } = await supabaseAdmin
+          .from("affiliates")
+          .update({ asaas_wallet_id: asaasWalletId })
+          .eq("id", existingAffiliateById.id)
+          .select("id, user_id, name, email, asaas_wallet_id, is_active")
+          .single();
+
+        if (updateAffiliateError || !updatedAffiliate) {
+          console.error("Error updating affiliate Wallet ID status:", updateAffiliateError);
+          throw new HttpError("Erro ao atualizar afiliado", 500);
+        }
+
+        affiliate = updatedAffiliate;
+      } else {
+        affiliate = existingAffiliateById;
+      }
+
+      reusedAffiliate = true;
+    } else {
+      const name = requireString(body.name, "Nome");
+      const email = requireString(body.email, "Email").toLowerCase();
+      const { data: existingAffiliate, error: existingAffiliateError } = await supabaseAdmin
+        .from("affiliates")
+        .select("id, user_id, name, email, asaas_wallet_id, is_active")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (existingAffiliateError) {
+        console.error("Error checking existing affiliate:", existingAffiliateError);
+        throw new HttpError("Erro ao verificar afiliado", 500);
+      }
+
+      affiliate = existingAffiliate;
+      reusedAffiliate = Boolean(existingAffiliate);
+
+      if (!affiliate) {
+        const password = requireString(body.password, "Senha");
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: name,
+          },
+        });
+
+        if (authError || !authData.user) {
+          console.error("Error creating auth user:", authError);
+          throw new HttpError(authError?.message || "Erro ao criar usuario", 400);
+        }
+
+        const { data: createdAffiliate, error: affiliateError } = await supabaseAdmin
+          .from("affiliates")
+          .insert({
+            user_id: authData.user.id,
+            name,
+            email,
+            asaas_wallet_id: asaasWalletId,
+          })
+          .select("id, user_id, name, email, asaas_wallet_id, is_active")
+          .single();
+
+        if (affiliateError || !createdAffiliate) {
+          console.error("Error creating affiliate:", affiliateError);
+          throw new HttpError("Erro ao criar afiliado", 500);
+        }
+
+        affiliate = createdAffiliate;
+        reusedAffiliate = false;
+      } else if (affiliate.is_active === false) {
+        throw new HttpError("Afiliado inativo");
+      } else if (asaasWalletId && affiliate.asaas_wallet_id !== asaasWalletId) {
+        const { data: updatedAffiliate, error: updateAffiliateError } = await supabaseAdmin
+          .from("affiliates")
+          .update({ asaas_wallet_id: asaasWalletId })
+          .eq("id", affiliate.id)
+          .select("id, user_id, name, email, asaas_wallet_id, is_active")
+          .single();
+
+        if (updateAffiliateError || !updatedAffiliate) {
+          console.error("Error updating affiliate Wallet ID status:", updateAffiliateError);
+          throw new HttpError("Erro ao atualizar afiliado", 500);
+        }
+
+        affiliate = updatedAffiliate;
+      }
     }
 
-    let affiliate = existingAffiliate;
-    let reusedAffiliate = Boolean(existingAffiliate);
-
     if (!affiliate) {
-      const password = requireString(body.password, "Senha");
-
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: name,
-        },
-      });
-
-      if (authError || !authData.user) {
-        console.error("Error creating auth user:", authError);
-        throw new HttpError(authError?.message || "Erro ao criar usuario", 400);
-      }
-
-      const { data: createdAffiliate, error: affiliateError } = await supabaseAdmin
-        .from("affiliates")
-        .insert({
-          user_id: authData.user.id,
-          name,
-          email,
-          asaas_wallet_id: asaasWalletId,
-        })
-        .select("id, user_id, name, email, asaas_wallet_id")
-        .single();
-
-      if (affiliateError || !createdAffiliate) {
-        console.error("Error creating affiliate:", affiliateError);
-        throw new HttpError("Erro ao criar afiliado", 500);
-      }
-
-      affiliate = createdAffiliate;
-      reusedAffiliate = false;
-    } else if (asaasWalletId) {
-      const { data: updatedAffiliate, error: updateAffiliateError } = await supabaseAdmin
-        .from("affiliates")
-        .update({ asaas_wallet_id: asaasWalletId })
-        .eq("id", affiliate.id)
-        .select("id, user_id, name, email, asaas_wallet_id")
-        .single();
-
-      if (updateAffiliateError || !updatedAffiliate) {
-        console.error("Error updating affiliate Wallet ID status:", updateAffiliateError);
-        throw new HttpError("Erro ao atualizar afiliado", 500);
-      }
-
-      affiliate = updatedAffiliate;
+      throw new HttpError("Afiliado nao encontrado", 404);
     }
 
     const { error: roleError } = await supabaseAdmin
