@@ -47,3 +47,6 @@ verify_jwt = true
 
 [functions.customer-cancel-subscription]
 verify_jwt = false
+
+[functions.customer-get-subscription]
+verify_jwt = false
