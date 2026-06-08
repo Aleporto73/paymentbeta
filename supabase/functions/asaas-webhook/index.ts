@@ -613,6 +613,274 @@ async function getAffiliateSaleData(supabaseAdmin: any, fullTransaction: any) {
   return emptyAffiliateData;
 }
 
+// ---------------------------------------------------------------------------
+// Recurring subscription helpers (PAYMENT_* events with payment.subscription).
+// ---------------------------------------------------------------------------
+
+const SUBSCRIPTION_CYCLE_MONTHS: Record<string, number> = {
+  MONTHLY: 1,
+  QUARTERLY: 3,
+  SEMIANNUALLY: 6,
+  YEARLY: 12,
+};
+
+const addUtcMonths = (date: Date, months: number) => {
+  const result = new Date(date.getTime());
+  result.setUTCMonth(result.getUTCMonth() + months);
+  return result;
+};
+
+const computeSubscriptionPeriodEnd = (start: Date, cycle: unknown): Date | null => {
+  if (typeof cycle !== 'string') return null;
+  const months = SUBSCRIPTION_CYCLE_MONTHS[cycle];
+  if (!months) return null;
+  return addUtcMonths(start, months);
+};
+
+const parseAsaasDate = (value: unknown): Date | null => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getPaymentEffectiveDate = (payment: any): Date => {
+  const candidates = [
+    payment?.confirmedDate,
+    payment?.paymentDate,
+    payment?.clientPaymentDate,
+    payment?.dateCreated,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseAsaasDate(candidate);
+    if (parsed) return parsed;
+  }
+  return new Date();
+};
+
+const REFUND_OR_CANCEL_STATUSES = new Set([
+  'REFUNDED',
+  'REFUND_REQUESTED',
+  'REFUND_IN_PROGRESS',
+  'CHARGEBACK_REQUESTED',
+  'CHARGEBACK_DISPUTE',
+  'AWAITING_CHARGEBACK_REVERSAL',
+  'DELETED',
+  'CANCELLED',
+]);
+
+async function loadSubscriptionByAsaasId(
+  supabaseAdmin: any,
+  asaasSubscriptionId: string,
+) {
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .select('*')
+    .eq('asaas_subscription_id', asaasSubscriptionId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error loading subscription by asaas_subscription_id:', error);
+    return null;
+  }
+
+  return data ?? null;
+}
+
+async function loadAsaasCustomerByAsaasId(
+  supabaseAdmin: any,
+  asaasCustomerId: string | null | undefined,
+) {
+  if (!asaasCustomerId) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from('asaas_customers')
+    .select('user_id, name, email, cpf_cnpj, mobile_phone, phone, state')
+    .eq('asaas_customer_id', asaasCustomerId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error loading asaas_customers for subscription payment:', error);
+    return null;
+  }
+
+  return data ?? null;
+}
+
+async function createTransactionForSubscriptionPayment(
+  supabaseAdmin: any,
+  subscription: any,
+  customer: any,
+  payment: any,
+) {
+  const asaasFeeAmount = getAsaasFeeAmount(payment);
+  const paymentNetValue = getValidNumber(payment?.netValue);
+  const isConfirmed = isConfirmedPaymentStatus(payment?.status);
+
+  const insertPayload: Record<string, unknown> = {
+    user_id: subscription.user_id,
+    asaas_payment_id: payment.id,
+    asaas_customer_id: payment.customer ?? subscription.asaas_customer_id,
+    product_id: subscription.product_id ?? null,
+    price_id: subscription.product_price_id ?? null,
+    customer_name: customer?.name ?? 'Assinatura recorrente',
+    customer_email: customer?.email ?? 'recorrencia@subscription.local',
+    customer_cpf_cnpj: customer?.cpf_cnpj ?? null,
+    customer_phone: customer?.mobile_phone ?? customer?.phone ?? null,
+    customer_state: customer?.state ?? null,
+    payment_method: payment.billingType ?? subscription.billing_type,
+    status: payment.status,
+    value: getValidNumber(payment?.value) ?? subscription.value,
+    net_value: paymentNetValue,
+    due_date: payment.dueDate ?? null,
+    billing_type: payment.billingType ?? subscription.billing_type,
+    description: payment.description ?? subscription.description ?? null,
+    external_reference: payment.externalReference ?? null,
+    affiliate_code: subscription.affiliate_code ?? null,
+    payment_date: payment.paymentDate ?? null,
+    confirmed_date: payment.confirmedDate ?? null,
+    credit_date: payment.creditDate ?? null,
+    asaas_raw_payload: payment,
+    reconciliation_status: isConfirmed ? 'partial' : 'pending',
+    reconciliation_notes: 'Auto-created from subscription recurring payment',
+  };
+
+  if (asaasFeeAmount !== null) {
+    insertPayload.asaas_fee_amount = asaasFeeAmount;
+  }
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('transactions')
+    .insert(insertPayload)
+    .select('*')
+    .single();
+
+  if (insertError) {
+    if (isUniqueViolation(insertError)) {
+      // Race condition: another concurrent webhook already inserted; fetch it.
+      const { data: existing } = await supabaseAdmin
+        .from('transactions')
+        .select('*')
+        .eq('asaas_payment_id', payment.id)
+        .maybeSingle();
+      return existing ?? null;
+    }
+
+    console.error('Error inserting subscription recurring transaction:', insertError);
+    return null;
+  }
+
+  return inserted;
+}
+
+async function applySubscriptionPaymentConfirmed(
+  supabaseAdmin: any,
+  subscription: any,
+  payment: any,
+) {
+  const effectiveDate = getPaymentEffectiveDate(payment);
+
+  // Renewal must never shorten access. The base for the next cycle is the
+  // latest of: payment effective date, the current period end (if still in
+  // the future), and access_until (if still in the future). On a first
+  // payment both prior fields are NULL, so periodStartBase == effectiveDate.
+  let periodStartBase = effectiveDate;
+  const futureCandidates = [
+    subscription.current_period_end,
+    subscription.access_until,
+  ];
+  for (const candidate of futureCandidates) {
+    const parsed = parseAsaasDate(candidate);
+    if (parsed && parsed.getTime() > periodStartBase.getTime()) {
+      periodStartBase = parsed;
+    }
+  }
+
+  const periodEnd = computeSubscriptionPeriodEnd(periodStartBase, subscription.cycle);
+
+  const updatePayload: Record<string, unknown> = {
+    last_payment_id: payment.id,
+    last_payment_status: payment.status,
+    last_paid_at: effectiveDate.toISOString(),
+    overdue_since: null,
+    ended_at: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (periodEnd) {
+    updatePayload.current_period_start = periodStartBase.toISOString();
+    updatePayload.current_period_end = periodEnd.toISOString();
+    updatePayload.access_until = periodEnd.toISOString();
+  } else {
+    console.warn(
+      'Unknown subscription cycle, skipping period computation for subscription:',
+      subscription.id,
+      'cycle:',
+      subscription.cycle,
+    );
+  }
+
+  const currentStatus = typeof subscription.status === 'string' ? subscription.status : '';
+  if (['INACTIVE', 'EXPIRED', 'OVERDUE'].includes(currentStatus)) {
+    updatePayload.status = 'ACTIVE';
+  }
+
+  const { error } = await supabaseAdmin
+    .from('subscriptions')
+    .update(updatePayload)
+    .eq('id', subscription.id);
+
+  if (error) {
+    console.error('Error updating subscription after confirmed payment:', error);
+  }
+}
+
+async function applySubscriptionPaymentOverdue(
+  supabaseAdmin: any,
+  subscription: any,
+  payment: any,
+) {
+  const updatePayload: Record<string, unknown> = {
+    last_payment_id: payment.id,
+    last_payment_status: payment.status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (!subscription.overdue_since) {
+    updatePayload.overdue_since = new Date().toISOString();
+  }
+
+  const { error } = await supabaseAdmin
+    .from('subscriptions')
+    .update(updatePayload)
+    .eq('id', subscription.id);
+
+  if (error) {
+    console.error('Error updating subscription after overdue payment:', error);
+  }
+}
+
+async function applySubscriptionPaymentRefundOrCancel(
+  supabaseAdmin: any,
+  subscription: any,
+  payment: any,
+  eventType: string,
+) {
+  const updatePayload: Record<string, unknown> = {
+    last_payment_id: payment.id,
+    last_payment_status: payment.status,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabaseAdmin
+    .from('subscriptions')
+    .update(updatePayload)
+    .eq('id', subscription.id);
+
+  if (error) {
+    console.error(`Error updating subscription after ${eventType}:`, error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -676,7 +944,9 @@ serve(async (req) => {
       webhookEventRowId = registration.eventRowId;
 
       // Find the transaction by asaas_payment_id
-      const { data: existingTransaction, error: findError } = await supabaseAdmin
+      // Note: declared with `let` so we can reassign when auto-creating from a
+      // subscription recurring payment below.
+      let { data: existingTransaction, error: findError } = await supabaseAdmin
         .from('transactions')
         .select('*')
         .eq('asaas_payment_id', paymentId)
@@ -686,6 +956,56 @@ serve(async (req) => {
         console.error('Error finding transaction:', findError);
         await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
         return jsonResponse({ received: true });
+      }
+
+      // If transaction was not found AND this PAYMENT_* event belongs to a known
+      // Asaas subscription, auto-create the transaction from subscription context.
+      // After that, the existing flow (sales, splits, outbound webhooks) keeps
+      // working as if the transaction had been created by create-payment.
+      const recurringSubscriptionAsaasId = getTextValue(payment?.subscription);
+      let recurringSubscription: any = null;
+
+      if (!existingTransaction && recurringSubscriptionAsaasId) {
+        recurringSubscription = await loadSubscriptionByAsaasId(
+          supabaseAdmin,
+          recurringSubscriptionAsaasId,
+        );
+
+        if (recurringSubscription) {
+          const recurringCustomer = await loadAsaasCustomerByAsaasId(
+            supabaseAdmin,
+            recurringSubscription.asaas_customer_id,
+          );
+          existingTransaction = await createTransactionForSubscriptionPayment(
+            supabaseAdmin,
+            recurringSubscription,
+            recurringCustomer,
+            payment,
+          );
+
+          if (existingTransaction) {
+            console.log(
+              'Auto-created transaction for subscription payment:',
+              existingTransaction.id,
+              'subscription:',
+              recurringSubscriptionAsaasId,
+            );
+          } else {
+            console.error(
+              'Failed to auto-create transaction for subscription payment:',
+              paymentId,
+              'subscription:',
+              recurringSubscriptionAsaasId,
+            );
+          }
+        } else {
+          console.warn(
+            'PAYMENT_* received with payment.subscription but no local subscription found:',
+            recurringSubscriptionAsaasId,
+            'payment:',
+            paymentId,
+          );
+        }
       }
 
       // Update or create transaction
@@ -889,6 +1209,60 @@ serve(async (req) => {
         return jsonResponse({ received: true });
       }
 
+      // Subscription side-effects for recurring payments. Only runs on the
+      // success path (the else-branch above already returns when there is no
+      // transaction). Looks up the subscription if it was not auto-loaded.
+      if (recurringSubscriptionAsaasId) {
+        const subscriptionForUpdate = recurringSubscription
+          ?? (await loadSubscriptionByAsaasId(
+            supabaseAdmin,
+            recurringSubscriptionAsaasId,
+          ));
+
+        if (subscriptionForUpdate) {
+          const paymentStatus = typeof payment?.status === 'string' ? payment.status : '';
+
+          if (paymentStatus === 'CONFIRMED' || paymentStatus === 'RECEIVED') {
+            await applySubscriptionPaymentConfirmed(
+              supabaseAdmin,
+              subscriptionForUpdate,
+              payment,
+            );
+          } else if (paymentStatus === 'OVERDUE') {
+            await applySubscriptionPaymentOverdue(
+              supabaseAdmin,
+              subscriptionForUpdate,
+              payment,
+            );
+          } else if (REFUND_OR_CANCEL_STATUSES.has(paymentStatus)) {
+            await applySubscriptionPaymentRefundOrCancel(
+              supabaseAdmin,
+              subscriptionForUpdate,
+              payment,
+              eventType ?? '',
+            );
+          } else {
+            // Other statuses (PENDING, AWAITING_RISK_ANALYSIS, etc.): keep
+            // last_payment_* in sync so the subscription row is auditable.
+            const { error: trackError } = await supabaseAdmin
+              .from('subscriptions')
+              .update({
+                last_payment_id: payment.id,
+                last_payment_status: paymentStatus,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', subscriptionForUpdate.id);
+
+            if (trackError) {
+              console.error(
+                'Error tracking last_payment_* on subscription:',
+                trackError,
+              );
+            }
+          }
+        }
+      }
+
       await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'processed');
       return jsonResponse({ received: true });
     }
@@ -932,8 +1306,69 @@ serve(async (req) => {
       };
 
       if (eventType === 'SUBSCRIPTION_CREATED') {
-        await supabaseAdmin.from('subscriptions').insert(subscriptionData);
-        console.log('Subscription created:', subscription.id);
+        // Avoid blind upsert: even though the upsert payload only carries the
+        // webhook fields, a future change to subscriptionData (or an upsert
+        // semantics change) could wipe out the recurrence-specific columns that
+        // create-payment wrote (product_id, product_price_id, affiliate_code,
+        // current_period_*, access_until, last_payment_*, etc.). Look up first;
+        // if the row exists, only patch the safe webhook-sourced fields. If it
+        // does not exist, fall back to a plain insert (subscription created
+        // outside create-payment).
+        const { data: existingSub, error: existingSubError } = await supabaseAdmin
+          .from('subscriptions')
+          .select('id')
+          .eq('asaas_subscription_id', subscription.id)
+          .maybeSingle();
+
+        if (existingSubError) {
+          console.error(
+            'Error looking up existing subscription for SUBSCRIPTION_CREATED:',
+            existingSubError,
+          );
+        } else if (existingSub) {
+          const safeUpdate: Record<string, unknown> = {
+            status: subscription.status,
+            value: subscription.value,
+            next_due_date: subscription.nextDueDate,
+            cycle: subscription.cycle,
+            description: subscription.description,
+            billing_type: subscription.billingType,
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: safeUpdateError } = await supabaseAdmin
+            .from('subscriptions')
+            .update(safeUpdate)
+            .eq('id', existingSub.id);
+
+          if (safeUpdateError) {
+            console.error(
+              'Error updating existing subscription from SUBSCRIPTION_CREATED:',
+              safeUpdateError,
+            );
+          } else {
+            console.log(
+              'Existing subscription patched from SUBSCRIPTION_CREATED:',
+              subscription.id,
+            );
+          }
+        } else {
+          const { error: fallbackInsertError } = await supabaseAdmin
+            .from('subscriptions')
+            .insert(subscriptionData);
+
+          if (fallbackInsertError) {
+            console.error(
+              'Error inserting subscription from SUBSCRIPTION_CREATED fallback:',
+              fallbackInsertError,
+            );
+          } else {
+            console.log(
+              'Subscription inserted from SUBSCRIPTION_CREATED fallback:',
+              subscription.id,
+            );
+          }
+        }
       } else {
         await supabaseAdmin
           .from('subscriptions')
