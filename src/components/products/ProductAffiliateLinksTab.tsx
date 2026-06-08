@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Percent, Trash2, Edit, Power } from "lucide-react";
+import { Percent, Trash2, Power, Copy, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProductAffiliateLink, CommissionType, Product } from "@/types/product";
@@ -200,6 +200,31 @@ export function ProductAffiliateLinksTab({
     }
   };
 
+  const handleCopyAffiliateLink = async (affiliateUrl: string | null) => {
+    if (!affiliateUrl) {
+      toast({
+        title: "Link indisponível",
+        description: "Este afiliado ainda não possui um link válido para cópia.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(affiliateUrl);
+      toast({
+        title: "Link copiado",
+        description: "O link limpo do afiliado foi copiado para a área de transferência.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Erro ao copiar link",
+        description: error.message || "Não foi possível copiar o link do afiliado.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const openEditDialog = (link: ProductAffiliateLink) => {
     setSelectedLink(link);
     setEditForm({
@@ -365,16 +390,39 @@ export function ProductAffiliateLinksTab({
                       {link.is_active ? "Ativo" : "Inativo"}
                     </Badge>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground truncate">
-                      URL: {link.affiliate_url}
-                    </p>
-                    <p className="text-sm font-medium">
-                      Comissão: {formatCommissionDisplay(link.commission_type, link.commission_value)}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Repasse automático Asaas: {link.affiliate_asaas_wallet_id ? "ativo" : "pendente"}
-                    </p>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">
+                        Comissão: {formatCommissionDisplay(link.commission_type, link.commission_value)}
+                      </Badge>
+                      <Badge variant={link.affiliate_asaas_wallet_id ? "default" : "secondary"}>
+                        Repasse Asaas: {link.affiliate_asaas_wallet_id ? "ativo" : "pendente"}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Link de afiliado</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopyAffiliateLink(link.affiliate_url)}
+                        disabled={!link.affiliate_url}
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        Copiar link
+                      </Button>
+                      {link.affiliate_url && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(link.affiliate_url!, "_blank", "noopener,noreferrer")}
+                        >
+                          <ExternalLink className="w-4 h-4 mr-2" />
+                          Abrir link
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
