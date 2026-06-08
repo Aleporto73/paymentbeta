@@ -27,6 +27,7 @@ import PaymentRejected from "./pages/PaymentRejected";
 import TermsOfPurchase from "./pages/TermsOfPurchase";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import PaymentSecurity from "./pages/PaymentSecurity";
+import MinhaAssinatura from "./pages/MinhaAssinatura";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,6 +59,7 @@ const App = () => {
             <Route path="/termos-de-compra" element={<TermsOfPurchase />} />
             <Route path="/privacidade" element={<PrivacyPolicy />} />
             <Route path="/seguranca-pagamento" element={<PaymentSecurity />} />
+            <Route path="/minha-assinatura" element={<MinhaAssinatura />} />
             <Route path="/" element={adminRoute(<Dashboard />)} />
             <Route path="/produtos" element={adminRoute(<Produtos />)} />
             <Route path="/produtos/:id" element={adminRoute(<ProductDetail />)} />
