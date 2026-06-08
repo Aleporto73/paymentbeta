@@ -916,6 +916,14 @@ export default function Checkout() {
         throw new Error(data.error || "Erro ao processar pagamento");
       }
 
+      if (selectedPaymentMethod !== "pix" && data.type === "subscription") {
+        toast.success("Assinatura criada. Seu pagamento está aguardando confirmação pela operadora. O acesso será liberado automaticamente após a confirmação.");
+        setTimeout(() => {
+          window.location.href = "/pagamento-em-analise";
+        }, 2000);
+        return;
+      }
+
       // Track conversion
       trackConversion(Array.from(selectedOrderBumps), totalPrice, orderBumpsTotal);
 
