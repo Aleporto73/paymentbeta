@@ -1620,8 +1620,8 @@ export default function Checkout() {
                   </Button>
 
                   {/* Termos */}
-                  <p className="text-center text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-                    Ao clicar em "Comprar agora", você concorda com os{" "}
+                  <p className="text-center text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                    Ao comprar, você aceita os{" "}
                     <a
                       href="/termos-de-compra"
                       target="_blank"
@@ -1630,7 +1630,7 @@ export default function Checkout() {
                     >
                       Termos de Compra
                     </a>{" "}
-                    e está ciente da{" "}
+                    e a{" "}
                     <a
                       href="/privacidade"
                       target="_blank"
@@ -1662,7 +1662,7 @@ export default function Checkout() {
                       href="/seguranca-pagamento"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-600 font-semibold underline underline-offset-4 hover:text-blue-700"
+                      className="text-[11px] font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground sm:text-xs"
                     >
                       Segurança do pagamento
                     </a>
