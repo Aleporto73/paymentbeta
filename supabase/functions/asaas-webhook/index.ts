@@ -121,6 +121,117 @@ const getAsaasEventId = (webhookData: any) =>
 
 const isUniqueViolation = (error: any) => error?.code === '23505';
 
+const SUBSCRIPTION_MANAGEMENT_EMAIL_TEMPLATE_KEY = 'subscription_management_link';
+const TOKEN_RANDOM_BYTES = 32;
+const MANAGEMENT_TOKEN_EXPIRES_IN_DAYS = 365;
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const EMAIL_PENDING_STALE_AFTER_MS = 15 * 60 * 1000;
+
+const bytesToBase64Url = (bytes: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+};
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  const bytes = new Uint8Array(digest);
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+const sanitizeForLog = (value: unknown) => {
+  let message = 'Unknown error';
+
+  if (value instanceof Error) {
+    message = value.message;
+  } else if (typeof value === 'string') {
+    message = value;
+  } else {
+    try {
+      message = JSON.stringify(value ?? 'Unknown error');
+    } catch (_error) {
+      message = 'Unserializable error';
+    }
+  }
+
+  return message
+    .replace(/token=[^&\s"']+/gi, 'token=[redacted]')
+    .replace(/\/minha-assinatura\?[^"'\s]+/gi, '/minha-assinatura?[redacted]')
+    .slice(0, 500);
+};
+
+const isUsableRecipientEmail = (email: unknown) => {
+  if (typeof email !== 'string') return false;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || normalized.endsWith('@subscription.local')) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+};
+
+const normalizeEmail = (email: unknown) =>
+  typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+const pickRecipientEmail = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    if (isUsableRecipientEmail(candidate)) {
+      return normalizeEmail(candidate);
+    }
+  }
+
+  const fallback = normalizeEmail(candidates.find((candidate) =>
+    typeof candidate === 'string' && candidate.trim().length > 0,
+  ));
+
+  return fallback || 'missing-recipient';
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const normalizePublicBaseUrl = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\/+$/, '');
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.toString().replace(/\/+$/, '');
+  } catch (_error) {
+    return null;
+  }
+};
+
+const formatResendFrom = (productName: string, fromEmail: string) => {
+  const cleanProductName = productName.replace(/[<>\r\n]/g, '').trim() || 'Psiform';
+  const cleanFromEmail = fromEmail.replace(/[<>\r\n]/g, '').trim();
+
+  return `${cleanProductName} via Psiform <${cleanFromEmail}>`;
+};
+
+const isEmailEventPendingStale = (updatedAt: unknown) => {
+  if (typeof updatedAt !== 'string' || !updatedAt.trim()) return true;
+  const parsed = new Date(updatedAt);
+  if (Number.isNaN(parsed.getTime())) return true;
+  return Date.now() - parsed.getTime() >= EMAIL_PENDING_STALE_AFTER_MS;
+};
+
 async function registerAsaasWebhookEvent(
   supabaseAdmin: any,
   webhookData: any,
@@ -881,6 +992,376 @@ async function applySubscriptionPaymentRefundOrCancel(
   }
 }
 
+async function loadSubscriptionEmailContext(
+  supabaseAdmin: any,
+  subscription: any,
+  transaction: any,
+) {
+  const productId = transaction?.product_id ?? subscription?.product_id ?? null;
+  const priceId = transaction?.price_id ?? subscription?.product_price_id ?? null;
+  const customer = await loadAsaasCustomerByAsaasId(
+    supabaseAdmin,
+    transaction?.asaas_customer_id ?? subscription?.asaas_customer_id,
+  );
+
+  let productName = typeof subscription?.description === 'string'
+    ? subscription.description.trim()
+    : '';
+  let priceName = '';
+
+  if (productId) {
+    const { data: product, error: productError } = await supabaseAdmin
+      .from('products')
+      .select('name')
+      .eq('id', productId)
+      .maybeSingle();
+
+    if (productError) {
+      console.error('Error loading product for subscription email:', productError);
+    } else if (typeof product?.name === 'string' && product.name.trim()) {
+      productName = product.name.trim();
+    }
+  }
+
+  if (priceId) {
+    const { data: price, error: priceError } = await supabaseAdmin
+      .from('product_prices')
+      .select('name')
+      .eq('id', priceId)
+      .maybeSingle();
+
+    if (priceError) {
+      console.error('Error loading price for subscription email:', priceError);
+    } else if (typeof price?.name === 'string' && price.name.trim()) {
+      priceName = price.name.trim();
+    }
+  }
+
+  const recipientEmail = pickRecipientEmail(
+    transaction?.customer_email,
+    customer?.email,
+  );
+
+  return {
+    recipientEmail,
+    customerName:
+      (typeof transaction?.customer_name === 'string' && transaction.customer_name.trim())
+        || (typeof customer?.name === 'string' && customer.name.trim())
+        || 'cliente',
+    productName: productName || 'sua assinatura',
+    priceName,
+  };
+}
+
+async function createSubscriptionManagementToken(
+  supabaseAdmin: any,
+  subscriptionId: string,
+  asaasPaymentId: string,
+) {
+  const rawBytes = new Uint8Array(TOKEN_RANDOM_BYTES);
+  crypto.getRandomValues(rawBytes);
+  const rawToken = bytesToBase64Url(rawBytes);
+  const tokenHash = await sha256Hex(rawToken);
+  const expiresAt = new Date(
+    Date.now() + MANAGEMENT_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  const { error } = await supabaseAdmin
+    .from('subscription_tokens')
+    .insert({
+      subscription_id: subscriptionId,
+      token_hash: tokenHash,
+      purpose: 'customer_manage',
+      expires_at: expiresAt.toISOString(),
+      created_by: 'asaas-webhook',
+      metadata: {
+        source: 'asaas-webhook',
+        template_key: SUBSCRIPTION_MANAGEMENT_EMAIL_TEMPLATE_KEY,
+        asaas_payment_id: asaasPaymentId,
+        expires_in_days: MANAGEMENT_TOKEN_EXPIRES_IN_DAYS,
+      },
+    });
+
+  if (error) {
+    throw new Error(`Could not persist subscription token hash: ${sanitizeForLog(error)}`);
+  }
+
+  return rawToken;
+}
+
+async function registerSubscriptionEmailEvent(
+  supabaseAdmin: any,
+  subscription: any,
+  transaction: any,
+  recipientEmail: string,
+  asaasPaymentId: string,
+) {
+  const payload = {
+    subscription_id: subscription.id,
+    transaction_id: transaction?.id ?? null,
+    asaas_payment_id: asaasPaymentId,
+    template_key: SUBSCRIPTION_MANAGEMENT_EMAIL_TEMPLATE_KEY,
+    recipient_email: recipientEmail,
+    status: 'pending',
+    error_message: null,
+    resend_message_id: null,
+    sent_at: null,
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('subscription_email_events')
+    .insert(payload)
+    .select('id, status, updated_at')
+    .single();
+
+  if (!error) {
+    return { row: data, shouldSend: true };
+  }
+
+  if (!isUniqueViolation(error)) {
+    console.error('Error registering subscription email event:', error);
+    return { row: null, shouldSend: false };
+  }
+
+  const { data: existingEvent, error: existingError } = await supabaseAdmin
+    .from('subscription_email_events')
+    .select('id, status, updated_at')
+    .eq('subscription_id', subscription.id)
+    .eq('template_key', SUBSCRIPTION_MANAGEMENT_EMAIL_TEMPLATE_KEY)
+    .eq('asaas_payment_id', asaasPaymentId)
+    .maybeSingle();
+
+  if (existingError || !existingEvent) {
+    console.error('Error resolving existing subscription email event:', existingError);
+    return { row: null, shouldSend: false };
+  }
+
+  if (existingEvent.status === 'sent') {
+    console.log(
+      'Subscription management email already sent:',
+      existingEvent.id,
+    );
+    return { row: existingEvent, shouldSend: false };
+  }
+
+  if (
+    existingEvent.status === 'pending' &&
+    !isEmailEventPendingStale(existingEvent.updated_at)
+  ) {
+    console.log(
+      'Subscription management email already pending:',
+      existingEvent.id,
+    );
+    return { row: existingEvent, shouldSend: false };
+  }
+
+  const { data: resetEvent, error: resetError } = await supabaseAdmin
+    .from('subscription_email_events')
+    .update({
+      transaction_id: transaction?.id ?? null,
+      recipient_email: recipientEmail,
+      status: 'pending',
+      error_message: null,
+      resend_message_id: null,
+      sent_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existingEvent.id)
+    .select('id, status, updated_at')
+    .single();
+
+  if (resetError) {
+    console.error('Error resetting subscription email event for retry:', resetError);
+    return { row: existingEvent, shouldSend: false };
+  }
+
+  return { row: resetEvent, shouldSend: true };
+}
+
+async function updateSubscriptionEmailEvent(
+  supabaseAdmin: any,
+  eventId: string,
+  payload: Record<string, unknown>,
+) {
+  const { error } = await supabaseAdmin
+    .from('subscription_email_events')
+    .update({
+      ...payload,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', eventId);
+
+  if (error) {
+    console.error('Error updating subscription email event:', error);
+  }
+}
+
+async function sendResendEmail({
+  apiKey,
+  from,
+  to,
+  subject,
+  html,
+  text,
+}: {
+  apiKey: string;
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}) {
+  const response = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  const responseBody = await response.json().catch(async () => ({
+    message: await response.text().catch(() => ''),
+  }));
+
+  if (!response.ok) {
+    throw new Error(`Resend HTTP ${response.status}: ${sanitizeForLog(responseBody)}`);
+  }
+
+  return typeof responseBody?.id === 'string' ? responseBody.id : null;
+}
+
+async function sendSubscriptionManagementEmail(
+  supabaseAdmin: any,
+  subscription: any,
+  transaction: any,
+  payment: any,
+) {
+  let emailEventId: string | null = null;
+
+  try {
+    const asaasPaymentId = getTextValue(payment?.id);
+
+    if (!subscription?.id || !asaasPaymentId) {
+      console.error('Subscription email skipped: missing subscription id or payment id');
+      return;
+    }
+
+    const emailContext = await loadSubscriptionEmailContext(
+      supabaseAdmin,
+      subscription,
+      transaction,
+    );
+
+    const eventRegistration = await registerSubscriptionEmailEvent(
+      supabaseAdmin,
+      subscription,
+      transaction,
+      emailContext.recipientEmail,
+      asaasPaymentId,
+    );
+
+    if (!eventRegistration.shouldSend || !eventRegistration.row?.id) {
+      return;
+    }
+
+    const eventId = eventRegistration.row.id;
+    emailEventId = eventId;
+
+    if (!isUsableRecipientEmail(emailContext.recipientEmail)) {
+      await updateSubscriptionEmailEvent(supabaseAdmin, eventId, {
+        status: 'skipped',
+        error_message: 'Missing or invalid customer email for subscription management link',
+      });
+      return;
+    }
+
+    const resendApiKey = Deno.env.get('RESEND_API_KEY')?.trim();
+    const resendFromEmail = Deno.env.get('RESEND_FROM_EMAIL')?.trim();
+    const appPublicUrl = normalizePublicBaseUrl(Deno.env.get('APP_PUBLIC_URL'));
+
+    if (!resendApiKey || !resendFromEmail || !appPublicUrl) {
+      await updateSubscriptionEmailEvent(supabaseAdmin, eventId, {
+        status: 'failed',
+        error_message: 'Missing RESEND_API_KEY, RESEND_FROM_EMAIL, or APP_PUBLIC_URL',
+      });
+      return;
+    }
+
+    if (!isUsableRecipientEmail(resendFromEmail)) {
+      await updateSubscriptionEmailEvent(supabaseAdmin, eventId, {
+        status: 'failed',
+        error_message: 'Invalid RESEND_FROM_EMAIL',
+      });
+      return;
+    }
+
+    const rawToken = await createSubscriptionManagementToken(
+      supabaseAdmin,
+      subscription.id,
+      asaasPaymentId,
+    );
+    const managementUrl = `${appPublicUrl}/minha-assinatura?token=${encodeURIComponent(rawToken)}`;
+    const productName = emailContext.productName;
+    const customerName = emailContext.customerName;
+    const subject = `Gerencie sua assinatura - ${productName}`;
+    const text = [
+      `Ola, ${customerName}.`,
+      '',
+      `Sua assinatura de ${productName} foi confirmada.`,
+      '',
+      'Use o link abaixo para consultar ou cancelar sua assinatura:',
+      '',
+      managementUrl,
+      '',
+      'Por seguranca, nao compartilhe este link.',
+      '',
+      'Suporte: suporte@psiform.com.br',
+    ].join('\n');
+    const html = `
+      <p>Ola, ${escapeHtml(customerName)}.</p>
+      <p>Sua assinatura de ${escapeHtml(productName)} foi confirmada.</p>
+      <p>Use o link abaixo para consultar ou cancelar sua assinatura:</p>
+      <p><a href="${escapeHtml(managementUrl)}">Gerenciar minha assinatura</a></p>
+      <p>Por seguranca, nao compartilhe este link.</p>
+      <p>Suporte: suporte@psiform.com.br</p>
+    `;
+
+    const resendMessageId = await sendResendEmail({
+      apiKey: resendApiKey,
+      from: formatResendFrom(productName, resendFromEmail),
+      to: emailContext.recipientEmail,
+      subject,
+      html,
+      text,
+    });
+
+    await updateSubscriptionEmailEvent(supabaseAdmin, eventId, {
+      status: 'sent',
+      resend_message_id: resendMessageId,
+      error_message: null,
+      sent_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    const sanitizedError = sanitizeForLog(error);
+
+    if (emailEventId) {
+      await updateSubscriptionEmailEvent(supabaseAdmin, emailEventId, {
+        status: 'failed',
+        error_message: sanitizedError,
+      });
+    }
+
+    console.error('Subscription management email failed non-fatally:', sanitizedError);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -964,6 +1445,7 @@ serve(async (req) => {
       // working as if the transaction had been created by create-payment.
       const recurringSubscriptionAsaasId = getTextValue(payment?.subscription);
       let recurringSubscription: any = null;
+      let recurringTransactionForEmail: any = null;
 
       if (!existingTransaction && recurringSubscriptionAsaasId) {
         recurringSubscription = await loadSubscriptionByAsaasId(
@@ -1064,6 +1546,7 @@ serve(async (req) => {
               return jsonResponse({ received: true });
             } else {
               console.log('Full transaction fetched:', fullTransaction.id, 'Product ID:', fullTransaction.product_id);
+              recurringTransactionForEmail = fullTransaction;
               
               // Create product_sales entry
               if (fullTransaction.product_id) {
@@ -1226,6 +1709,12 @@ serve(async (req) => {
             await applySubscriptionPaymentConfirmed(
               supabaseAdmin,
               subscriptionForUpdate,
+              payment,
+            );
+            await sendSubscriptionManagementEmail(
+              supabaseAdmin,
+              subscriptionForUpdate,
+              recurringTransactionForEmail ?? existingTransaction,
               payment,
             );
           } else if (paymentStatus === 'OVERDUE') {
