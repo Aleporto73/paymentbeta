@@ -562,6 +562,13 @@ serve(async (req) => {
       throw new HttpError("Metodo de pagamento invalido");
     }
 
+    const isAnnualPixPrepaid = isRecurring && price.subscription_period === "anual" && billingType === "PIX";
+    const isSubscriptionFlow = isRecurring && !isAnnualPixPrepaid;
+
+    if (isRecurring && billingType === "PIX" && price.subscription_period !== "anual") {
+      throw new HttpError("Assinatura via PIX indisponivel para esta periodicidade");
+    }
+
     const configuredMaxInstallments = Math.min(
       getPositiveIntegerOrDefault(price.installments, getPositiveIntegerOrDefault(product.installments, 1)),
       MAX_INSTALLMENTS,
@@ -681,12 +688,9 @@ serve(async (req) => {
     const serverDescription = `${product.name}${price.name ? ` - ${price.name}` : ""}`;
     const serverExternalReference = `${product.unique_code}-${Date.now()}`;
 
-    // 2a. If product is recurring, create an Asaas subscription instead of a one-shot payment.
-    if (isRecurring) {
-      if (billingType !== "CREDIT_CARD") {
-        throw new HttpError("Assinatura via PIX ainda indisponivel nesta fase");
-      }
-
+    // 2a. If product is recurring and not the annual prepaid PIX exception,
+    // create an Asaas subscription instead of a one-shot payment.
+    if (isSubscriptionFlow) {
       const cycle = mapSubscriptionPeriodToCycle(price.subscription_period);
 
       if (!cycle) {

@@ -240,8 +240,10 @@ export default function Checkout() {
   );
   const selectedInstallmentDetails = getInstallmentDetails(selectedInstallmentCount);
   const isRecurringCheckout = product?.product_type === "recorrente" && Boolean(price?.subscription_period);
-  const availablePaymentMethods = isRecurringCheckout ? ["card"] : ["pix", "card"];
-  const selectedPaymentMethod = isRecurringCheckout ? "card" : paymentMethod;
+  const isMonthlyRecurringCheckout = isRecurringCheckout && price?.subscription_period === "mensal";
+  const isAnnualRecurringCheckout = isRecurringCheckout && price?.subscription_period === "anual";
+  const availablePaymentMethods = isMonthlyRecurringCheckout ? ["card"] : ["pix", "card"];
+  const selectedPaymentMethod = isMonthlyRecurringCheckout ? "card" : paymentMethod;
   const hasInstallmentFee = selectedPaymentMethod === "card" && selectedInstallmentDetails.interestRate > 0;
   const totalParcelado = hasInstallmentFee ? selectedInstallmentDetails.totalWithInterest : totalPrice;
   const installmentFeeAmount = Math.max(0, totalParcelado - totalPrice);
@@ -257,10 +259,10 @@ export default function Checkout() {
   }, [cardData.installments, maxInstallments]);
 
   useEffect(() => {
-    if (isRecurringCheckout && paymentMethod !== "card") {
+    if (isMonthlyRecurringCheckout && paymentMethod !== "card") {
       setPaymentMethod("card");
     }
-  }, [isRecurringCheckout, paymentMethod]);
+  }, [isMonthlyRecurringCheckout, paymentMethod]);
 
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
@@ -794,7 +796,7 @@ export default function Checkout() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isRecurringCheckout && paymentMethod === "pix") {
+    if (isMonthlyRecurringCheckout && paymentMethod === "pix") {
       setPaymentMethod("card");
       toast.error("Assinaturas são pagas por cartão de crédito.");
       return;
@@ -1254,7 +1256,7 @@ export default function Checkout() {
                     <p className="text-sm font-medium text-foreground">Método de pagamento</p>
                   </div>
                   <div className={`grid gap-3 ${availablePaymentMethods.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-                    {!isRecurringCheckout && (
+                    {!isMonthlyRecurringCheckout && (
                       <button
                         type="button"
                         className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
@@ -1285,7 +1287,7 @@ export default function Checkout() {
                     </button>
                   </div>
 
-                  {isRecurringCheckout && (
+                  {isMonthlyRecurringCheckout && (
                     <Card className="bg-muted/40 border-border">
                       <CardContent className="p-4">
                         <p className="text-sm text-muted-foreground">
@@ -1294,11 +1296,21 @@ export default function Checkout() {
                       </CardContent>
                     </Card>
                   )}
+
+                  {isAnnualRecurringCheckout && selectedPaymentMethod === "pix" && (
+                    <Card className="bg-muted/40 border-border">
+                      <CardContent className="p-4">
+                        <p className="text-sm text-muted-foreground">
+                          Plano anual pre-pago via PIX. O acesso sera liberado apos a confirmacao do pagamento.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               </div>
 
               {/* Informações PIX */}
-              {selectedPaymentMethod === "pix" && !isRecurringCheckout && (
+              {selectedPaymentMethod === "pix" && !isAnnualRecurringCheckout && (
                 <Card className="bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
