@@ -762,24 +762,33 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          previous_webhook_secret: string | null
           product_id: string
+          secret_rotated_at: string | null
           updated_at: string
+          webhook_secret: string | null
           webhook_url: string
         }
         Insert: {
           created_at?: string
           id?: string
           is_active?: boolean
+          previous_webhook_secret?: string | null
           product_id: string
+          secret_rotated_at?: string | null
           updated_at?: string
+          webhook_secret?: string | null
           webhook_url: string
         }
         Update: {
           created_at?: string
           id?: string
           is_active?: boolean
+          previous_webhook_secret?: string | null
           product_id?: string
+          secret_rotated_at?: string | null
           updated_at?: string
+          webhook_secret?: string | null
           webhook_url?: string
         }
         Relationships: [
@@ -802,6 +811,7 @@ export type Database = {
           default_commission_value: number | null
           description: string | null
           display_id: number
+          entitlement_code: string | null
           id: string
           image_url: string | null
           installments: number
@@ -824,6 +834,7 @@ export type Database = {
           default_commission_value?: number | null
           description?: string | null
           display_id?: number
+          entitlement_code?: string | null
           id?: string
           image_url?: string | null
           installments?: number
@@ -846,6 +857,7 @@ export type Database = {
           default_commission_value?: number | null
           description?: string | null
           display_id?: number
+          entitlement_code?: string | null
           id?: string
           image_url?: string | null
           installments?: number
@@ -1380,9 +1392,13 @@ export type Database = {
       webhook_logs: {
         Row: {
           created_at: string
+          delivery_id: string | null
+          event: string | null
+          event_version: string | null
           id: string
           payload: Json
           product_id: string
+          request_headers: Json | null
           response_body: string | null
           response_status: number | null
           success: boolean
@@ -1390,9 +1406,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          delivery_id?: string | null
+          event?: string | null
+          event_version?: string | null
           id?: string
           payload: Json
           product_id: string
+          request_headers?: Json | null
           response_body?: string | null
           response_status?: number | null
           success?: boolean
@@ -1400,9 +1420,13 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          delivery_id?: string | null
+          event?: string | null
+          event_version?: string | null
           id?: string
           payload?: Json
           product_id?: string
+          request_headers?: Json | null
           response_body?: string | null
           response_status?: number | null
           success?: boolean
@@ -1414,43 +1438,66 @@ export type Database = {
         Row: {
           attempts: number
           created_at: string
+          delivery_id: string
           error_message: string | null
+          event: string
+          event_version: string
           id: string
           last_attempt_at: string | null
           max_attempts: number
           payload: Json
           product_id: string
+          product_webhook_id: string | null
           status: string
+          transaction_id: string | null
           updated_at: string
           webhook_url: string
         }
         Insert: {
           attempts?: number
           created_at?: string
+          delivery_id?: string
           error_message?: string | null
+          event?: string
+          event_version?: string
           id?: string
           last_attempt_at?: string | null
           max_attempts?: number
           payload: Json
           product_id: string
+          product_webhook_id?: string | null
           status?: string
+          transaction_id?: string | null
           updated_at?: string
           webhook_url: string
         }
         Update: {
           attempts?: number
           created_at?: string
+          delivery_id?: string
           error_message?: string | null
+          event?: string
+          event_version?: string
           id?: string
           last_attempt_at?: string | null
           max_attempts?: number
           payload?: Json
           product_id?: string
+          product_webhook_id?: string | null
           status?: string
+          transaction_id?: string | null
           updated_at?: string
           webhook_url?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "webhook_queue_product_webhook_id_fkey"
+            columns: ["product_webhook_id"]
+            isOneToOne: false
+            referencedRelation: "product_webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

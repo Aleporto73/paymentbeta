@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import {
+  buildEntitlementPayload,
+  ENTITLEMENT_EVENT_VERSION,
+} from "../_shared/buildEntitlementPayload.ts";
+import { buildAuditableHeaders, signWebhookRequest } from "../_shared/webhookSignature.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -87,19 +92,33 @@ serve(async (req) => {
       throw new Error('Transaction has no product associated');
     }
 
-    // Get price details to include plan code
-    let priceCode = null;
+    // Load product (entitlement source of truth)
+    const { data: product, error: productError } = await supabaseClient
+      .from('products')
+      .select('id, unique_code, entitlement_code, product_type')
+      .eq('id', transaction.product_id)
+      .single();
+
+    if (productError || !product) {
+      console.error('Product not found:', productError);
+      throw new Error('Product not found for this transaction');
+    }
+
+    if (!product.entitlement_code || !String(product.entitlement_code).trim()) {
+      throw new Error(
+        'Product has no entitlement_code configured; entitlement webhook cannot be sent',
+      );
+    }
+
+    // Get price details
+    let price = null;
     if (transaction.price_id) {
       const { data: priceData } = await supabaseClient
         .from('product_prices')
-        .select('unique_code, name')
+        .select('id, unique_code, subscription_period')
         .eq('id', transaction.price_id)
         .single();
-      
-      if (priceData) {
-        priceCode = priceData.unique_code;
-        console.log('Price code found:', priceCode);
-      }
+      price = priceData ?? null;
     }
 
     // Get active webhooks for this product
@@ -118,46 +137,7 @@ serve(async (req) => {
       throw new Error('No active webhooks configured for this product');
     }
 
-    const payload = {
-      event: 'sale.confirmed',
-      transaction_id: transaction.id,
-      asaas_payment_id: transaction.asaas_payment_id,
-      product_id: transaction.product_id,
-      price_id: transaction.price_id,
-      price_code: priceCode,
-      customer: {
-        name: transaction.customer_name,
-        email: transaction.customer_email,
-        cpf_cnpj: transaction.customer_cpf_cnpj,
-        phone: transaction.customer_phone,
-        state: transaction.customer_state,
-      },
-      payment: {
-        status: transaction.status,
-        payment_method: transaction.payment_method,
-        billing_type: transaction.billing_type,
-        value: transaction.value,
-        net_value: transaction.net_value,
-        installment_count: transaction.installment_count,
-        installment_value: transaction.installment_value,
-        payment_date: transaction.payment_date,
-        confirmed_date: transaction.confirmed_date,
-        credit_date: transaction.credit_date,
-        due_date: transaction.due_date,
-      },
-      order_bumps: {
-        selected: transaction.order_bumps_selected,
-        amount: transaction.order_bumps_amount,
-      },
-      affiliate_code: transaction.affiliate_code,
-      metadata: {
-        ip_address: transaction.ip_address,
-        user_agent: transaction.user_agent,
-        device_type: transaction.device_type,
-      },
-      created_at: transaction.created_at,
-      updated_at: transaction.updated_at,
-    };
+    const event = 'sale.confirmed';
 
     const results: Array<{
       webhookUrl: string;
@@ -167,20 +147,66 @@ serve(async (req) => {
       error?: string;
     }> = [];
 
-    // Send to all active webhooks
+    // Send to all active webhooks (manual resend: fresh delivery_id per send)
     for (const webhook of webhooks) {
+      const deliveryId = crypto.randomUUID();
+      const payload = buildEntitlementPayload({
+        event,
+        deliveryId,
+        transaction,
+        product,
+        price,
+      });
+
       try {
+        // Explicit, auditable failure when no signing secret is configured.
+        const secret = typeof webhook.webhook_secret === 'string' && webhook.webhook_secret.length > 0
+          ? webhook.webhook_secret
+          : null;
+
+        if (!secret) {
+          const errorMessage = 'missing webhook_secret: configure a secret for this webhook before delivery';
+          console.error(`Webhook not sent to ${webhook.webhook_url}: ${errorMessage}`);
+
+          await supabaseClient.from('webhook_logs').insert({
+            product_id: transaction.product_id,
+            webhook_url: webhook.webhook_url,
+            payload,
+            response_status: null,
+            response_body: errorMessage,
+            success: false,
+            delivery_id: deliveryId,
+            event,
+            event_version: ENTITLEMENT_EVENT_VERSION,
+          });
+
+          results.push({
+            webhookUrl: webhook.webhook_url,
+            success: false,
+            error: errorMessage,
+          });
+          continue;
+        }
+
         console.log('Sending webhook to:', webhook.webhook_url);
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+        // Sign the exact raw body sent in the request.
+        const rawBody = JSON.stringify(payload);
+        const signed = await signWebhookRequest({
+          secret,
+          event,
+          eventVersion: ENTITLEMENT_EVENT_VERSION,
+          deliveryId,
+          rawBody,
+        });
+
         const response = await fetch(webhook.webhook_url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
+          headers: signed.headers,
+          body: rawBody,
           signal: controller.signal,
         });
 
@@ -188,7 +214,7 @@ serve(async (req) => {
 
         const responseText = await response.text();
 
-        // Log the webhook delivery
+        // Log the webhook delivery (public headers only, signature truncated)
         await supabaseClient.from('webhook_logs').insert({
           product_id: transaction.product_id,
           webhook_url: webhook.webhook_url,
@@ -196,6 +222,10 @@ serve(async (req) => {
           response_status: response.status,
           response_body: responseText.substring(0, 1000),
           success: response.ok,
+          delivery_id: deliveryId,
+          event,
+          event_version: ENTITLEMENT_EVENT_VERSION,
+          request_headers: buildAuditableHeaders(signed, event, ENTITLEMENT_EVENT_VERSION, deliveryId),
         });
 
         results.push({
@@ -218,6 +248,9 @@ serve(async (req) => {
           response_status: null,
           response_body: errorMessage,
           success: false,
+          delivery_id: deliveryId,
+          event,
+          event_version: ENTITLEMENT_EVENT_VERSION,
         });
 
         results.push({

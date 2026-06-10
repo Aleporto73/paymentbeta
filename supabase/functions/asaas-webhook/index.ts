@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import {
+  buildEntitlementPayload,
+  ENTITLEMENT_EVENT_VERSION,
+} from "../_shared/buildEntitlementPayload.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -602,65 +606,106 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
       return;
     }
 
-    // Prepare comprehensive webhook payload
-    const payload = {
-      event: 'sale.confirmed',
-      transaction_id: transaction.id,
-      asaas_payment_id: transaction.asaas_payment_id,
-      product_id: transaction.product_id,
-      price_id: transaction.price_id,
-      customer: {
-        name: transaction.customer_name,
-        email: transaction.customer_email,
-        cpf_cnpj: transaction.customer_cpf_cnpj,
-        phone: transaction.customer_phone,
-        state: transaction.customer_state,
-      },
-      payment: {
-        status: transaction.status,
-        payment_method: transaction.payment_method,
-        billing_type: transaction.billing_type,
-        value: transaction.value,
-        net_value: transaction.net_value,
-        installment_count: transaction.installment_count,
-        installment_value: transaction.installment_value,
-        payment_date: transaction.payment_date,
-        confirmed_date: transaction.confirmed_date,
-        credit_date: transaction.credit_date,
-        due_date: transaction.due_date,
-      },
-      order_bumps: {
-        selected: transaction.order_bumps_selected,
-        amount: transaction.order_bumps_amount,
-      },
-      affiliate_code: transaction.affiliate_code,
-      metadata: {
-        ip_address: transaction.ip_address,
-        user_agent: transaction.user_agent,
-        device_type: transaction.device_type,
-      },
-      created_at: transaction.created_at,
-      updated_at: transaction.updated_at,
-    };
+    // Load product (entitlement source of truth) and price details.
+    const { data: product, error: productError } = await supabaseAdmin
+      .from('products')
+      .select('id, unique_code, entitlement_code, product_type')
+      .eq('id', transaction.product_id)
+      .single();
 
-    // Queue webhook for each active URL
-    const queueEntries = webhooks.map((webhook: any) => ({
-      product_id: transaction.product_id,
-      webhook_url: webhook.webhook_url,
-      payload,
-      status: 'pending',
-    }));
-
-    const { error: queueError } = await supabaseAdmin
-      .from('webhook_queue')
-      .insert(queueEntries);
-
-    if (queueError) {
-      console.error('Error queuing webhooks:', queueError);
+    if (productError || !product) {
+      console.error('Error fetching product for entitlement webhook:', productError);
       return;
     }
 
-    console.log(`Queued ${webhooks.length} webhooks for product ${transaction.product_id}`);
+    // Safety rule: without an explicit entitlement_code there is no reliable
+    // entitlement to grant. Skip sending and leave an auditable trail.
+    if (!product.entitlement_code || !String(product.entitlement_code).trim()) {
+      console.error(
+        `Skipping entitlement webhook: product ${product.id} has no entitlement_code configured`,
+      );
+      const skipLogs = webhooks.map((webhook: any) => ({
+        product_id: transaction.product_id,
+        webhook_url: webhook.webhook_url,
+        payload: { event: 'sale.confirmed', transaction_id: transaction.id },
+        response_status: null,
+        response_body: 'skipped: product has no entitlement_code configured',
+        success: false,
+        event: 'sale.confirmed',
+        event_version: ENTITLEMENT_EVENT_VERSION,
+      }));
+      await supabaseAdmin.from('webhook_logs').insert(skipLogs);
+      return;
+    }
+
+    let price: any = null;
+    if (transaction.price_id) {
+      const { data: priceData } = await supabaseAdmin
+        .from('product_prices')
+        .select('id, unique_code, subscription_period')
+        .eq('id', transaction.price_id)
+        .single();
+      price = priceData ?? null;
+    }
+
+    // Queue one sanitized entitlement payload per active URL, each with its
+    // own delivery_id. Inserted one by one so the partial unique index
+    // (transaction_id, event, webhook_url) can deduplicate without aborting
+    // the other destinations.
+    let queuedCount = 0;
+    for (const webhook of webhooks) {
+      const deliveryId = crypto.randomUUID();
+
+      let payload;
+      try {
+        payload = buildEntitlementPayload({
+          event: 'sale.confirmed',
+          deliveryId,
+          transaction,
+          product,
+          price,
+        });
+      } catch (buildError) {
+        console.error('Error building entitlement payload:', buildError);
+        continue;
+      }
+
+      const { error: queueError } = await supabaseAdmin
+        .from('webhook_queue')
+        .insert({
+          product_id: transaction.product_id,
+          product_webhook_id: webhook.id,
+          webhook_url: webhook.webhook_url,
+          payload,
+          status: 'pending',
+          delivery_id: deliveryId,
+          event: 'sale.confirmed',
+          event_version: ENTITLEMENT_EVENT_VERSION,
+          transaction_id: transaction.id,
+        });
+
+      if (queueError) {
+        // 23505 = unique violation: this transaction/event/url was already
+        // queued (e.g. PAYMENT_CONFIRMED followed by PAYMENT_RECEIVED).
+        if (queueError.code === '23505') {
+          console.log(
+            `Webhook already queued for transaction ${transaction.id} -> ${webhook.webhook_url}, skipping duplicate`,
+          );
+        } else {
+          console.error('Error queuing webhook:', queueError);
+        }
+        continue;
+      }
+
+      queuedCount++;
+    }
+
+    if (queuedCount === 0) {
+      console.log('No new webhooks queued for product:', transaction.product_id);
+      return;
+    }
+
+    console.log(`Queued ${queuedCount} webhooks for product ${transaction.product_id}`);
 
     // Trigger webhook processor
     fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/process-webhook-queue`, {

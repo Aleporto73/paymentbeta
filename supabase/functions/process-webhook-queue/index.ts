@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { ENTITLEMENT_EVENT_VERSION } from "../_shared/buildEntitlementPayload.ts";
+import { buildAuditableHeaders, signWebhookRequest } from "../_shared/webhookSignature.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -156,12 +158,73 @@ serve(async (req) => {
   }
 });
 
+// Resolve the signing secret for a queue row. Prefers the explicit
+// product_webhook_id link; falls back to (product_id, webhook_url) for
+// legacy rows queued before the link existed. Never logs the secret.
+async function resolveWebhookSecret(webhook: any, supabaseClient: any): Promise<string | null> {
+  if (webhook.product_webhook_id) {
+    const { data } = await supabaseClient
+      .from("product_webhooks")
+      .select("webhook_secret")
+      .eq("id", webhook.product_webhook_id)
+      .maybeSingle();
+    const secret = data?.webhook_secret;
+    if (typeof secret === "string" && secret.length > 0) return secret;
+  }
+
+  const { data: fallback } = await supabaseClient
+    .from("product_webhooks")
+    .select("webhook_secret")
+    .eq("product_id", webhook.product_id)
+    .eq("webhook_url", webhook.webhook_url)
+    .limit(1)
+    .maybeSingle();
+
+  const secret = fallback?.webhook_secret;
+  return typeof secret === "string" && secret.length > 0 ? secret : null;
+}
+
 async function processWebhook(webhook: any, supabaseClient: any) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
+  const event = webhook.event ?? "sale.confirmed";
+  const eventVersion = webhook.event_version ?? ENTITLEMENT_EVENT_VERSION;
+  const deliveryId = webhook.delivery_id;
+
   try {
     console.log(`Sending webhook to ${webhook.webhook_url}...`);
+
+    // Explicit, auditable failure when no signing secret is configured.
+    // Unsigned entitlement webhooks must never be sent.
+    const secret = await resolveWebhookSecret(webhook, supabaseClient);
+    if (!secret) {
+      clearTimeout(timeoutId);
+      const errorMessage = "missing webhook_secret: configure a secret for this webhook before delivery";
+      console.error(`Webhook ${webhook.id} not sent: ${errorMessage}`);
+
+      await supabaseClient
+        .from("webhook_queue")
+        .update({
+          status: "failed",
+          last_attempt_at: new Date().toISOString(),
+          error_message: errorMessage,
+        })
+        .eq("id", webhook.id);
+
+      await supabaseClient.from("webhook_logs").insert({
+        product_id: webhook.product_id,
+        webhook_url: webhook.webhook_url,
+        payload: webhook.payload,
+        response_status: null,
+        response_body: errorMessage,
+        success: false,
+        delivery_id: deliveryId,
+        event,
+        event_version: eventVersion,
+      });
+      return;
+    }
 
     // Update status to processing
     await supabaseClient
@@ -173,14 +236,23 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       })
       .eq("id", webhook.id);
 
+    // Sign at SEND time (fresh timestamp per attempt, current secret).
+    // rawBody is serialized exactly once and the same string is signed
+    // and sent as the request body.
+    const rawBody = JSON.stringify(webhook.payload);
+    const signed = await signWebhookRequest({
+      secret,
+      event,
+      eventVersion,
+      deliveryId,
+      rawBody,
+    });
+
     // Send webhook
     const response = await fetch(webhook.webhook_url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "PaymentApp-Webhook/1.0",
-      },
-      body: JSON.stringify(webhook.payload),
+      headers: signed.headers,
+      body: rawBody,
       signal: controller.signal,
     });
 
@@ -189,7 +261,7 @@ async function processWebhook(webhook: any, supabaseClient: any) {
     const responseBody = await response.text().catch(() => "");
     const success = response.ok;
 
-    // Log webhook delivery
+    // Log webhook delivery (public headers only, signature truncated)
     await supabaseClient.from("webhook_logs").insert({
       product_id: webhook.product_id,
       webhook_url: webhook.webhook_url,
@@ -197,6 +269,10 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       response_status: response.status,
       response_body: responseBody.substring(0, 1000), // Limit to 1000 chars
       success,
+      delivery_id: deliveryId,
+      event,
+      event_version: eventVersion,
+      request_headers: buildAuditableHeaders(signed, event, eventVersion, deliveryId),
     });
 
     if (success) {
@@ -245,6 +321,9 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       response_status: null,
       response_body: errorMessage,
       success: false,
+      delivery_id: deliveryId,
+      event,
+      event_version: eventVersion,
     });
 
     throw error;

@@ -1,4 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  buildEntitlementPayload,
+  ENTITLEMENT_EVENT_VERSION,
+} from "../_shared/buildEntitlementPayload.ts";
+import { signWebhookRequest } from "../_shared/webhookSignature.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -87,65 +92,91 @@ Deno.serve(async (req) => {
 
     console.log(`Testing webhook: ${webhookUrl}`);
 
-    // Create test payload with sample data
+    // Resolve the signing secret for this destination. Test webhooks are
+    // signed exactly like real deliveries so the receiver can be validated
+    // end to end. Without a secret we fail explicitly (never send unsigned).
+    let secretQuery = supabaseClient
+      .from("product_webhooks")
+      .select("webhook_secret, product_id")
+      .eq("webhook_url", webhookUrl)
+      .limit(1);
+
+    if (product_id) {
+      secretQuery = supabaseClient
+        .from("product_webhooks")
+        .select("webhook_secret, product_id")
+        .eq("webhook_url", webhookUrl)
+        .eq("product_id", product_id)
+        .limit(1);
+    }
+
+    const { data: webhookConfig } = await secretQuery.maybeSingle();
+    const secret = typeof webhookConfig?.webhook_secret === "string" && webhookConfig.webhook_secret.length > 0
+      ? webhookConfig.webhook_secret
+      : null;
+
+    if (!secret) {
+      return jsonResponse({
+        success: false,
+        error: "missing webhook_secret: cadastre um secret para este webhook antes de testar (webhooks de entitlement nunca são enviados sem assinatura)",
+      }, 400);
+    }
+
+    // Build the test payload with the SAME shared builder used in production.
+    const deliveryId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
     const testPayload = {
-      event: "sale.confirmed",
+      ...buildEntitlementPayload({
+        event: "sale.confirmed",
+        deliveryId,
+        occurredAt: nowIso,
+        transaction: {
+          id: crypto.randomUUID(),
+          asaas_payment_id: "pay_test_" + Date.now(),
+          customer_name: "Cliente Teste",
+          customer_email: "cliente.teste@email.com",
+          status: "CONFIRMED",
+          billing_type: "CREDIT_CARD",
+          value: 97.00,
+          confirmed_date: nowIso,
+        },
+        product: {
+          id: product_id || "test-product-id",
+          unique_code: "TESTCODE",
+          entitlement_code: "test-entitlement",
+          product_type: "pagamento_unico",
+        },
+        price: {
+          id: "test-price-id",
+          unique_code: "PLAN1234",
+          subscription_period: null,
+        },
+      }),
       test: true,
-      timestamp: new Date().toISOString(),
-      transaction_id: "test-transaction-" + Date.now(),
-      asaas_payment_id: "pay_test_" + Date.now(),
-      product_id: product_id || "test-product-id",
-      price_id: "test-price-id",
-      price_code: "PLAN1234",
-      customer: {
-        name: "Cliente Teste",
-        email: "cliente.teste@email.com",
-        cpf_cnpj: "123.456.789-00",
-        phone: "(11) 99999-9999",
-        state: "SP",
-      },
-      payment: {
-        status: "CONFIRMED",
-        payment_method: "credit_card",
-        billing_type: "CREDIT_CARD",
-        value: 97.00,
-        net_value: 93.12,
-        installment_count: 1,
-        installment_value: 97.00,
-        payment_date: new Date().toISOString(),
-        confirmed_date: new Date().toISOString(),
-        credit_date: new Date().toISOString().split('T')[0],
-        due_date: new Date().toISOString().split('T')[0],
-      },
-      order_bumps: {
-        selected: ["test-order-bump-id"],
-        amount: 27.00,
-      },
-      affiliate_code: "AFILIADO123",
-      metadata: {
-        ip_address: "192.168.1.1",
-        user_agent: "Mozilla/5.0 (Test)",
-        device_type: "desktop",
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
 
-    console.log(`Sending test payload to: ${webhookUrl}`);
+    console.log(`Sending signed test payload to: ${webhookUrl}`);
 
     // Send test webhook
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
     try {
+      // Sign the exact raw body sent in the request.
+      const rawBody = JSON.stringify(testPayload);
+      const signed = await signWebhookRequest({
+        secret,
+        event: "sale.confirmed",
+        eventVersion: ENTITLEMENT_EVENT_VERSION,
+        deliveryId,
+        rawBody,
+        extraHeaders: { "X-Webhook-Test": "true" },
+      });
+
       const response = await fetch(webhookUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "PaymentApp-Webhook-Test/1.0",
-          "X-Webhook-Test": "true",
-        },
-        body: JSON.stringify(testPayload),
+        headers: signed.headers,
+        body: rawBody,
         signal: controller.signal,
       });
 
