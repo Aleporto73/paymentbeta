@@ -185,6 +185,9 @@ export default function Checkout() {
   const subtotal = finalPrice + orderBumpsTotal;
   const calculateDiscount = () => {
     if (!appliedCoupon) return 0;
+    if (Number.isFinite(appliedCoupon.discount_amount)) {
+      return Math.min(appliedCoupon.discount_amount, subtotal);
+    }
     if (appliedCoupon.discount_type === "percentage") {
       return subtotal * (appliedCoupon.discount_value / 100);
     } else {
@@ -1057,24 +1060,24 @@ export default function Checkout() {
 
     setValidatingCoupon(true);
     try {
-      const { data, error } = await supabase
-        .from("product_coupons")
-        .select("*")
-        .eq("code", couponCode.toUpperCase())
-        .eq("product_id", product.id)
-        .eq("is_active", true)
-        .single();
+      const { data, error } = await supabase.functions.invoke("validate-coupon", {
+        body: {
+          productId: product.id,
+          couponCode,
+          eligibleAmount: subtotal,
+        },
+      });
 
-      if (error || !data) {
+      if (error || !data?.success || !data?.coupon) {
         toast.error("Cupom inválido ou expirado");
         return;
       }
 
-      setAppliedCoupon(data);
+      setAppliedCoupon(data.coupon);
       toast.success("Cupom aplicado com sucesso!");
     } catch (error) {
       console.error("Erro ao validar cupom:", error);
-      toast.error("Erro ao validar cupom");
+      toast.error("Cupom inválido ou expirado");
     } finally {
       setValidatingCoupon(false);
     }
