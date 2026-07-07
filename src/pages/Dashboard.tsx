@@ -1,57 +1,52 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, DollarSign, GitBranch, Percent, ShoppingCart } from "lucide-react";
+import { DollarSign, ShoppingCart, Users, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentSales } from "@/components/dashboard/RecentSales";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { startOfDay, startOfMonth, subDays, endOfDay } from "date-fns";
+
+// Lista fixa das afiliadas reais para os cards do Dashboard.
+// Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora dos cards,
+// mas ainda entram na dedução de comissão do bloco "Meu lucro real" —
+// não há flag de teste no banco pra separar isso do faturamento bruto.
+const AFFILIATE_REPORT_NAMES = ["Laís Sant Anna", "Jayane", "Lívia Tadesco"];
+
+interface AffiliateCardStats {
+  name: string;
+  revenue: number;
+  commission: number;
+  salesCount: number;
+}
 
 interface DashboardStats {
   revenueToday: number;
   revenueYesterday: number;
   revenueLast7Days: number;
   revenueThisMonth: number;
-  asaasFeesToday: number | null;
   asaasFeesThisMonth: number | null;
-  splitPlannedToday: number | null;
-  splitPlannedThisMonth: number | null;
-  splitReceivedToday: number | null;
-  splitReceivedThisMonth: number | null;
-  producerNetToday: number | null;
-  producerNetThisMonth: number | null;
-  asaasNetThisMonth: number | null;
   salesToday: number;
   salesYesterday: number;
   salesLast7Days: number;
   salesThisMonth: number;
-  reconciliation: {
-    pending: number;
-    partial: number;
-    reconciled: number;
-    divergent: number;
-    not_applicable: number;
-  };
+  affiliateCards: AffiliateCardStats[];
+  affiliateCommissionsThisMonth: number;
 }
 
 interface DashboardTransaction {
-  id: string;
-  asaas_payment_id: string | null;
   value: number | null;
-  net_value: number | null;
   asaas_fee_amount: number | null;
-  affiliate_split_total: number | null;
-  producer_net_amount: number | null;
-  reconciliation_status: string | null;
   created_at: string;
   status: string;
 }
 
-interface DashboardSplit {
-  id: string;
-  transaction_id: string | null;
-  asaas_payment_id: string | null;
-  planned_amount: number | null;
-  received_amount: number | null;
+interface DashboardSale {
+  sale_amount: number | null;
+  commission_amount: number | null;
+  sale_date: string;
+  affiliate_link_id: string | null;
+  product_affiliate_links: { affiliates: { name: string } | null } | null;
 }
 
 export default function Dashboard() {
@@ -60,26 +55,13 @@ export default function Dashboard() {
     revenueYesterday: 0,
     revenueLast7Days: 0,
     revenueThisMonth: 0,
-    asaasFeesToday: null,
     asaasFeesThisMonth: null,
-    splitPlannedToday: null,
-    splitPlannedThisMonth: null,
-    splitReceivedToday: null,
-    splitReceivedThisMonth: null,
-    producerNetToday: null,
-    producerNetThisMonth: null,
-    asaasNetThisMonth: null,
     salesToday: 0,
     salesYesterday: 0,
     salesLast7Days: 0,
     salesThisMonth: 0,
-    reconciliation: {
-      pending: 0,
-      partial: 0,
-      reconciled: 0,
-      divergent: 0,
-      not_applicable: 0,
-    },
+    affiliateCards: AFFILIATE_REPORT_NAMES.map((name) => ({ name, revenue: 0, commission: 0, salesCount: 0 })),
+    affiliateCommissionsThisMonth: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -102,14 +84,8 @@ export default function Dashboard() {
       const { data: transactionRows } = await supabase
         .from("transactions")
         .select(`
-          id,
-          asaas_payment_id,
           value,
-          net_value,
           asaas_fee_amount,
-          affiliate_split_total,
-          producer_net_amount,
-          reconciliation_status,
           created_at,
           status
         `);
@@ -123,60 +99,6 @@ export default function Dashboard() {
       const confirmedTransactions = transactions.filter((transaction) =>
         ["RECEIVED", "CONFIRMED"].includes(transaction.status)
       );
-      const confirmedTransactionIds = confirmedTransactions.map((transaction) => transaction.id);
-      const confirmedAsaasPaymentIds = confirmedTransactions
-        .map((transaction) => transaction.asaas_payment_id)
-        .filter((paymentId): paymentId is string => Boolean(paymentId));
-      const splitRowsByKey = new Map<string, DashboardSplit[]>();
-
-      const appendSplitRows = (rows: DashboardSplit[] | null) => {
-        (rows || []).forEach((split) => {
-          const keys = [
-            split.transaction_id ? `transaction:${split.transaction_id}` : null,
-            split.asaas_payment_id ? `asaas:${split.asaas_payment_id}` : null,
-          ].filter(Boolean) as string[];
-
-          keys.forEach((key) => {
-            const currentRows = splitRowsByKey.get(key) || [];
-            if (!currentRows.some((row) => row.id === split.id)) {
-              currentRows.push(split);
-            }
-            splitRowsByKey.set(key, currentRows);
-          });
-        });
-      };
-
-      if (confirmedTransactionIds.length > 0) {
-        const { data: splitRowsByTransaction } = await supabase
-          .from("transaction_splits")
-          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
-          .in("transaction_id", confirmedTransactionIds);
-
-        appendSplitRows((splitRowsByTransaction || []) as DashboardSplit[]);
-      }
-
-      if (confirmedAsaasPaymentIds.length > 0) {
-        const { data: splitRowsByPayment } = await supabase
-          .from("transaction_splits")
-          .select("id, transaction_id, asaas_payment_id, planned_amount, received_amount")
-          .in("asaas_payment_id", confirmedAsaasPaymentIds);
-
-        appendSplitRows((splitRowsByPayment || []) as DashboardSplit[]);
-      }
-
-      const getSplitsForTransaction = (transaction: DashboardTransaction) => {
-        const byTransaction = splitRowsByKey.get(`transaction:${transaction.id}`) || [];
-        const byPayment = transaction.asaas_payment_id
-          ? splitRowsByKey.get(`asaas:${transaction.asaas_payment_id}`) || []
-          : [];
-        const splitMap = new Map<string, DashboardSplit>();
-
-        [...byTransaction, ...byPayment].forEach((split) => {
-          splitMap.set(split.id, split);
-        });
-
-        return Array.from(splitMap.values());
-      };
 
       const getNumberOrNull = (value: number | null | undefined) => {
         if (value === null || value === undefined) {
@@ -198,19 +120,6 @@ export default function Dashboard() {
 
         return validValues.reduce((sum, value) => sum + value, 0);
       };
-
-      const getTransactionSplitPlannedAmount = (transaction: DashboardTransaction) => {
-        const transactionPlannedAmount = getNumberOrNull(transaction.affiliate_split_total);
-
-        if (transactionPlannedAmount !== null) {
-          return transactionPlannedAmount;
-        }
-
-        return sumNullable(getSplitsForTransaction(transaction).map((split) => split.planned_amount));
-      };
-
-      const getTransactionSplitReceivedAmount = (transaction: DashboardTransaction) =>
-        sumNullable(getSplitsForTransaction(transaction).map((split) => split.received_amount));
 
       // Calculate stats
       const revenueToday = confirmedTransactions
@@ -254,53 +163,61 @@ export default function Dashboard() {
       ).length;
 
       const salesThisMonth = transactionsThisMonth.length;
-      const asaasFeesToday = sumNullable(transactionsToday.map((transaction) => transaction.asaas_fee_amount));
       const asaasFeesThisMonth = sumNullable(transactionsThisMonth.map((transaction) => transaction.asaas_fee_amount));
-      const splitPlannedToday = sumNullable(transactionsToday.map(getTransactionSplitPlannedAmount));
-      const splitPlannedThisMonth = sumNullable(transactionsThisMonth.map(getTransactionSplitPlannedAmount));
-      const splitReceivedToday = sumNullable(transactionsToday.map(getTransactionSplitReceivedAmount));
-      const splitReceivedThisMonth = sumNullable(transactionsThisMonth.map(getTransactionSplitReceivedAmount));
-      const producerNetToday = sumNullable(transactionsToday.map((transaction) => transaction.producer_net_amount));
-      const producerNetThisMonth = sumNullable(transactionsThisMonth.map((transaction) => transaction.producer_net_amount));
-      const asaasNetThisMonth = sumNullable(transactionsThisMonth.map((transaction) => transaction.net_value));
-      const reconciliation = transactions
-        .filter((transaction) => new Date(transaction.created_at) >= monthStart)
-        .reduce(
-          (counts, transaction) => {
-            const status = transaction.reconciliation_status || "pending";
-            if (status in counts) {
-              counts[status as keyof typeof counts] += 1;
-            }
-            return counts;
-          },
-          {
-            pending: 0,
-            partial: 0,
-            reconciled: 0,
-            divergent: 0,
-            not_applicable: 0,
-          },
+
+      // Vendas por afiliada (mês atual) — alimenta os cards de afiliada e a
+      // dedução de comissão do bloco "Meu lucro real". Fonte: product_sales,
+      // que já grava o commission_amount real calculado por venda.
+      const { data: saleRows } = await supabase
+        .from("product_sales")
+        .select(`
+          sale_amount,
+          commission_amount,
+          sale_date,
+          affiliate_link_id,
+          product_affiliate_links ( affiliates ( name ) )
+        `);
+
+      const salesThisMonthList = ((saleRows || []) as unknown as DashboardSale[]).filter(
+        (sale) => new Date(sale.sale_date) >= monthStart
+      );
+
+      const affiliateSalesThisMonth = salesThisMonthList.filter((sale) => sale.affiliate_link_id !== null);
+
+      const affiliateCards: AffiliateCardStats[] = AFFILIATE_REPORT_NAMES.map((name) => {
+        const salesForAffiliate = affiliateSalesThisMonth.filter(
+          (sale) => sale.product_affiliate_links?.affiliates?.name === name
         );
+
+        return {
+          name,
+          revenue: salesForAffiliate.reduce((sum, sale) => sum + Number(sale.sale_amount || 0), 0),
+          commission: salesForAffiliate.reduce((sum, sale) => sum + Number(sale.commission_amount || 0), 0),
+          salesCount: salesForAffiliate.length,
+        };
+      });
+
+      // Deduz comissão de TODA venda com afiliada vinculada (inclui eventuais
+      // contas de teste) — o faturamento bruto (transactions) também não
+      // separa teste de real, então excluir só a comissão subestimaria o
+      // quanto realmente sai do bolso. Ver nota de divergência na tela.
+      const affiliateCommissionsThisMonth = affiliateSalesThisMonth.reduce(
+        (sum, sale) => sum + Number(sale.commission_amount || 0),
+        0
+      );
 
       setStats({
         revenueToday,
         revenueYesterday,
         revenueLast7Days,
         revenueThisMonth,
-        asaasFeesToday,
         asaasFeesThisMonth,
-        splitPlannedToday,
-        splitPlannedThisMonth,
-        splitReceivedToday,
-        splitReceivedThisMonth,
-        producerNetToday,
-        producerNetThisMonth,
-        asaasNetThisMonth,
         salesToday,
         salesYesterday,
         salesLast7Days,
         salesThisMonth,
-        reconciliation,
+        affiliateCards,
+        affiliateCommissionsThisMonth,
       });
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
@@ -332,13 +249,19 @@ export default function Dashboard() {
 
   const revenueChange = calculateChange(stats.revenueToday, stats.revenueYesterday);
   const salesChange = calculateChange(stats.salesToday, stats.salesYesterday);
-  const producerNetDisplay = formatCurrencyOrDash(stats.producerNetThisMonth);
-  const reconciliationEvaluatedTotal =
-    stats.reconciliation.pending +
-    stats.reconciliation.partial +
-    stats.reconciliation.reconciled +
-    stats.reconciliation.divergent +
-    stats.reconciliation.not_applicable;
+
+  const netProfitThisMonth =
+    stats.revenueThisMonth - (stats.asaasFeesThisMonth || 0) - stats.affiliateCommissionsThisMonth;
+
+  // Os 3 cards mostram só as afiliadas reais; a comissão deduzida no lucro
+  // inclui qualquer venda com afiliada vinculada (pode incluir teste).
+  // Se os dois valores não baterem, avisamos na tela em vez de deixar
+  // a diferença passar despercebida.
+  const affiliateCardsCommissionSum = stats.affiliateCards.reduce((sum, card) => sum + card.commission, 0);
+  const commissionMismatchNote =
+    Math.abs(affiliateCardsCommissionSum - stats.affiliateCommissionsThisMonth) > 0.009
+      ? `A comissão deduzida acima (${formatCurrency(stats.affiliateCommissionsThisMonth)}) inclui vendas com afiliada fora dos 3 cards (ex.: conta de teste). Soma só das 3 reais: ${formatCurrency(affiliateCardsCommissionSum)}.`
+      : null;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -388,54 +311,73 @@ export default function Dashboard() {
       {!loading && (
         <section className="space-y-4">
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">Conciliação financeira</h2>
+            <h2 className="text-xl font-semibold tracking-tight">Vendas por Afiliada</h2>
             <p className="text-sm text-muted-foreground">
-              Leitura financeira baseada nos dados registrados na conciliação
+              Mês atual · Laís Sant Anna, Jayane e Lívia Tadesco
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
-            <StatCard
-              title="Taxas Asaas estimadas"
-              value={formatCurrencyOrDash(stats.asaasFeesThisMonth)}
-              change="Mês atual"
-              changeType="neutral"
-              icon={Percent}
-              iconColor="text-warning"
-              additionalMetrics={[
-                { label: "Hoje", value: formatCurrencyOrDash(stats.asaasFeesToday) },
-                { label: "Split planejado", value: formatCurrencyOrDash(stats.splitPlannedThisMonth) },
-                { label: "Split recebido Asaas", value: formatCurrencyOrDash(stats.splitReceivedThisMonth) },
-              ]}
-            />
-            <StatCard
-              title="Líquido do produtor"
-              value={producerNetDisplay}
-              change={producerNetDisplay === "—" ? "Aguardando conciliação real" : "Mês atual"}
-              changeType="neutral"
-              icon={GitBranch}
-              iconColor="text-info"
-              additionalMetrics={[
-                { label: "Hoje", value: formatCurrencyOrDash(stats.producerNetToday) },
-                { label: "Líquido Asaas registrado", value: formatCurrencyOrDash(stats.asaasNetThisMonth) },
-                { label: "Receita cobrada mês", value: formatCurrency(stats.revenueThisMonth) },
-              ]}
-            />
-            <StatCard
-              title="Conciliação"
-              value={`${reconciliationEvaluatedTotal} registros avaliados`}
-              change={`${stats.reconciliation.partial} parciais · ${stats.reconciliation.divergent} divergentes`}
-              changeType={stats.reconciliation.divergent > 0 ? "negative" : "neutral"}
-              icon={CheckCircle2}
-              iconColor="text-success"
-              additionalMetrics={[
-                { label: "Pendente", value: stats.reconciliation.pending.toString() },
-                { label: "Parcial", value: stats.reconciliation.partial.toString() },
-                { label: "Conciliado", value: stats.reconciliation.reconciled.toString() },
-                { label: "Divergente", value: stats.reconciliation.divergent.toString() },
-                { label: "Não aplicável", value: stats.reconciliation.not_applicable.toString() },
-              ]}
-            />
+            {stats.affiliateCards.map((card) => (
+              <StatCard
+                key={card.name}
+                title={card.name}
+                value={formatCurrency(card.revenue)}
+                change="Vendeu no mês"
+                changeType="neutral"
+                icon={Users}
+                iconColor="text-info"
+                additionalMetrics={[
+                  { label: "Comissão paga", value: formatCurrency(card.commission) },
+                  { label: "Nº de vendas", value: card.salesCount.toString() },
+                ]}
+              />
+            ))}
           </div>
+        </section>
+      )}
+
+      {!loading && (
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">Meu lucro real</h2>
+            <p className="text-sm text-muted-foreground">
+              Faturamento bruto do mês, menos taxa Asaas e comissão de afiliadas
+            </p>
+          </div>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="p-3 rounded-lg bg-info-light">
+                  <Wallet className="h-6 w-6 text-info" />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Faturamento bruto</span>
+                    <span className="text-base font-semibold">{formatCurrency(stats.revenueThisMonth)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">(−) Taxa Asaas</span>
+                    <span className="text-base font-medium text-destructive">
+                      -{formatCurrencyOrDash(stats.asaasFeesThisMonth)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">(−) Comissão de afiliadas</span>
+                    <span className="text-base font-medium text-destructive">
+                      -{formatCurrency(stats.affiliateCommissionsThisMonth)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border pt-3">
+                    <span className="text-base font-semibold">Lucro final</span>
+                    <span className="text-2xl font-bold text-success">{formatCurrency(netProfitThisMonth)}</span>
+                  </div>
+                </div>
+              </div>
+              {commissionMismatchNote && (
+                <p className="text-xs text-muted-foreground mt-4">{commissionMismatchNote}</p>
+              )}
+            </CardContent>
+          </Card>
         </section>
       )}
 
