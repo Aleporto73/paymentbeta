@@ -70,14 +70,19 @@ export default function Vendas() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
-  
+
+  // Filtro rápido de exibição (client-side, não afeta busca/paginação no banco).
+  // Padrão: esconder "Pendente" para reduzir ruído de checkouts abertos e não pagos.
+  const [quickStatusFilter, setQuickStatusFilter] = useState<"all" | "RECEIVED" | "CONFIRMED" | "PENDING">("all");
+  const [showPending, setShowPending] = useState(false);
+
   const [tempFilters, setTempFilters] = useState({
     search: "",
     status: "all",
     period: "all",
     productId: "all",
   });
-  
+
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
     status: "all",
@@ -170,7 +175,7 @@ export default function Vendas() {
       if (appliedFilters.period !== "all") {
         let startDate;
         const now = new Date();
-        
+
         switch (appliedFilters.period) {
           case "today":
             startDate = startOfDay(now);
@@ -182,7 +187,7 @@ export default function Vendas() {
             startDate = startOfDay(subDays(now, 30));
             break;
         }
-        
+
         if (startDate) {
           query = query.gte("created_at", startDate.toISOString());
         }
@@ -410,7 +415,7 @@ export default function Vendas() {
       ...csvData.map(row => row.map(cell => `"${cell}"`).join(","))
     ].join("\n");
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -499,6 +504,24 @@ export default function Vendas() {
     setSelectedSale(sale);
     setShowDetailsModal(true);
   };
+
+  // Aplica o filtro rápido de exibição sobre a página já carregada.
+  // Selecionar um status específico sempre mostra exatamente aquele status;
+  // com "Todos" selecionado, o toggle "Mostrar pendentes" decide se PENDING aparece.
+  const visibleSales = sales.filter((sale) => {
+    if (quickStatusFilter !== "all") {
+      return sale.status === quickStatusFilter;
+    }
+    if (!showPending && sale.status === "PENDING") {
+      return false;
+    }
+    return true;
+  });
+
+  const hiddenPendingCount =
+    quickStatusFilter === "all" && !showPending
+      ? sales.filter((sale) => sale.status === "PENDING").length
+      : 0;
 
   return (
     <div className="space-y-6">
@@ -618,9 +641,16 @@ export default function Vendas() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>
-              Lista de Vendas ({totalCount})
-            </CardTitle>
+            <div>
+              <CardTitle>
+                Lista de Vendas ({totalCount})
+              </CardTitle>
+              {hiddenPendingCount > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {hiddenPendingCount} pendente{hiddenPendingCount > 1 ? "s" : ""} oculta{hiddenPendingCount > 1 ? "s" : ""} nesta página
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Itens por página:</span>
               <Select
@@ -642,6 +672,32 @@ export default function Vendas() {
               </Select>
             </div>
           </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-sm text-muted-foreground">Status:</span>
+            <Select
+              value={quickStatusFilter}
+              onValueChange={(value) => setQuickStatusFilter(value as typeof quickStatusFilter)}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="RECEIVED">Recebido</SelectItem>
+                <SelectItem value="CONFIRMED">Aprovado</SelectItem>
+                <SelectItem value="PENDING">Pendente</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant={showPending ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowPending((prev) => !prev)}
+              disabled={quickStatusFilter !== "all"}
+            >
+              {showPending ? "Ocultar pendentes" : "Mostrar pendentes"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -649,6 +705,22 @@ export default function Vendas() {
           ) : sales.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               Nenhuma venda encontrada
+            </div>
+          ) : visibleSales.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Nenhuma venda visível com o filtro atual.
+              {hiddenPendingCount > 0 && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2"
+                    onClick={() => setShowPending(true)}
+                  >
+                    Mostrar pendentes
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <>
@@ -665,7 +737,7 @@ export default function Vendas() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sales.map((sale) => (
+                    {visibleSales.map((sale) => (
                       <TableRow key={sale.id}>
                         <TableCell>
                           {format(new Date(sale.created_at), "dd/MM/yyyy HH:mm")}
