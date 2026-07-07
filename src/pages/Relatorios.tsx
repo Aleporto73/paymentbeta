@@ -7,7 +7,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BarChart3, ShoppingCart, TrendingUp, TrendingDown, Package, Users, CalendarIcon } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
-import { format, subDays, startOfDay, endOfDay } from "date-fns";
+import { format, subDays, addDays, startOfDay, endOfDay } from "date-fns";
 import {
   LineChart,
   Line,
@@ -28,6 +28,9 @@ type DateFilter = "today" | "7days" | "30days" | "custom";
 type ReconciliationStatusKey = "pending" | "partial" | "reconciled" | "divergent" | "not_applicable";
 
 const APPROVED_TRANSACTION_STATUSES = ["RECEIVED", "CONFIRMED"];
+// Lista fixa das afiliadas reais para o comparativo "Minhas vendas vs Afiliadas".
+// Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora de propósito.
+const AFFILIATE_REPORT_NAMES = ["Jayane", "Lívia Tadesco", "Laís Sant Anna"];
 const RECONCILIATION_STATUS_LABELS: Record<ReconciliationStatusKey, string> = {
   pending: "Pendente",
   partial: "Parcial",
@@ -52,6 +55,10 @@ interface ReportTransaction {
 interface ReportSale {
   sale_amount: number | null;
   commission_amount: number | null;
+  sale_date: string;
+  affiliate_link_id: string | null;
+  products: { name: string } | null;
+  product_affiliate_links: { affiliates: { name: string } | null } | null;
 }
 
 interface ReportSplit {
@@ -105,7 +112,7 @@ export default function Relatorios() {
   const [dateFilter, setDateFilter] = useState<DateFilter>("30days");
   const [customDateFrom, setCustomDateFrom] = useState<Date>();
   const [customDateTo, setCustomDateTo] = useState<Date>();
-  
+
   const [checkoutStats, setCheckoutStats] = useState({
     totalViews: 0,
     totalAbandons: 0,
@@ -133,6 +140,8 @@ export default function Relatorios() {
   const [productsPerformance, setProductsPerformance] = useState<any[]>([]);
   const [checkoutFunnel, setCheckoutFunnel] = useState<any[]>([]);
   const [orderBumpsPerformance, setOrderBumpsPerformance] = useState<any[]>([]);
+  const [affiliateComparison, setAffiliateComparison] = useState<{ name: string; value: number }[]>([]);
+  const [dailyEvolution, setDailyEvolution] = useState<{ date: string; total: number }[]>([]);
 
   const getDateRange = () => {
     const now = new Date();
@@ -182,7 +191,7 @@ export default function Relatorios() {
       const checkoutEventList = checkoutEvents || [];
       const views = checkoutEventList.filter((e) => e.event_type === "view").length;
       const abandons = checkoutEventList.filter((e) => e.event_type === "abandon").length;
-      
+
       const { data: transactionRows } = await supabase
         .from("transactions")
         .select(`
@@ -305,15 +314,23 @@ export default function Relatorios() {
         { name: "Abandonos", value: abandons, fill: "#ef4444" },
       ]);
 
-      // Buscar vendas
+      // Buscar vendas — inclui produto e afiliada vinculados para alimentar
+      // os comparativos, sempre respeitando o mesmo range de data (startDate/endDate).
       const { data: sales } = await supabase
         .from("product_sales")
-        .select("sale_amount, commission_amount")
+        .select(`
+          sale_amount,
+          commission_amount,
+          sale_date,
+          affiliate_link_id,
+          products ( name ),
+          product_affiliate_links ( affiliates ( name ) )
+        `)
         .gte("sale_date", startDate)
         .lte("sale_date", endDate)
         .order("sale_date", { ascending: false });
 
-      const salesList = (sales || []) as ReportSale[];
+      const salesList = (sales || []) as unknown as ReportSale[];
       const salesRevenue = salesList.reduce((sum, sale) => sum + Number(sale.sale_amount || 0), 0);
       const grossEstimatedCommission = sumMoney(salesList.map((sale) => sale.commission_amount));
       const reconciliationCounts = transactionList.reduce(
@@ -343,19 +360,54 @@ export default function Relatorios() {
         statuses: reconciliationCounts,
       });
 
-      // Buscar produtos com suas vendas
-      const { data: products } = await supabase
-        .from("products")
-        .select("*, product_sales(*)");
+      // Performance por produto — agora respeita o período selecionado
+      // (antes buscava o histórico inteiro, ignorando o filtro de data).
+      const productPerformanceMap = new Map<string, { name: string; sales: number; revenue: number }>();
+      salesList.forEach((sale) => {
+        const productName = sale.products?.name || "Produto não encontrado";
+        const current = productPerformanceMap.get(productName) || { name: productName, sales: 0, revenue: 0 };
+        current.sales += 1;
+        current.revenue += Number(sale.sale_amount || 0);
+        productPerformanceMap.set(productName, current);
+      });
+      setProductsPerformance(Array.from(productPerformanceMap.values()));
 
-      if (products) {
-        const performance = products.map((product) => ({
-          name: product.name,
-          sales: product.product_sales?.length || 0,
-          revenue: product.product_sales?.reduce((sum: number, s: any) => sum + Number(s.sale_amount), 0) || 0,
-        }));
-        setProductsPerformance(performance);
+      // Minhas vendas (diretas) vs cada afiliada real — só valor R$.
+      // Vendas de contas de teste (fora de AFFILIATE_REPORT_NAMES) não entram aqui.
+      const affiliateRevenue = new Map<string, number>();
+      AFFILIATE_REPORT_NAMES.forEach((name) => affiliateRevenue.set(name, 0));
+      let directRevenue = 0;
+
+      salesList.forEach((sale) => {
+        if (!sale.affiliate_link_id) {
+          directRevenue += Number(sale.sale_amount || 0);
+          return;
+        }
+        const affiliateName = sale.product_affiliate_links?.affiliates?.name;
+        if (affiliateName && affiliateRevenue.has(affiliateName)) {
+          affiliateRevenue.set(affiliateName, (affiliateRevenue.get(affiliateName) || 0) + Number(sale.sale_amount || 0));
+        }
+      });
+
+      setAffiliateComparison([
+        { name: "Minhas vendas", value: directRevenue },
+        ...AFFILIATE_REPORT_NAMES.map((name) => ({ name, value: affiliateRevenue.get(name) || 0 })),
+      ]);
+
+      // Evolução diária de vendas totais dentro do período selecionado
+      // (preenche com 0 os dias sem venda para a linha não ficar com buracos).
+      const dayBuckets = new Map<string, number>();
+      const rangeEnd = startOfDay(new Date(endDate));
+      for (let cursor = startOfDay(new Date(startDate)); cursor <= rangeEnd; cursor = addDays(cursor, 1)) {
+        dayBuckets.set(format(cursor, "dd/MM"), 0);
       }
+      salesList.forEach((sale) => {
+        const dayKey = format(new Date(sale.sale_date), "dd/MM");
+        if (dayBuckets.has(dayKey)) {
+          dayBuckets.set(dayKey, (dayBuckets.get(dayKey) || 0) + Number(sale.sale_amount || 0));
+        }
+      });
+      setDailyEvolution(Array.from(dayBuckets.entries()).map(([date, total]) => ({ date, total })));
 
       // Buscar performance de order bumps
       const { data: orderBumpAnalytics } = await supabase
@@ -409,7 +461,7 @@ export default function Relatorios() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Relatórios e Analytics</h1>
-        
+
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={dateFilter === "today" ? "default" : "outline"}
@@ -432,7 +484,7 @@ export default function Relatorios() {
           >
             Últimos 30 dias
           </Button>
-          
+
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -484,6 +536,7 @@ export default function Relatorios() {
           <TabsTrigger value="sales">Vendas</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="order-bumps">Order Bumps</TabsTrigger>
+          <TabsTrigger value="comparativos">Comparativos</TabsTrigger>
         </TabsList>
 
         {/* Checkout Analytics */}
@@ -760,6 +813,93 @@ export default function Relatorios() {
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
                   Nenhum dado de order bumps disponível
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Comparativos: minhas vendas vs afiliadas, produtos e evolução diária */}
+        <TabsContent value="comparativos" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Minhas vendas vs Afiliadas</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {affiliateComparison.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <BarChart data={affiliateComparison}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`} />
+                      <Tooltip formatter={(value) => [`R$ ${formatCurrency(Number(value))}`, "Receita cobrada"]} />
+                      <Bar dataKey="value" fill="#3b82f6" name="Receita cobrada (R$)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    Nenhum dado disponível no período
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Comparação entre Produtos</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {productsPerformance.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <BarChart data={productsPerformance}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis yAxisId="sales" />
+                      <YAxis
+                        yAxisId="revenue"
+                        orientation="right"
+                        tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`}
+                      />
+                      <Tooltip
+                        formatter={(value, name) =>
+                          name === "Vendas"
+                            ? [Number(value).toLocaleString("pt-BR"), "Vendas"]
+                            : [`R$ ${formatCurrency(Number(value))}`, name]
+                        }
+                      />
+                      <Legend />
+                      <Bar yAxisId="sales" dataKey="sales" fill="#3b82f6" name="Vendas" />
+                      <Bar yAxisId="revenue" dataKey="revenue" fill="#10b981" name="Receita cobrada (R$)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    Nenhum dado de produtos disponível
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Evolução diária de vendas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dailyEvolution.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={dailyEvolution}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`} />
+                    <Tooltip formatter={(value) => [`R$ ${formatCurrency(Number(value))}`, "Vendas totais"]} />
+                    <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2} dot={false} name="Vendas totais" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  Nenhum dado disponível no período
                 </div>
               )}
             </CardContent>
