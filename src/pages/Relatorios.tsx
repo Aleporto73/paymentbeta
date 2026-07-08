@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +26,102 @@ import {
 } from "recharts";
 
 type DateFilter = "today" | "7days" | "30days" | "custom";
+type ReportsTabValue = "checkout" | "sales" | "products" | "order-bumps" | "comparativos";
+type ReportsTabParam = "checkout" | "vendas" | "produtos" | "order-bumps" | "comparativos";
 type ReconciliationStatusKey = "pending" | "partial" | "reconciled" | "divergent" | "not_applicable";
+
+const TAB_PARAM_TO_VALUE: Record<ReportsTabParam, ReportsTabValue> = {
+  checkout: "checkout",
+  vendas: "sales",
+  produtos: "products",
+  "order-bumps": "order-bumps",
+  comparativos: "comparativos",
+};
+
+const TAB_VALUE_TO_PARAM: Record<ReportsTabValue, ReportsTabParam> = {
+  checkout: "checkout",
+  sales: "vendas",
+  products: "produtos",
+  "order-bumps": "order-bumps",
+  comparativos: "comparativos",
+};
+
+const getReportsTabValue = (tab: string | null): ReportsTabValue => {
+  if (tab && Object.prototype.hasOwnProperty.call(TAB_PARAM_TO_VALUE, tab)) {
+    return TAB_PARAM_TO_VALUE[tab as ReportsTabParam];
+  }
+
+  return "checkout";
+};
+
+const getReportsTabParam = (value: string): ReportsTabParam => {
+  if (Object.prototype.hasOwnProperty.call(TAB_VALUE_TO_PARAM, value)) {
+    return TAB_VALUE_TO_PARAM[value as ReportsTabValue];
+  }
+
+  return "checkout";
+};
+
+const isDateFilter = (period: string | null): period is DateFilter =>
+  period === "today" || period === "7days" || period === "30days" || period === "custom";
+
+const getDateFilterParam = (period: string | null): DateFilter => {
+  return isDateFilter(period) ? period : "30days";
+};
+
+const parseDateParam = (value: string | null): Date | undefined => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return undefined;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return undefined;
+  }
+
+  return date;
+};
+
+const getDateStateFromParams = (params: URLSearchParams) => {
+  const period = getDateFilterParam(params.get("period"));
+
+  if (period !== "custom") {
+    return {
+      dateFilter: period,
+      customDateFrom: undefined,
+      customDateTo: undefined,
+    };
+  }
+
+  const startParam = params.get("start");
+  const endParam = params.get("end");
+  const customDateFrom = parseDateParam(startParam);
+  const customDateTo = parseDateParam(endParam);
+
+  if ((startParam && !customDateFrom) || (endParam && !customDateTo)) {
+    return {
+      dateFilter: "30days" as DateFilter,
+      customDateFrom: undefined,
+      customDateTo: undefined,
+    };
+  }
+
+  if (!customDateFrom && !customDateTo) {
+    return {
+      dateFilter: "30days" as DateFilter,
+      customDateFrom: undefined,
+      customDateTo: undefined,
+    };
+  }
+
+  return {
+    dateFilter: "custom" as DateFilter,
+    customDateFrom,
+    customDateTo,
+  };
+};
 
 const APPROVED_TRANSACTION_STATUSES = ["RECEIVED", "CONFIRMED"];
 // Lista fixa das afiliadas reais para o comparativo "Minhas vendas vs Afiliadas".
@@ -108,10 +204,10 @@ const formatMoneyOrDash = (value?: number | null) => {
 };
 
 export default function Relatorios() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = getReportsTabValue(searchParams.get("tab"));
+  const { dateFilter, customDateFrom, customDateTo } = getDateStateFromParams(searchParams);
   const [loading, setLoading] = useState(true);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("30days");
-  const [customDateFrom, setCustomDateFrom] = useState<Date>();
-  const [customDateTo, setCustomDateTo] = useState<Date>();
 
   const [checkoutStats, setCheckoutStats] = useState({
     totalViews: 0,
@@ -166,7 +262,17 @@ export default function Relatorios() {
         startDate = startOfDay(subDays(now, 30));
     }
 
-    return { startDate: startDate.toISOString(), endDate: endDate.toISOString() };
+    return {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      // product_sales.sale_date vem do Asaas como data pura (sem hora) e é
+      // gravado à meia-noite UTC representando o dia local. Comparar contra
+      // um instante UTC exato (ex.: 03:00 UTC = meia-noite em Brasília) faz
+      // as vendas de "hoje" (00:00 UTC) ficarem fora do filtro "Hoje". Aqui
+      // comparamos por data-calendário pura (yyyy-MM-dd), não por instante.
+      saleDateStart: format(startDate, "yyyy-MM-dd"),
+      saleDateEnd: format(endDate, "yyyy-MM-dd"),
+    };
   };
 
   useEffect(() => {
@@ -178,7 +284,7 @@ export default function Relatorios() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { startDate, endDate } = getDateRange();
+      const { startDate, endDate, saleDateStart, saleDateEnd } = getDateRange();
 
       // Buscar eventos do checkout
       const { data: checkoutEvents } = await supabase
@@ -326,8 +432,8 @@ export default function Relatorios() {
           products ( name ),
           product_affiliate_links ( affiliates ( name ) )
         `)
-        .gte("sale_date", startDate)
-        .lte("sale_date", endDate)
+        .gte("sale_date", saleDateStart)
+        .lte("sale_date", saleDateEnd)
         .order("sale_date", { ascending: false });
 
       const salesList = (sales || []) as unknown as ReportSale[];
@@ -452,6 +558,34 @@ export default function Relatorios() {
   }
 
   const COLORS = ["#3b82f6", "#10b981", "#ef4444", "#f59e0b", "#8b5cf6"];
+  const handleTabChange = (value: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", getReportsTabParam(value));
+    setSearchParams(nextParams);
+  };
+  const handleDateFilterChange = (period: DateFilter, start?: Date, end?: Date) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("period", period);
+
+    if (period === "custom") {
+      if (start) {
+        nextParams.set("start", format(start, "yyyy-MM-dd"));
+      } else {
+        nextParams.delete("start");
+      }
+
+      if (end) {
+        nextParams.set("end", format(end, "yyyy-MM-dd"));
+      } else {
+        nextParams.delete("end");
+      }
+    } else {
+      nextParams.delete("start");
+      nextParams.delete("end");
+    }
+
+    setSearchParams(nextParams);
+  };
   const reconciliationTotal = Object.values(reconciliationStats.statuses).reduce(
     (sum, count) => sum + count,
     0,
@@ -466,21 +600,21 @@ export default function Relatorios() {
           <Button
             variant={dateFilter === "today" ? "default" : "outline"}
             size="sm"
-            onClick={() => setDateFilter("today")}
+            onClick={() => handleDateFilterChange("today")}
           >
             Hoje
           </Button>
           <Button
             variant={dateFilter === "7days" ? "default" : "outline"}
             size="sm"
-            onClick={() => setDateFilter("7days")}
+            onClick={() => handleDateFilterChange("7days")}
           >
             Últimos 7 dias
           </Button>
           <Button
             variant={dateFilter === "30days" ? "default" : "outline"}
             size="sm"
-            onClick={() => setDateFilter("30days")}
+            onClick={() => handleDateFilterChange("30days")}
           >
             Últimos 30 dias
           </Button>
@@ -506,8 +640,7 @@ export default function Relatorios() {
                     mode="single"
                     selected={customDateFrom}
                     onSelect={(date) => {
-                      setCustomDateFrom(date);
-                      setDateFilter("custom");
+                      handleDateFilterChange("custom", date, customDateTo);
                     }}
                     className={cn("pointer-events-auto")}
                   />
@@ -518,8 +651,7 @@ export default function Relatorios() {
                     mode="single"
                     selected={customDateTo}
                     onSelect={(date) => {
-                      setCustomDateTo(date);
-                      setDateFilter("custom");
+                      handleDateFilterChange("custom", customDateFrom, date);
                     }}
                     className={cn("pointer-events-auto")}
                   />
@@ -530,7 +662,7 @@ export default function Relatorios() {
         </div>
       </div>
 
-      <Tabs defaultValue="checkout" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>
           <TabsTrigger value="checkout">Checkout</TabsTrigger>
           <TabsTrigger value="sales">Vendas</TabsTrigger>
