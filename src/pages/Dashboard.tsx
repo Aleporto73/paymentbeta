@@ -4,8 +4,9 @@ import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentSales } from "@/components/dashboard/RecentSales";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { startOfDay, startOfMonth, subDays, endOfDay } from "date-fns";
+import { startOfDay, startOfMonth, subDays, endOfDay, format } from "date-fns";
 
 // Lista fixa das afiliadas reais para os cards do Dashboard.
 // Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora dos cards,
@@ -18,6 +19,7 @@ interface AffiliateCardStats {
   revenue: number;
   commission: number;
   salesCount: number;
+  sales: { product: string; value: number; date: string }[];
 }
 
 interface DashboardStats {
@@ -47,6 +49,7 @@ interface DashboardSale {
   sale_date: string;
   affiliate_link_id: string | null;
   product_affiliate_links: { affiliates: { name: string } | null } | null;
+  products: { name: string } | null;
 }
 
 export default function Dashboard() {
@@ -60,10 +63,11 @@ export default function Dashboard() {
     salesYesterday: 0,
     salesLast7Days: 0,
     salesThisMonth: 0,
-    affiliateCards: AFFILIATE_REPORT_NAMES.map((name) => ({ name, revenue: 0, commission: 0, salesCount: 0 })),
+    affiliateCards: AFFILIATE_REPORT_NAMES.map((name) => ({ name, revenue: 0, commission: 0, salesCount: 0, sales: [] })),
     affiliateCommissionsThisMonth: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateCardStats | null>(null);
 
   useEffect(() => {
     fetchDashboardStats();
@@ -175,11 +179,17 @@ export default function Dashboard() {
           commission_amount,
           sale_date,
           affiliate_link_id,
+          products ( name ),
           product_affiliate_links ( affiliates ( name ) )
         `);
 
+      // sale_date é gravado à meia-noite UTC representando o dia local (mesmo
+      // padrão do bug corrigido em Relatorios.tsx). Comparar por instante UTC
+      // exato pode excluir o dia 1º do mês por até 3h. Aqui comparamos pela
+      // data-calendário (yyyy-MM-dd) do início do mês, não pelo instante.
+      const monthStartDateStr = format(monthStart, "yyyy-MM-dd");
       const salesThisMonthList = ((saleRows || []) as unknown as DashboardSale[]).filter(
-        (sale) => new Date(sale.sale_date) >= monthStart
+        (sale) => sale.sale_date.slice(0, 10) >= monthStartDateStr
       );
 
       const affiliateSalesThisMonth = salesThisMonthList.filter((sale) => sale.affiliate_link_id !== null);
@@ -189,11 +199,22 @@ export default function Dashboard() {
           (sale) => sale.product_affiliate_links?.affiliates?.name === name
         );
 
+        // Detalhe simples por venda (produto, valor, data) pro popup do card,
+        // ordenado do mais recente pro mais antigo.
+        const salesDetail = salesForAffiliate
+          .map((sale) => ({
+            product: sale.products?.name || "Produto não identificado",
+            value: Number(sale.sale_amount || 0),
+            date: sale.sale_date,
+          }))
+          .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
         return {
           name,
           revenue: salesForAffiliate.reduce((sum, sale) => sum + Number(sale.sale_amount || 0), 0),
           commission: salesForAffiliate.reduce((sum, sale) => sum + Number(sale.commission_amount || 0), 0),
           salesCount: salesForAffiliate.length,
+          sales: salesDetail,
         };
       });
 
@@ -239,6 +260,15 @@ export default function Dashboard() {
     }
 
     return formatCurrency(value);
+  };
+
+  // sale_date é gravado à meia-noite UTC representando o dia local. Formatar
+  // via new Date(...) + timezone do navegador mostraria o dia anterior (ex.:
+  // 07/07 vira 06/07 em Brasília). Extrai a data-calendário direto da string,
+  // sem conversão de fuso.
+  const formatSaleDate = (isoDate: string) => {
+    const [year, month, day] = isoDate.slice(0, 10).split("-");
+    return `${day}/${month}/${year}`;
   };
 
   const calculateChange = (current: number, previous: number) => {
@@ -318,19 +348,25 @@ export default function Dashboard() {
           </div>
           <div className="grid gap-6 md:grid-cols-3">
             {stats.affiliateCards.map((card) => (
-              <StatCard
+              <button
                 key={card.name}
-                title={card.name}
-                value={formatCurrency(card.revenue)}
-                change="Vendeu no mês"
-                changeType="neutral"
-                icon={Users}
-                iconColor="text-info"
-                additionalMetrics={[
-                  { label: "Comissão paga", value: formatCurrency(card.commission) },
-                  { label: "Nº de vendas", value: card.salesCount.toString() },
-                ]}
-              />
+                type="button"
+                onClick={() => setSelectedAffiliate(card)}
+                className="text-left w-full cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <StatCard
+                  title={card.name}
+                  value={formatCurrency(card.revenue)}
+                  change="Vendeu no mês"
+                  changeType="neutral"
+                  icon={Users}
+                  iconColor="text-info"
+                  additionalMetrics={[
+                    { label: "Comissão paga", value: formatCurrency(card.commission) },
+                    { label: "Nº de vendas", value: card.salesCount.toString() },
+                  ]}
+                />
+              </button>
             ))}
           </div>
         </section>
@@ -384,6 +420,32 @@ export default function Dashboard() {
       <RevenueChart />
 
       <RecentSales />
+
+      <Dialog open={selectedAffiliate !== null} onOpenChange={(open) => !open && setSelectedAffiliate(null)}>
+        <DialogContent className="max-w-md max-h-[70vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Vendas de {selectedAffiliate?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedAffiliate && selectedAffiliate.sales.length > 0 ? (
+            <div className="space-y-3">
+              {selectedAffiliate.sales.map((sale, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between border-b border-border pb-2 last:border-0"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{sale.product}</p>
+                    <p className="text-xs text-muted-foreground">{formatSaleDate(sale.date)}</p>
+                  </div>
+                  <p className="text-sm font-semibold">{formatCurrency(sale.value)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground py-4">Nenhuma venda no mês.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -145,15 +145,18 @@ export default function Afiliados() {
   const [linkStats, setLinkStats] = useState<Record<string, LinkStats>>({});
   const [loadingLinkStats, setLoadingLinkStats] = useState(false);
   
+  // Default "active" pra ocultar contas de teste (is_active=false) da lista
+  // sem precisar escolher "Ativo" manualmente. O dropdown Status continua
+  // permitindo "Todos os status" ou "Inativo" pra quem quiser ver essas contas.
   const [tempFilters, setTempFilters] = useState({
     search: "",
-    status: "all",
+    status: "active",
     period: "all",
   });
-  
+
   const [appliedFilters, setAppliedFilters] = useState({
     search: "",
-    status: "all",
+    status: "active",
     period: "all",
   });
 
