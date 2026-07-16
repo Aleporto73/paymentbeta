@@ -1,4 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
+import {
+  type CancellationSubscriptionRow,
+  queueCancellationWebhooks,
+} from '../_shared/queueCancellationWebhooks.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,6 +26,13 @@ interface CancelSubscriptionRequest {
   subscriptionId: string;
   asaasSubscriptionId: string;
   cancel: boolean;
+}
+
+// Shape of the `products!inner(...)` embed on the subscription query below.
+interface SubscriptionProduct {
+  id: string;
+  user_id: string;
+  webhooks: Array<{ id: string; webhook_url: string; is_active: boolean }> | null;
 }
 
 Deno.serve(async (req) => {
@@ -72,7 +83,7 @@ Deno.serve(async (req) => {
     // Verify subscription belongs to user
     const { data: subscription, error: subError } = await supabase
       .from('subscriptions')
-      .select('*, products!inner(user_id, id, webhooks:product_webhooks(webhook_url, is_active))')
+      .select('*, products!inner(user_id, id, webhooks:product_webhooks(id, webhook_url, is_active))')
       .eq('id', subscriptionId)
       .single();
 
@@ -84,7 +95,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    if ((subscription.products as any).user_id !== user.id) {
+    if ((subscription.products as SubscriptionProduct).user_id !== user.id) {
       console.error('User does not own this subscription');
       return new Response(
         JSON.stringify({ error: 'Acesso negado' }),
@@ -145,7 +156,7 @@ Deno.serve(async (req) => {
     }
 
     // Update local subscription
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       status: cancel ? 'CANCELED' : 'ACTIVE',
       updated_at: new Date().toISOString(),
     };
@@ -170,35 +181,59 @@ Deno.serve(async (req) => {
     }
 
     // Send webhooks if configured
-    const webhooks = (subscription.products as any)?.webhooks || [];
-    const activeWebhooks = webhooks.filter((w: any) => w.is_active);
+    if (cancel) {
+      // Cancellation follows the entitlement contract, identical to the one the
+      // customer self-service path emits. Access is NOT revoked on the spot:
+      // the payload carries entitlement.expires_at = end of the paid period.
+      const { queued, skipped } = await queueCancellationWebhooks(
+        supabase,
+        subscription as CancellationSubscriptionRow,
+        updateData.cancelled_at as string,
+      );
 
-    if (activeWebhooks.length > 0) {
-      const webhookPayload = {
-        event: cancel ? 'subscription.cancelled' : 'subscription.reactivated',
-        subscription: {
-          id: subscription.id,
-          asaas_subscription_id: subscription.asaas_subscription_id,
-          status: cancel ? 'CANCELED' : 'ACTIVE',
-          value: subscription.value,
-          cycle: subscription.cycle,
-          cancelled_at: cancel ? updateData.cancelled_at : null,
-        },
-        product_id: subscription.product_id,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Queue webhooks for delivery
-      for (const webhook of activeWebhooks) {
-        await supabase.from('webhook_queue').insert({
-          product_id: subscription.product_id,
-          webhook_url: webhook.webhook_url,
-          payload: webhookPayload,
-          status: 'pending',
-        });
+      if (skipped) {
+        console.error(
+          `Cancellation webhook not queued for subscription ${subscriptionId}: ${skipped}`,
+        );
+      } else {
+        console.log(`Queued ${queued} cancellation webhooks for subscription ${subscriptionId}`);
       }
+    } else {
+      // Reactivation keeps the legacy payload shape: its entitlement contract is
+      // not defined yet. `event` is written explicitly so the signed
+      // X-PaymentBeta-Event header matches body.event instead of falling back to
+      // the column default ('sale.confirmed').
+      const webhooks = (subscription.products as SubscriptionProduct)?.webhooks ?? [];
+      const activeWebhooks = webhooks.filter((w) => w.is_active);
 
-      console.log(`Queued ${activeWebhooks.length} webhooks for delivery`);
+      if (activeWebhooks.length > 0) {
+        const webhookPayload = {
+          event: 'subscription.reactivated',
+          subscription: {
+            id: subscription.id,
+            asaas_subscription_id: subscription.asaas_subscription_id,
+            status: 'ACTIVE',
+            value: subscription.value,
+            cycle: subscription.cycle,
+            cancelled_at: null,
+          },
+          product_id: subscription.product_id,
+          timestamp: new Date().toISOString(),
+        };
+
+        for (const webhook of activeWebhooks) {
+          await supabase.from('webhook_queue').insert({
+            product_id: subscription.product_id,
+            product_webhook_id: webhook.id,
+            webhook_url: webhook.webhook_url,
+            payload: webhookPayload,
+            status: 'pending',
+            event: 'subscription.reactivated',
+          });
+        }
+
+        console.log(`Queued ${activeWebhooks.length} reactivation webhooks for delivery`);
+      }
     }
 
     return new Response(

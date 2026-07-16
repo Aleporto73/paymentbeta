@@ -25,6 +25,10 @@
 //     RLS-protected (admin-only) and unreachable from the frontend.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
+import {
+  type CancellationSubscriptionRow,
+  queueCancellationWebhooks,
+} from '../_shared/queueCancellationWebhooks.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -80,7 +84,11 @@ const isAccessUntilInFuture = (accessUntil: unknown) => {
   return parsed !== null && parsed.getTime() > Date.now();
 };
 
-const isAlreadyCancelled = (subscription: any) => {
+const isAlreadyCancelled = (subscription: {
+  cancel_at_period_end?: boolean | null;
+  cancelled_at?: string | null;
+  status?: string | null;
+}) => {
   if (subscription?.cancel_at_period_end === true) return true;
   if (subscription?.cancelled_at) return true;
   if (
@@ -180,7 +188,7 @@ Deno.serve(async (req) => {
     const { data: subscription, error: subscriptionError } = await supabase
       .from('subscriptions')
       .select(
-        'id, asaas_subscription_id, status, access_until, cancel_at_period_end, cancelled_at, ended_at',
+        'id, asaas_subscription_id, status, access_until, cancel_at_period_end, cancelled_at, ended_at, product_id, product_price_id, current_period_end, last_payment_id',
       )
       .eq('id', tokenRow.subscription_id)
       .maybeSingle();
@@ -329,6 +337,17 @@ Deno.serve(async (req) => {
         500,
       );
     }
+
+    // 10) Notify the entitlement receiver. `subscription` still holds the
+    //     pre-update row, which is exactly what we want: the update above
+    //     deliberately leaves access_until untouched, so it remains the
+    //     authoritative end of the paid window. Never throws, and a queueing
+    //     problem must not turn a successful cancellation into an error.
+    await queueCancellationWebhooks(
+      supabase,
+      subscription as CancellationSubscriptionRow,
+      cancellationStampIso,
+    );
 
     return jsonResponse(
       {

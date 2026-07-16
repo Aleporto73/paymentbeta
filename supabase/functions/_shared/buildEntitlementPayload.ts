@@ -51,6 +51,17 @@ export interface BuildEntitlementPayloadArgs {
   product: EntitlementProductInput;
   price?: EntitlementPriceInput | null;
   subscription?: EntitlementSubscriptionInput | null;
+  /**
+   * When set, `entitlement.expires_at` is used verbatim instead of being
+   * derived from the paid period.
+   *
+   * Cancellation passes the authoritative end of the already-paid window
+   * (subscriptions.access_until). The period-based estimate below takes the
+   * LATER of computed/subscription expiry so a renewal never shortens access —
+   * correct for sale.confirmed, but wrong for a cancellation, where it could
+   * extend access past what was actually paid for.
+   */
+  expiresAtOverride?: string | null;
 }
 
 const PERIOD_MAP: Record<string, string> = {
@@ -67,7 +78,7 @@ const PERIOD_MONTHS: Record<string, number> = {
   anual: 12,
 };
 
-const toIsoOrNull = (value: unknown): string | null => {
+export const toIsoOrNull = (value: unknown): string | null => {
   if (typeof value !== "string" || value.trim() === "") return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
@@ -111,20 +122,25 @@ export function buildEntitlementPayload(args: BuildEntitlementPayloadArgs) {
     const rawPeriod = price?.subscription_period ?? null;
     entitlementPeriod = rawPeriod ? PERIOD_MAP[rawPeriod] ?? rawPeriod : null;
 
-    // Prefer the explicit access window when available, otherwise derive
-    // expires_at from the paid period.
-    const computedExpiry = rawPeriod && PERIOD_MONTHS[rawPeriod]
-      ? addMonths(new Date(startsAt), PERIOD_MONTHS[rawPeriod]).toISOString()
-      : null;
-    const subscriptionExpiry =
-      toIsoOrNull(subscription?.access_until) ??
-      toIsoOrNull(subscription?.current_period_end);
-
-    // Use whichever is later so a renewal never shortens already-granted access.
-    if (computedExpiry && subscriptionExpiry) {
-      expiresAt = subscriptionExpiry > computedExpiry ? subscriptionExpiry : computedExpiry;
+    if (args.expiresAtOverride !== undefined) {
+      // The caller knows the authoritative end of access; never widen it.
+      expiresAt = toIsoOrNull(args.expiresAtOverride);
     } else {
-      expiresAt = subscriptionExpiry ?? computedExpiry;
+      // Prefer the explicit access window when available, otherwise derive
+      // expires_at from the paid period.
+      const computedExpiry = rawPeriod && PERIOD_MONTHS[rawPeriod]
+        ? addMonths(new Date(startsAt), PERIOD_MONTHS[rawPeriod]).toISOString()
+        : null;
+      const subscriptionExpiry =
+        toIsoOrNull(subscription?.access_until) ??
+        toIsoOrNull(subscription?.current_period_end);
+
+      // Use whichever is later so a renewal never shortens already-granted access.
+      if (computedExpiry && subscriptionExpiry) {
+        expiresAt = subscriptionExpiry > computedExpiry ? subscriptionExpiry : computedExpiry;
+      } else {
+        expiresAt = subscriptionExpiry ?? computedExpiry;
+      }
     }
   }
 
