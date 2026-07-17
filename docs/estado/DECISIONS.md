@@ -6,12 +6,13 @@ Um produto pode possuir **vários preços**.
 
 Exemplo — **AbaMinds**:
 
-- Plano Anual → `price_id` anual;
-- Plano Mensal futuro → **novo** `price_id` mensal.
+- Planos mensais atuais → `price_id` próprios (Profissional R$ 75/mês, Clínica
+  R$ 225/mês, `period: monthly`);
+- Plano anual futuro → **novo** `price_id` anual.
 
 ### Regra imutável
 
-- Nunca transformar o preço anual existente em mensal.
+- Nunca transformar um preço mensal já utilizado em anual.
 - Não mudar retroativamente o ciclo de um preço.
 - Cada novo plano recebe um **novo `price_id`**.
 - Assinantes antigos **preservam o ciclo contratado**.

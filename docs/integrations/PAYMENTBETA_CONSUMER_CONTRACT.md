@@ -53,9 +53,12 @@ produtos do ecossistema que recebem entitlement do PaymentBeta.
 
 ### AbaMinds
 
-- O plano anual atual possui `price_id` próprio.
-- O plano mensal futuro terá um **novo `price_id`**.
-- Nenhuma transformação de preço existente.
+- Os planos atuais são **mensais** e possuem `price_id` próprios: Profissional
+  (R$ 75/mês, entitlement `abaminds-solo`) e Clínica (R$ 225/mês, entitlement
+  `abaminds-clinica`), ambos `period: monthly`.
+- Um eventual plano anual futuro terá um **novo `price_id`**.
+- Nunca transformar os preços mensais já utilizados; cada novo ciclo comercial
+  recebe um novo `price_id`.
 
 ### PsicoPlanilhas Flow
 
