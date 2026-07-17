@@ -24,16 +24,40 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.84.0
 
 export const CANCELLATION_EVENT = "subscription.cancelled";
 
+export const CUSTOMER_CANCELLATION_SUBSCRIPTION_SELECT =
+  "id, asaas_subscription_id, status, access_until, cancel_at_period_end, cancelled_at, ended_at, product_id, product_price_id, cycle, current_period_end, last_payment_id";
+
 // Only the subscription fields this flow reads. Both callers already select
 // `*` or an explicit superset of these.
 export interface CancellationSubscriptionRow {
   id: string;
   product_id: string | null;
-  product_price_id?: string | null;
-  access_until?: string | null;
-  current_period_end?: string | null;
-  last_payment_id?: string | null;
+  product_price_id: string | null;
+  cycle: string | null;
+  access_until: string | null;
+  current_period_end: string | null;
+  last_payment_id: string | null;
 }
+
+const isNullableString = (value: unknown) => value === null || typeof value === "string";
+
+export const isCancellationSubscriptionRow = (
+  value: unknown,
+): value is CancellationSubscriptionRow => {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+
+  return typeof row.id === "string" &&
+    isNullableString(row.product_id) &&
+    isNullableString(row.product_price_id) &&
+    isNullableString(row.cycle) &&
+    isNullableString(row.access_until) &&
+    isNullableString(row.current_period_end) &&
+    isNullableString(row.last_payment_id) &&
+    "cycle" in row &&
+    "access_until" in row &&
+    "current_period_end" in row;
+};
 
 export interface QueueCancellationResult {
   queued: number;
@@ -163,6 +187,7 @@ export async function queueCancellationWebhooks(
       cancelledAt;
 
     let queued = 0;
+    let skippedReason: string | null = null;
     for (const webhook of webhooks) {
       const deliveryId = crypto.randomUUID();
 
@@ -175,10 +200,24 @@ export async function queueCancellationWebhooks(
           transaction,
           product,
           price,
+          subscription,
           expiresAtOverride: expiresAt,
         });
-      } catch (buildError) {
-        console.error("Error building cancellation entitlement payload:", buildError);
+      } catch {
+        skippedReason = "skipped: invalid recurring entitlement period or expiration";
+        console.error(
+          `Skipping cancellation entitlement for subscription ${subscription.id}: ${skippedReason}`,
+        );
+        await supabase.from("webhook_logs").insert({
+          product_id: subscription.product_id,
+          webhook_url: webhook.webhook_url,
+          payload: { event: CANCELLATION_EVENT, subscription_id: subscription.id },
+          response_status: null,
+          response_body: skippedReason,
+          success: false,
+          event: CANCELLATION_EVENT,
+          event_version: ENTITLEMENT_EVENT_VERSION,
+        });
         continue;
       }
 
@@ -224,7 +263,7 @@ export async function queueCancellationWebhooks(
       }).catch(console.error);
     }
 
-    return { queued, skipped: null };
+    return { queued, skipped: queued === 0 ? skippedReason : null };
   } catch (error) {
     console.error("Unexpected error queuing cancellation webhooks:", error);
     return { queued: 0, skipped: "unexpected error queuing cancellation webhooks" };

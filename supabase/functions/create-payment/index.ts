@@ -508,14 +508,21 @@ serve(async (req) => {
       throw new HttpError("Preco nao pertence ao produto");
     }
 
-    const isRecurring =
-      product.product_type === "recorrente" && Boolean(price.subscription_period);
+    const isRecurring = product.product_type === "recorrente";
 
-    if (product.product_type === "recorrente" && !price.subscription_period) {
+    if (isRecurring && !price.subscription_period) {
       throw new HttpError("Preco recorrente sem periodicidade configurada");
     }
 
-    if (price.subscription_period && product.product_type !== "recorrente") {
+    const subscriptionCycle = isRecurring
+      ? mapSubscriptionPeriodToCycle(price.subscription_period)
+      : null;
+
+    if (isRecurring && !subscriptionCycle) {
+      throw new HttpError("Periodicidade invalida para assinatura");
+    }
+
+    if (price.subscription_period && !isRecurring) {
       throw new HttpError("Produto nao marcado como recorrente para preco recorrente");
     }
 
@@ -569,10 +576,12 @@ serve(async (req) => {
       throw new HttpError("Assinatura via PIX indisponivel para esta periodicidade");
     }
 
-    const configuredMaxInstallments = Math.min(
-      getPositiveIntegerOrDefault(price.installments, getPositiveIntegerOrDefault(product.installments, 1)),
-      MAX_INSTALLMENTS,
-    );
+    const configuredMaxInstallments = isRecurring
+      ? 1
+      : Math.min(
+          getPositiveIntegerOrDefault(price.installments, getPositiveIntegerOrDefault(product.installments, 1)),
+          MAX_INSTALLMENTS,
+        );
     const requestedInstallments =
       billingType === "CREDIT_CARD" ? parseRequestedInstallments(paymentData?.installmentCount) : 1;
 
@@ -691,11 +700,7 @@ serve(async (req) => {
     // 2a. If product is recurring and not the annual prepaid PIX exception,
     // create an Asaas subscription instead of a one-shot payment.
     if (isSubscriptionFlow) {
-      const cycle = mapSubscriptionPeriodToCycle(price.subscription_period);
-
-      if (!cycle) {
-        throw new HttpError("Periodicidade invalida para assinatura");
-      }
+      const cycle = subscriptionCycle!;
 
       const asaasSplit = buildAsaasSplit(validatedAffiliateLink, 1);
 

@@ -15,6 +15,7 @@ import { ProductOrderBump } from "@/types/product";
 import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
 import { usePixPaymentPolling } from "@/hooks/usePixPaymentPolling";
 import { useConversionTracking } from "@/hooks/useConversionTracking";
+import { buildCheckoutInstallmentData, getCheckoutCapabilities } from "@/lib/checkoutRules";
 
 // Declarar tipos para scripts de tracking client-side
 declare global {
@@ -178,13 +179,16 @@ export default function Checkout() {
   // Calculate pricing values
   const MINIMUM_PAYMENT_VALUE = 5.0; // Valor mínimo exigido pelo gateway de pagamento
   const finalPrice = price?.price || product?.price || 0;
-  const orderBumpsTotal = Array.from(selectedOrderBumps).reduce((total, bumpId) => {
+  const checkoutCapabilities = getCheckoutCapabilities(product?.product_type);
+  const isRecurringCheckout = checkoutCapabilities.isRecurring;
+  const checkoutOrderBumpIds = isRecurringCheckout ? [] : Array.from(selectedOrderBumps);
+  const orderBumpsTotal = checkoutOrderBumpIds.reduce((total, bumpId) => {
     const bump = orderBumps.find((b) => b.id === bumpId);
     return total + (bump?.price || 0);
   }, 0);
   const subtotal = finalPrice + orderBumpsTotal;
   const calculateDiscount = () => {
-    if (!appliedCoupon) return 0;
+    if (!checkoutCapabilities.allowCoupon || !appliedCoupon) return 0;
     if (Number.isFinite(appliedCoupon.discount_amount)) {
       return Math.min(appliedCoupon.discount_amount, subtotal);
     }
@@ -197,11 +201,15 @@ export default function Checkout() {
   const discount = calculateDiscount();
   const totalPrice = Math.max(0, subtotal - discount);
   const isBelowMinimum = totalPrice < MINIMUM_PAYMENT_VALUE;
+  const isAnnualRecurringCheckout = isRecurringCheckout && price?.subscription_period === "anual";
+  const isCardOnlyRecurringCheckout = isRecurringCheckout && !isAnnualRecurringCheckout;
   const configuredInstallments = Number(price?.installments ?? product?.installments ?? 1);
-  const maxInstallments = Math.min(
-    12,
-    Math.max(1, Number.isFinite(configuredInstallments) ? Math.floor(configuredInstallments) : 1),
-  );
+  const maxInstallments = isRecurringCheckout
+    ? 1
+    : Math.min(
+        12,
+        Math.max(1, Number.isFinite(configuredInstallments) ? Math.floor(configuredInstallments) : 1),
+      );
   const getInstallmentInterestRate = (installmentCount: number) => {
     if (product?.payment_method !== "parcelado_taxa_cliente" || installmentCount <= 1) {
       return 0;
@@ -242,11 +250,8 @@ export default function Checkout() {
     maxInstallments,
   );
   const selectedInstallmentDetails = getInstallmentDetails(selectedInstallmentCount);
-  const isRecurringCheckout = product?.product_type === "recorrente" && Boolean(price?.subscription_period);
-  const isMonthlyRecurringCheckout = isRecurringCheckout && price?.subscription_period === "mensal";
-  const isAnnualRecurringCheckout = isRecurringCheckout && price?.subscription_period === "anual";
-  const availablePaymentMethods = isMonthlyRecurringCheckout ? ["card"] : ["pix", "card"];
-  const selectedPaymentMethod = isMonthlyRecurringCheckout ? "card" : paymentMethod;
+  const availablePaymentMethods = isCardOnlyRecurringCheckout ? ["card"] : ["pix", "card"];
+  const selectedPaymentMethod = isCardOnlyRecurringCheckout ? "card" : paymentMethod;
   const hasInstallmentFee = selectedPaymentMethod === "card" && selectedInstallmentDetails.interestRate > 0;
   const totalParcelado = hasInstallmentFee ? selectedInstallmentDetails.totalWithInterest : totalPrice;
   const installmentFeeAmount = Math.max(0, totalParcelado - totalPrice);
@@ -262,10 +267,19 @@ export default function Checkout() {
   }, [cardData.installments, maxInstallments]);
 
   useEffect(() => {
-    if (isMonthlyRecurringCheckout && paymentMethod !== "card") {
+    if (isCardOnlyRecurringCheckout && paymentMethod !== "card") {
       setPaymentMethod("card");
     }
-  }, [isMonthlyRecurringCheckout, paymentMethod]);
+  }, [isCardOnlyRecurringCheckout, paymentMethod]);
+
+  useEffect(() => {
+    if (!isRecurringCheckout) return;
+
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setShowCoupon(false);
+    setSelectedOrderBumps(new Set());
+  }, [isRecurringCheckout, price?.id]);
 
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
@@ -799,7 +813,7 @@ export default function Checkout() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isMonthlyRecurringCheckout && paymentMethod === "pix") {
+    if (isCardOnlyRecurringCheckout && paymentMethod === "pix") {
       setPaymentMethod("card");
       toast.error("Assinaturas são pagas por cartão de crédito.");
       return;
@@ -865,6 +879,13 @@ export default function Checkout() {
         externalReference: `${product.unique_code}-${Date.now()}`,
       };
 
+      if (isRecurringCheckout) {
+        Object.assign(
+          paymentData,
+          buildCheckoutInstallmentData(true, 1, totalPrice),
+        );
+      }
+
       // Adicionar dados do cartão se for pagamento com cartão
       if (selectedPaymentMethod === "card") {
         const [month, year] = cardData.expiryDate.split("/");
@@ -877,14 +898,20 @@ export default function Checkout() {
         };
 
         const installments = parseInt(cardData.installments);
-        if (installments > 1) {
-          paymentData.installmentCount = installments;
-          paymentData.installmentValue = getInstallmentDetails(installments).installmentValue;
+        if (!isRecurringCheckout) {
+          Object.assign(
+            paymentData,
+            buildCheckoutInstallmentData(
+              false,
+              installments,
+              getInstallmentDetails(installments).installmentValue,
+            ),
+          );
         }
       }
 
       // Preparar order bumps selecionados
-      const selectedBumps = Array.from(selectedOrderBumps).map((bumpId) => {
+      const selectedBumps = checkoutOrderBumpIds.map((bumpId) => {
         const bump = orderBumps.find((b) => b.id === bumpId);
         return {
           id: bumpId,
@@ -908,7 +935,7 @@ export default function Checkout() {
           productId: product.id,
           priceId: price?.id,
           userId: product.user_id,
-          couponCode: appliedCoupon?.code || null,
+          couponCode: checkoutCapabilities.allowCoupon ? appliedCoupon?.code || null : null,
           affiliateCode,
           orderBumps: selectedBumps,
           deviceInfo,
@@ -930,7 +957,7 @@ export default function Checkout() {
       }
 
       // Track conversion
-      trackConversion(Array.from(selectedOrderBumps), totalPrice, orderBumpsTotal);
+      trackConversion(checkoutOrderBumpIds, totalPrice, orderBumpsTotal);
 
       setPaymentResult(data);
 
@@ -1211,7 +1238,8 @@ export default function Checkout() {
               </div>
 
               {/* Cupom */}
-              <div className="border-y py-4">
+              {checkoutCapabilities.allowCoupon && (
+                <div className="border-y py-4">
                 <button
                   type="button"
                   className="text-blue-600 hover:underline text-sm flex items-center gap-1"
@@ -1250,7 +1278,8 @@ export default function Checkout() {
                     )}
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* Métodos de Pagamento */}
               <div className="space-y-6">
@@ -1259,7 +1288,7 @@ export default function Checkout() {
                     <p className="text-sm font-medium text-foreground">Método de pagamento</p>
                   </div>
                   <div className={`grid gap-3 ${availablePaymentMethods.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-                    {!isMonthlyRecurringCheckout && (
+                    {!isCardOnlyRecurringCheckout && (
                       <button
                         type="button"
                         className={`flex items-center justify-center gap-2 px-6 py-4 rounded-lg border-2 transition-all ${
@@ -1290,7 +1319,7 @@ export default function Checkout() {
                     </button>
                   </div>
 
-                  {isMonthlyRecurringCheckout && (
+                  {isRecurringCheckout && !isAnnualRecurringCheckout && (
                     <Card className="bg-muted/40 border-border">
                       <CardContent className="p-4">
                         <p className="text-sm text-muted-foreground">
@@ -1300,11 +1329,21 @@ export default function Checkout() {
                     </Card>
                   )}
 
+                  {isAnnualRecurringCheckout && selectedPaymentMethod === "card" && (
+                    <Card className="bg-muted/40 border-border">
+                      <CardContent className="p-4">
+                        <p className="text-sm text-muted-foreground">
+                          Assinatura anual com renovação automática
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {isAnnualRecurringCheckout && selectedPaymentMethod === "pix" && (
                     <Card className="bg-muted/40 border-border">
                       <CardContent className="p-4">
                         <p className="text-sm text-muted-foreground">
-                          Plano anual pre-pago via PIX. O acesso sera liberado apos a confirmacao do pagamento.
+                          Plano anual pré-pago, sem renovação automática
                         </p>
                       </CardContent>
                     </Card>
@@ -1404,7 +1443,7 @@ export default function Checkout() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className={`grid gap-4 ${isRecurringCheckout ? "grid-cols-2" : "grid-cols-3"}`}>
                     <div>
                       <Label htmlFor="expiryDate" className="text-sm">
                         Vencimento
@@ -1446,39 +1485,41 @@ export default function Checkout() {
                         required={selectedPaymentMethod === "card"}
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="installments" className="text-sm">
-                        Parcelas
-                      </Label>
-                      <Select
-                        value={cardData.installments}
-                        onValueChange={(installments) => {
-                          setCardData((prev) => ({ ...prev, installments }));
-                        }}
-                      >
-                        <SelectTrigger id="installments" className="mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {installmentOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {selectedInstallmentDetails.interestRate > 0 && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Total parcelado: R$ {formatCurrency(selectedInstallmentDetails.totalWithInterest)} com taxa
-                        </p>
-                      )}
-                    </div>
+                    {!isRecurringCheckout && (
+                      <div>
+                        <Label htmlFor="installments" className="text-sm">
+                          Parcelas
+                        </Label>
+                        <Select
+                          value={cardData.installments}
+                          onValueChange={(installments) => {
+                            setCardData((prev) => ({ ...prev, installments }));
+                          }}
+                        >
+                          <SelectTrigger id="installments" className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {installmentOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedInstallmentDetails.interestRate > 0 && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Total parcelado: R$ {formatCurrency(selectedInstallmentDetails.totalWithInterest)} com taxa
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
               {/* Order Bumps */}
-              {orderBumps.length > 0 && (
+              {checkoutCapabilities.allowOrderBumps && orderBumps.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">🎁</span>
@@ -1565,7 +1606,7 @@ export default function Checkout() {
                       <span className="font-semibold">R$ {formatCurrency(finalPrice)}</span>
                     </div>
 
-                    {Array.from(selectedOrderBumps).map((bumpId) => {
+                    {checkoutOrderBumpIds.map((bumpId) => {
                       const bump = orderBumps.find((b) => b.id === bumpId);
                       if (!bump) return null;
                       return (
@@ -1584,7 +1625,7 @@ export default function Checkout() {
                       <span>R$ {formatCurrency(subtotal)}</span>
                     </div>
 
-                    {appliedCoupon && (
+                    {checkoutCapabilities.allowCoupon && appliedCoupon && (
                       <div className="flex items-center justify-between text-sm text-green-600">
                         <span>Desconto:</span>
                         <span>- R$ {formatCurrency(discount)}</span>

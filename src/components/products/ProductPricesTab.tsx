@@ -169,16 +169,27 @@ export function ProductPricesTab({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (productType === "recorrente" && !formData.subscription_period) {
+      toast({
+        title: "Período obrigatório",
+        description: "Selecione o período da assinatura antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
+      const installments = productType === "recorrente" ? 1 : normalizeInstallments(formData.installments);
       const { error } = await supabase.from("product_prices").insert([
         {
           product_id: productId,
           name: formData.name,
           price: parseCurrency(formData.price),
-          subscription_period: formData.subscription_period || null,
-          installments: parseInt(formData.installments),
+          subscription_period: productType === "recorrente" ? formData.subscription_period || null : null,
+          installments,
           installment_interest_rates: shouldConfigureCustomerRates
             ? buildInstallmentInterestRates(formData.installment_interest_rates, formData.installments)
             : null,
@@ -241,27 +252,41 @@ export function ProductPricesTab({
       name: price.name,
       price: formatCurrency(price.price),
       subscription_period: price.subscription_period || "",
-      installments: price.installments?.toString() || "1",
-      installment_interest_rates: formatInstallmentInterestRates(
-        price.installment_interest_rates,
-        price.installments || 1,
-      ),
+      installments: productType === "recorrente" ? "1" : price.installments?.toString() || "1",
+      installment_interest_rates:
+        productType === "recorrente"
+          ? {}
+          : formatInstallmentInterestRates(
+              price.installment_interest_rates,
+              price.installments || 1,
+            ),
     });
     setEditOpen(true);
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (productType === "recorrente" && !editFormData.subscription_period) {
+      toast({
+        title: "Período obrigatório",
+        description: "Selecione o período da assinatura antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
+      const installments = productType === "recorrente" ? 1 : normalizeInstallments(editFormData.installments);
       const { error } = await supabase
         .from("product_prices")
         .update({
           name: editFormData.name,
           price: parseCurrency(editFormData.price),
-          subscription_period: editFormData.subscription_period || null,
-          installments: parseInt(editFormData.installments),
+          subscription_period: productType === "recorrente" ? editFormData.subscription_period || null : null,
+          installments,
           installment_interest_rates: shouldConfigureCustomerRates
             ? buildInstallmentInterestRates(editFormData.installment_interest_rates, editFormData.installments)
             : null,
@@ -338,11 +363,17 @@ export function ProductPricesTab({
 
                 {productType === "recorrente" && (
                   <div className="space-y-2">
-                    <Label>Período de Assinatura</Label>
+                    <Label>Período de Assinatura *</Label>
                     <Select
+                      required
                       value={formData.subscription_period}
                       onValueChange={(value: SubscriptionPeriod) =>
-                        setFormData({ ...formData, subscription_period: value })
+                        setFormData({
+                          ...formData,
+                          subscription_period: value,
+                          installments: "1",
+                          installment_interest_rates: {},
+                        })
                       }
                     >
                       <SelectTrigger>
@@ -356,19 +387,30 @@ export function ProductPricesTab({
                         ))}
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Assinaturas recorrentes são cobradas em uma única parcela por ciclo.
+                    </p>
+                    {formData.subscription_period === "anual" && (
+                      <p className="text-xs text-muted-foreground">
+                        No cartão, o valor anual é cobrado integralmente e renovado automaticamente a cada 12 meses.
+                        Via PIX, o plano anual é pré-pago e não tem renovação automática.
+                      </p>
+                    )}
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="installments">Número de Parcelas</Label>
-                  <Input
-                    id="installments"
-                    type="number"
-                    min="1"
-                    value={formData.installments}
-                    onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
-                  />
-                </div>
+                {productType !== "recorrente" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="installments">Número de Parcelas</Label>
+                    <Input
+                      id="installments"
+                      type="number"
+                      min="1"
+                      value={formData.installments}
+                      onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
+                    />
+                  </div>
+                )}
 
                 {renderInstallmentRateFields(
                   formData.installments,
@@ -417,7 +459,7 @@ export function ProductPricesTab({
                         Período: {SUBSCRIPTION_PERIOD_LABELS[price.subscription_period]}
                       </span>
                     )}
-                    {price.installments > 1 && (
+                    {productType !== "recorrente" && price.installments > 1 && (
                       <span>{price.installments}x parcelas</span>
                     )}
                   </div>
@@ -497,11 +539,17 @@ export function ProductPricesTab({
 
             {productType === "recorrente" && (
               <div className="space-y-2">
-                <Label>Período de Assinatura</Label>
+                <Label>Período de Assinatura *</Label>
                 <Select
+                  required
                   value={editFormData.subscription_period}
                   onValueChange={(value: SubscriptionPeriod) =>
-                    setEditFormData({ ...editFormData, subscription_period: value })
+                    setEditFormData({
+                      ...editFormData,
+                      subscription_period: value,
+                      installments: "1",
+                      installment_interest_rates: {},
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -515,19 +563,30 @@ export function ProductPricesTab({
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Assinaturas recorrentes são cobradas em uma única parcela por ciclo.
+                </p>
+                {editFormData.subscription_period === "anual" && (
+                  <p className="text-xs text-muted-foreground">
+                    No cartão, o valor anual é cobrado integralmente e renovado automaticamente a cada 12 meses. Via
+                    PIX, o plano anual é pré-pago e não tem renovação automática.
+                  </p>
+                )}
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="edit-installments">Número de Parcelas</Label>
-              <Input
-                id="edit-installments"
-                type="number"
-                min="1"
-                value={editFormData.installments}
-                onChange={(e) => setEditFormData({ ...editFormData, installments: e.target.value })}
-              />
-            </div>
+            {productType !== "recorrente" && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-installments">Número de Parcelas</Label>
+                <Input
+                  id="edit-installments"
+                  type="number"
+                  min="1"
+                  value={editFormData.installments}
+                  onChange={(e) => setEditFormData({ ...editFormData, installments: e.target.value })}
+                />
+              </div>
+            )}
 
             {renderInstallmentRateFields(
               editFormData.installments,
