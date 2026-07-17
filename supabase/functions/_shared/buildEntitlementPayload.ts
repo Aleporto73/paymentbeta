@@ -11,6 +11,8 @@
 // - `product.id` is included for auditing only. Receivers must decide access
 //   by `entitlement.code`, never by PaymentBeta internal ids.
 
+import { SUBSCRIPTION_CYCLE_MONTHS } from "./subscriptionPeriod.ts";
+
 export const ENTITLEMENT_EVENT_VERSION = "2026-06-10";
 
 export interface EntitlementProductInput {
@@ -39,6 +41,7 @@ export interface EntitlementTransactionInput {
 }
 
 export interface EntitlementSubscriptionInput {
+  cycle?: string | null;
   current_period_end?: string | null;
   access_until?: string | null;
 }
@@ -78,6 +81,13 @@ const PERIOD_MONTHS: Record<string, number> = {
   anual: 12,
 };
 
+const CYCLE_PERIOD_MAP: Record<string, string> = {
+  MONTHLY: "monthly",
+  QUARTERLY: "quarterly",
+  SEMIANNUALLY: "semiannual",
+  YEARLY: "yearly",
+};
+
 export const toIsoOrNull = (value: unknown): string | null => {
   if (typeof value !== "string" || value.trim() === "") return null;
   const date = new Date(value);
@@ -114,33 +124,54 @@ export function buildEntitlementPayload(args: BuildEntitlementPayloadArgs) {
     occurredAt;
 
   const isLifetime = product.product_type === "pagamento_unico";
+  const isRecurring = product.product_type === "recorrente";
+
+  if (!isLifetime && !isRecurring) {
+    throw new Error("Unsupported entitlement product type");
+  }
 
   let entitlementPeriod: string | null = null;
   let expiresAt: string | null = null;
 
-  if (!isLifetime) {
+  if (isRecurring) {
     const rawPeriod = price?.subscription_period ?? null;
-    entitlementPeriod = rawPeriod ? PERIOD_MAP[rawPeriod] ?? rawPeriod : null;
+    const subscriptionCycle = subscription?.cycle ?? null;
+    entitlementPeriod = subscription
+      ? CYCLE_PERIOD_MAP[subscriptionCycle ?? ""] ?? null
+      : rawPeriod
+        ? PERIOD_MAP[rawPeriod] ?? null
+        : null;
+
+    const periodMonths = subscription
+      ? SUBSCRIPTION_CYCLE_MONTHS[subscriptionCycle ?? ""] ?? null
+      : rawPeriod
+        ? PERIOD_MONTHS[rawPeriod] ?? null
+        : null;
 
     if (args.expiresAtOverride !== undefined) {
       // The caller knows the authoritative end of access; never widen it.
       expiresAt = toIsoOrNull(args.expiresAtOverride);
     } else {
-      // Prefer the explicit access window when available, otherwise derive
-      // expires_at from the paid period.
-      const computedExpiry = rawPeriod && PERIOD_MONTHS[rawPeriod]
-        ? addMonths(new Date(startsAt), PERIOD_MONTHS[rawPeriod]).toISOString()
+      // A persisted subscription window is authoritative and freezes the
+      // entitlement independently from later product_prices edits. Prepaid
+      // payments (such as annual PIX) have no subscription row and derive the
+      // expiration from the immutable transaction start plus the price period.
+      const computedExpiry = periodMonths
+        ? addMonths(new Date(startsAt), periodMonths).toISOString()
         : null;
       const subscriptionExpiry =
         toIsoOrNull(subscription?.access_until) ??
         toIsoOrNull(subscription?.current_period_end);
 
-      // Use whichever is later so a renewal never shortens already-granted access.
-      if (computedExpiry && subscriptionExpiry) {
-        expiresAt = subscriptionExpiry > computedExpiry ? subscriptionExpiry : computedExpiry;
-      } else {
-        expiresAt = subscriptionExpiry ?? computedExpiry;
-      }
+      expiresAt = subscriptionExpiry ?? computedExpiry;
+    }
+
+    if (!entitlementPeriod) {
+      throw new Error("Recurring entitlement requires a valid period");
+    }
+
+    if (!expiresAt) {
+      throw new Error("Recurring entitlement requires a valid expiration");
     }
   }
 

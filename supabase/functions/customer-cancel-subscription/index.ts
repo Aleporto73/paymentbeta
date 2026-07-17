@@ -26,7 +26,9 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
 import {
+  CUSTOMER_CANCELLATION_SUBSCRIPTION_SELECT,
   type CancellationSubscriptionRow,
+  isCancellationSubscriptionRow,
   queueCancellationWebhooks,
 } from '../_shared/queueCancellationWebhooks.ts';
 
@@ -58,6 +60,27 @@ const CANCELLED_OR_INACTIVE_STATUSES = new Set([
   'EXPIRED',
   'DELETED',
 ]);
+
+interface CustomerCancellationSubscriptionRow extends CancellationSubscriptionRow {
+  asaas_subscription_id: string | null;
+  status: string | null;
+  cancel_at_period_end: boolean | null;
+  cancelled_at: string | null;
+  ended_at: string | null;
+}
+
+const isCustomerCancellationSubscriptionRow = (
+  value: unknown,
+): value is CustomerCancellationSubscriptionRow => {
+  if (!isCancellationSubscriptionRow(value)) return false;
+  const row = value as Record<string, unknown>;
+
+  return (row.asaas_subscription_id === null || typeof row.asaas_subscription_id === 'string') &&
+    (row.status === null || typeof row.status === 'string') &&
+    (row.cancel_at_period_end === null || typeof row.cancel_at_period_end === 'boolean') &&
+    (row.cancelled_at === null || typeof row.cancelled_at === 'string') &&
+    (row.ended_at === null || typeof row.ended_at === 'string');
+};
 
 // SHA-256 hex of a utf-8 string. MUST match the algorithm used in
 // `generate-subscription-token/index.ts` exactly, otherwise hashes will
@@ -185,11 +208,9 @@ Deno.serve(async (req) => {
     }
 
     // 5) Load the subscription this token unlocks.
-    const { data: subscription, error: subscriptionError } = await supabase
+    const { data: subscriptionData, error: subscriptionError } = await supabase
       .from('subscriptions')
-      .select(
-        'id, asaas_subscription_id, status, access_until, cancel_at_period_end, cancelled_at, ended_at, product_id, product_price_id, current_period_end, last_payment_id',
-      )
+      .select(CUSTOMER_CANCELLATION_SUBSCRIPTION_SELECT)
       .eq('id', tokenRow.subscription_id)
       .maybeSingle();
 
@@ -198,11 +219,21 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, error: 'Erro interno' }, 500);
     }
 
-    if (!subscription) {
+    if (!subscriptionData) {
       // Token pointed to a subscription that no longer exists. From the
       // caller's perspective this is indistinguishable from a bad token.
       return tokenInvalidResponse();
     }
+
+    if (!isCustomerCancellationSubscriptionRow(subscriptionData)) {
+      console.error(
+        'Subscription query returned an incomplete cancellation row:',
+        tokenRow.subscription_id,
+      );
+      return jsonResponse({ success: false, error: 'Erro interno' }, 500);
+    }
+
+    const subscription = subscriptionData;
 
     // 6) Idempotency. If the subscription is already in a cancelled or
     //    inactive state, do NOT call Asaas again. Return success with a
@@ -345,7 +376,7 @@ Deno.serve(async (req) => {
     //     problem must not turn a successful cancellation into an error.
     await queueCancellationWebhooks(
       supabase,
-      subscription as CancellationSubscriptionRow,
+      subscription,
       cancellationStampIso,
     );
 

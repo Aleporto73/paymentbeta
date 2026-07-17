@@ -4,6 +4,18 @@ import {
   buildEntitlementPayload,
   ENTITLEMENT_EVENT_VERSION,
 } from "../_shared/buildEntitlementPayload.ts";
+import type {
+  EntitlementSubscriptionInput,
+  EntitlementTransactionInput,
+} from "../_shared/buildEntitlementPayload.ts";
+import {
+  classifyWebhookQueueInsertError,
+  failedQueueResult,
+  queuedResult,
+  shouldRetryEntitlementQueue,
+  skippedQueueResult,
+  type EntitlementQueueResult,
+} from "../_shared/webhookQueueResult.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -582,11 +594,52 @@ async function updateTransactionSplitsFromWebhook(
   }
 }
 
-async function queueWebhooks(supabaseAdmin: any, transaction: any) {
+async function queueWebhooks(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  transaction: EntitlementTransactionInput & {
+    product_id: string | null;
+    price_id?: string | null;
+  },
+  subscription: EntitlementSubscriptionInput | null = null,
+): Promise<EntitlementQueueResult> {
+  const recordRetryableFailure = async (
+    webhookUrl: string | null,
+    reason: unknown,
+  ) => {
+    const sanitizedReason = sanitizeForLog(reason);
+    console.error('Retryable entitlement queue failure:', sanitizedReason);
+
+    if (!transaction.product_id || !webhookUrl) return;
+
+    try {
+      const { error: logError } = await supabaseAdmin.from('webhook_logs').insert({
+        product_id: transaction.product_id,
+        webhook_url: webhookUrl,
+        payload: { event: 'sale.confirmed', transaction_id: transaction.id },
+        response_status: null,
+        response_body: `retryable: ${sanitizedReason}`,
+        success: false,
+        event: 'sale.confirmed',
+        event_version: ENTITLEMENT_EVENT_VERSION,
+      });
+
+      if (!logError) return;
+      console.error(
+        'Error recording retryable entitlement queue failure:',
+        sanitizeForLog(logError),
+      );
+    } catch (logError) {
+      console.error(
+        'Unexpected error recording retryable entitlement queue failure:',
+        sanitizeForLog(logError),
+      );
+    }
+  };
+
   try {
     if (!transaction.product_id) {
       console.log('No product_id in transaction, skipping webhook queue');
-      return;
+      return skippedQueueResult('transaction has no product_id');
     }
 
     // Get active webhooks for this product
@@ -597,13 +650,13 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
       .eq('is_active', true);
 
     if (webhooksError) {
-      console.error('Error fetching product webhooks:', webhooksError);
-      return;
+      await recordRetryableFailure(null, webhooksError);
+      return failedQueueResult('error fetching product webhooks');
     }
 
     if (!webhooks || webhooks.length === 0) {
       console.log('No active webhooks configured for product:', transaction.product_id);
-      return;
+      return skippedQueueResult('no active product webhooks');
     }
 
     // Load product (entitlement source of truth) and price details.
@@ -614,8 +667,13 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
       .single();
 
     if (productError || !product) {
-      console.error('Error fetching product for entitlement webhook:', productError);
-      return;
+      for (const webhook of webhooks) {
+        await recordRetryableFailure(
+          webhook.webhook_url,
+          productError ?? 'product not found for entitlement webhook',
+        );
+      }
+      return failedQueueResult('error fetching product');
     }
 
     // Safety rule: without an explicit entitlement_code there is no reliable
@@ -634,18 +692,32 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
         event: 'sale.confirmed',
         event_version: ENTITLEMENT_EVENT_VERSION,
       }));
-      await supabaseAdmin.from('webhook_logs').insert(skipLogs);
-      return;
+      const { error: skipLogError } = await supabaseAdmin.from('webhook_logs').insert(skipLogs);
+      if (skipLogError) {
+        console.error('Error recording skipped entitlement webhook:', sanitizeForLog(skipLogError));
+      }
+      return skippedQueueResult('product has no entitlement_code configured');
     }
 
     let price: any = null;
     if (transaction.price_id) {
-      const { data: priceData } = await supabaseAdmin
+      const { data: priceData, error: priceError } = await supabaseAdmin
         .from('product_prices')
         .select('id, unique_code, subscription_period')
         .eq('id', transaction.price_id)
-        .single();
-      price = priceData ?? null;
+        .maybeSingle();
+
+      if (priceError || !priceData) {
+        for (const webhook of webhooks) {
+          await recordRetryableFailure(
+            webhook.webhook_url,
+            priceError ?? 'price not found for entitlement webhook',
+          );
+        }
+        return failedQueueResult('error fetching product price');
+      }
+
+      price = priceData;
     }
 
     // Queue one sanitized entitlement payload per active URL, each with its
@@ -653,6 +725,8 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
     // (transaction_id, event, webhook_url) can deduplicate without aborting
     // the other destinations.
     let queuedCount = 0;
+    let deduplicatedCount = 0;
+    let retryableFailureCount = 0;
     for (const webhook of webhooks) {
       const deliveryId = crypto.randomUUID();
 
@@ -664,9 +738,15 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
           transaction,
           product,
           price,
+          subscription,
         });
-      } catch (buildError) {
-        console.error('Error building entitlement payload:', buildError);
+      } catch (error) {
+        const reason = 'skipped: invalid recurring entitlement period or expiration';
+        await recordRetryableFailure(
+          webhook.webhook_url,
+          `${reason}: ${sanitizeForLog(error)}`,
+        );
+        retryableFailureCount += 1;
         continue;
       }
 
@@ -685,14 +765,15 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
         });
 
       if (queueError) {
-        // 23505 = unique violation: this transaction/event/url was already
-        // queued (e.g. PAYMENT_CONFIRMED followed by PAYMENT_RECEIVED).
-        if (queueError.code === '23505') {
+        const classification = classifyWebhookQueueInsertError(queueError);
+        if (classification === 'deduplicated') {
           console.log(
             `Webhook already queued for transaction ${transaction.id} -> ${webhook.webhook_url}, skipping duplicate`,
           );
+          deduplicatedCount += 1;
         } else {
-          console.error('Error queuing webhook:', queueError);
+          await recordRetryableFailure(webhook.webhook_url, queueError);
+          retryableFailureCount += 1;
         }
         continue;
       }
@@ -700,9 +781,17 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
       queuedCount++;
     }
 
+    if (retryableFailureCount > 0) {
+      return failedQueueResult(
+        'one or more entitlement destinations failed',
+        queuedCount,
+        deduplicatedCount,
+      );
+    }
+
     if (queuedCount === 0) {
-      console.log('No new webhooks queued for product:', transaction.product_id);
-      return;
+      console.log('All entitlement webhooks were already queued for product:', transaction.product_id);
+      return queuedResult(0, deduplicatedCount);
     }
 
     console.log(`Queued ${queuedCount} webhooks for product ${transaction.product_id}`);
@@ -716,8 +805,10 @@ async function queueWebhooks(supabaseAdmin: any, transaction: any) {
       },
     }).catch(console.error);
 
+    return queuedResult(queuedCount, deduplicatedCount);
   } catch (error) {
-    console.error('Error in queueWebhooks:', error);
+    await recordRetryableFailure(null, error);
+    return failedQueueResult('unexpected entitlement queue failure');
   }
 }
 
@@ -772,26 +863,6 @@ async function getAffiliateSaleData(supabaseAdmin: any, fullTransaction: any) {
 // ---------------------------------------------------------------------------
 // Recurring subscription helpers (PAYMENT_* events with payment.subscription).
 // ---------------------------------------------------------------------------
-
-const SUBSCRIPTION_CYCLE_MONTHS: Record<string, number> = {
-  MONTHLY: 1,
-  QUARTERLY: 3,
-  SEMIANNUALLY: 6,
-  YEARLY: 12,
-};
-
-const addUtcMonths = (date: Date, months: number) => {
-  const result = new Date(date.getTime());
-  result.setUTCMonth(result.getUTCMonth() + months);
-  return result;
-};
-
-const computeSubscriptionPeriodEnd = (start: Date, cycle: unknown): Date | null => {
-  if (typeof cycle !== 'string') return null;
-  const months = SUBSCRIPTION_CYCLE_MONTHS[cycle];
-  if (!months) return null;
-  return addUtcMonths(start, months);
-};
 
 const parseAsaasDate = (value: unknown): Date | null => {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -932,62 +1003,47 @@ async function applySubscriptionPaymentConfirmed(
   supabaseAdmin: any,
   subscription: any,
   payment: any,
+  eventType: string,
 ) {
   const effectiveDate = getPaymentEffectiveDate(payment);
-
-  // Renewal must never shorten access. The base for the next cycle is the
-  // latest of: payment effective date, the current period end (if still in
-  // the future), and access_until (if still in the future). On a first
-  // payment both prior fields are NULL, so periodStartBase == effectiveDate.
-  let periodStartBase = effectiveDate;
-  const futureCandidates = [
-    subscription.current_period_end,
-    subscription.access_until,
-  ];
-  for (const candidate of futureCandidates) {
-    const parsed = parseAsaasDate(candidate);
-    if (parsed && parsed.getTime() > periodStartBase.getTime()) {
-      periodStartBase = parsed;
-    }
-  }
-
-  const periodEnd = computeSubscriptionPeriodEnd(periodStartBase, subscription.cycle);
-
-  const updatePayload: Record<string, unknown> = {
-    last_payment_id: payment.id,
-    last_payment_status: payment.status,
-    last_paid_at: effectiveDate.toISOString(),
-    overdue_since: null,
-    ended_at: null,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (periodEnd) {
-    updatePayload.current_period_start = periodStartBase.toISOString();
-    updatePayload.current_period_end = periodEnd.toISOString();
-    updatePayload.access_until = periodEnd.toISOString();
-  } else {
-    console.warn(
-      'Unknown subscription cycle, skipping period computation for subscription:',
-      subscription.id,
-      'cycle:',
-      subscription.cycle,
-    );
-  }
-
-  const currentStatus = typeof subscription.status === 'string' ? subscription.status : '';
-  if (['INACTIVE', 'EXPIRED', 'OVERDUE'].includes(currentStatus)) {
-    updatePayload.status = 'ACTIVE';
-  }
-
-  const { error } = await supabaseAdmin
-    .from('subscriptions')
-    .update(updatePayload)
-    .eq('id', subscription.id);
+  const { data, error } = await supabaseAdmin
+    .rpc('apply_subscription_payment', {
+      p_subscription_id: subscription.id,
+      p_asaas_payment_id: payment.id,
+      p_event_type: eventType,
+      p_effective_date: effectiveDate.toISOString(),
+      p_payment_status: payment.status,
+    })
+    .single();
 
   if (error) {
-    console.error('Error updating subscription after confirmed payment:', error);
+    console.error('Transactional subscription payment application failed:', sanitizeForLog(error));
+    return null;
   }
+
+  if (
+    !data ||
+    (data.application_result !== 'applied' && data.application_result !== 'duplicate') ||
+    !data.subscription ||
+    !data.application?.applied_period_end
+  ) {
+    console.error('Subscription payment RPC returned an invalid result');
+    return null;
+  }
+
+  if (data.application_result === 'duplicate') {
+    console.log('Subscription payment already present in durable ledger:', payment.id);
+  }
+
+  return {
+    result: data.application_result as 'applied' | 'duplicate',
+    subscription: data.subscription,
+    entitlementSubscription: {
+      cycle: data.subscription.cycle ?? null,
+      current_period_end: data.application.applied_period_end,
+      access_until: data.application.applied_period_end,
+    } satisfies EntitlementSubscriptionInput,
+  };
 }
 
 async function applySubscriptionPaymentOverdue(
@@ -996,7 +1052,6 @@ async function applySubscriptionPaymentOverdue(
   payment: any,
 ) {
   const updatePayload: Record<string, unknown> = {
-    last_payment_id: payment.id,
     last_payment_status: payment.status,
     updated_at: new Date().toISOString(),
   };
@@ -1022,7 +1077,6 @@ async function applySubscriptionPaymentRefundOrCancel(
   eventType: string,
 ) {
   const updatePayload: Record<string, unknown> = {
-    last_payment_id: payment.id,
     last_payment_status: payment.status,
     updated_at: new Date().toISOString(),
   };
@@ -1473,11 +1527,13 @@ serve(async (req) => {
       // Find the transaction by asaas_payment_id
       // Note: declared with `let` so we can reassign when auto-creating from a
       // subscription recurring payment below.
-      let { data: existingTransaction, error: findError } = await supabaseAdmin
+      const transactionLookup = await supabaseAdmin
         .from('transactions')
         .select('*')
         .eq('asaas_payment_id', paymentId)
         .single();
+      let existingTransaction = transactionLookup.data;
+      const findError = transactionLookup.error;
 
       if (findError && findError.code !== 'PGRST116') {
         console.error('Error finding transaction:', findError);
@@ -1492,13 +1548,18 @@ serve(async (req) => {
       const recurringSubscriptionAsaasId = getTextValue(payment?.subscription);
       let recurringSubscription: any = null;
       let recurringTransactionForEmail: any = null;
+      let transactionForWebhooks: typeof existingTransaction = null;
+      let subscriptionForEntitlement: EntitlementSubscriptionInput | null = null;
+      let subscriptionPaymentApplicationFailed = false;
 
-      if (!existingTransaction && recurringSubscriptionAsaasId) {
+      if (recurringSubscriptionAsaasId) {
         recurringSubscription = await loadSubscriptionByAsaasId(
           supabaseAdmin,
           recurringSubscriptionAsaasId,
         );
+      }
 
+      if (!existingTransaction && recurringSubscriptionAsaasId) {
         if (recurringSubscription) {
           const recurringCustomer = await loadAsaasCustomerByAsaasId(
             supabaseAdmin,
@@ -1726,9 +1787,9 @@ serve(async (req) => {
                 }
               }
               
-              // Queue webhooks with full transaction data
-              console.log('Queueing webhooks for product:', fullTransaction.product_id);
-              await queueWebhooks(supabaseAdmin, fullTransaction);
+              // Queue only after subscription side-effects below. This ensures
+              // entitlement uses the persisted cycle and paid access window.
+              transactionForWebhooks = fullTransaction;
             }
           }
         }
@@ -1752,17 +1813,22 @@ serve(async (req) => {
           const paymentStatus = typeof payment?.status === 'string' ? payment.status : '';
 
           if (paymentStatus === 'CONFIRMED' || paymentStatus === 'RECEIVED') {
-            await applySubscriptionPaymentConfirmed(
+            const application = await applySubscriptionPaymentConfirmed(
               supabaseAdmin,
               subscriptionForUpdate,
               payment,
+              eventType ?? '',
             );
-            await sendSubscriptionManagementEmail(
-              supabaseAdmin,
-              subscriptionForUpdate,
-              recurringTransactionForEmail ?? existingTransaction,
-              payment,
-            );
+            subscriptionForEntitlement = application?.entitlementSubscription ?? null;
+            subscriptionPaymentApplicationFailed = !application;
+            if (application) {
+              await sendSubscriptionManagementEmail(
+                supabaseAdmin,
+                subscriptionForUpdate,
+                recurringTransactionForEmail ?? existingTransaction,
+                payment,
+              );
+            }
           } else if (paymentStatus === 'OVERDUE') {
             await applySubscriptionPaymentOverdue(
               supabaseAdmin,
@@ -1778,11 +1844,11 @@ serve(async (req) => {
             );
           } else {
             // Other statuses (PENDING, AWAITING_RISK_ANALYSIS, etc.): keep
-            // last_payment_* in sync so the subscription row is auditable.
+            // status audit data in sync. last_payment_id is deliberately
+            // reserved for a confirmed payment whose cycle was applied.
             const { error: trackError } = await supabaseAdmin
               .from('subscriptions')
               .update({
-                last_payment_id: payment.id,
                 last_payment_status: paymentStatus,
                 updated_at: new Date().toISOString(),
               })
@@ -1790,11 +1856,50 @@ serve(async (req) => {
 
             if (trackError) {
               console.error(
-                'Error tracking last_payment_* on subscription:',
+                'Error tracking last_payment_status on subscription:',
                 trackError,
               );
             }
           }
+        } else if (payment?.status === 'CONFIRMED' || payment?.status === 'RECEIVED') {
+          subscriptionPaymentApplicationFailed = true;
+          console.error(
+            'Cannot apply confirmed subscription payment because the subscription row was not found:',
+            recurringSubscriptionAsaasId,
+          );
+        }
+      }
+
+      if (subscriptionPaymentApplicationFailed) {
+        await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+        return jsonResponse({ received: true });
+      }
+
+      if (transactionForWebhooks) {
+        console.log('Queueing webhooks for product:', transactionForWebhooks.product_id);
+        // A payment carrying payment.subscription must never fall back to the
+        // mutable product price. An empty authoritative object intentionally
+        // makes the entitlement builder fail closed and record a sanitized
+        // skip when the subscription row could not be loaded or updated.
+        const authoritativeSubscription = recurringSubscriptionAsaasId
+          ? subscriptionForEntitlement ?? {}
+          : null;
+        const queueResult = await queueWebhooks(
+          supabaseAdmin,
+          transactionForWebhooks,
+          authoritativeSubscription,
+        );
+
+        if (shouldRetryEntitlementQueue(queueResult)) {
+          console.error(
+            'Entitlement queue failed; keeping Asaas event reprocessable:',
+            queueResult.reason,
+          );
+          await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+          return jsonResponse(
+            { error: 'Entitlement queue failed', received: true, retryable: true },
+            500,
+          );
         }
       }
 

@@ -14,9 +14,11 @@ import {
   ProductCategory,
   ProductType,
   PaymentMethod,
+  SubscriptionPeriod,
   CATEGORY_LABELS,
   PRODUCT_TYPE_LABELS,
   PAYMENT_METHOD_LABELS,
+  SUBSCRIPTION_PERIOD_LABELS,
 } from "@/types/product";
 
 interface CreateProductDialogProps {
@@ -69,6 +71,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
     category: "" as ProductCategory,
     product_type: "" as ProductType,
     payment_method: "" as PaymentMethod,
+    subscription_period: "" as SubscriptionPeriod | "",
     price: "",
     installments: "1",
     installment_interest_rates: {} as InstallmentRateForm,
@@ -79,8 +82,24 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
     setLoading(true);
 
     try {
+      const isRecurring = formData.product_type === "recorrente";
+
+      if (isRecurring && !formData.subscription_period) {
+        throw new Error("Selecione o período da assinatura");
+      }
+
+      const subscriptionPeriod = isRecurring ? formData.subscription_period : null;
+      const installments = isRecurring ? 1 : normalizeInstallments(formData.installments);
       const { data: { user } } = await supabase.auth.getUser();
-      const { installment_interest_rates, ...productFormData } = formData;
+      const { installment_interest_rates } = formData;
+      const productFormData = {
+        name: formData.name,
+        description: formData.description,
+        image_url: formData.image_url,
+        category: formData.category,
+        product_type: formData.product_type,
+        payment_method: formData.payment_method,
+      };
       if (!user) throw new Error("Usuário não autenticado");
 
       // Criar o produto
@@ -91,7 +110,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
             ...productFormData,
             user_id: user.id,
             price: parseFloat(formData.price),
-            installments: parseInt(formData.installments),
+            installments,
           } as any,
         ])
         .select()
@@ -100,8 +119,8 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
       if (productError) throw productError;
 
       // Criar o preço principal automaticamente
-      const priceName = formData.product_type === "recorrente" 
-        ? "Plano Mensal" 
+      const priceName = isRecurring
+        ? `Plano ${SUBSCRIPTION_PERIOD_LABELS[subscriptionPeriod as SubscriptionPeriod]}`
         : "Preço Principal";
       
       const { error: priceError } = await supabase.from("product_prices").insert([
@@ -109,9 +128,9 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
           product_id: product.id,
           name: priceName,
           price: parseFloat(formData.price),
-          subscription_period: formData.product_type === "recorrente" ? "mensal" : null,
-          installments: parseInt(formData.installments),
-          installment_interest_rates: formData.payment_method === "parcelado_taxa_cliente"
+          subscription_period: subscriptionPeriod,
+          installments,
+          installment_interest_rates: !isRecurring && formData.payment_method === "parcelado_taxa_cliente"
             ? buildInstallmentInterestRates(installment_interest_rates, formData.installments)
             : null,
           is_default: true,
@@ -132,6 +151,7 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
         category: "" as ProductCategory,
         product_type: "" as ProductType,
         payment_method: "" as PaymentMethod,
+        subscription_period: "" as SubscriptionPeriod | "",
         price: "",
         installments: "1",
         installment_interest_rates: {},
@@ -151,7 +171,9 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
 
   const maxInstallmentsForRates = normalizeInstallments(formData.installments);
   const showInstallmentInterestRates =
-    formData.payment_method === "parcelado_taxa_cliente" && maxInstallmentsForRates > 1;
+    formData.product_type !== "recorrente" &&
+    formData.payment_method === "parcelado_taxa_cliente" &&
+    maxInstallmentsForRates > 1;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -212,8 +234,9 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
               />
             </div>
 
-            {(formData.payment_method === "parcelado_taxa_cliente" ||
-              formData.payment_method === "parcelado_taxa_vendedor") && (
+            {formData.product_type !== "recorrente" &&
+              (formData.payment_method === "parcelado_taxa_cliente" ||
+                formData.payment_method === "parcelado_taxa_vendedor") && (
               <div className="space-y-2">
                 <Label htmlFor="installments">Número de Parcelas *</Label>
                 <Input
@@ -299,7 +322,14 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
                 required
                 value={formData.product_type}
                 onValueChange={(value: ProductType) =>
-                  setFormData({ ...formData, product_type: value })
+                  setFormData({
+                    ...formData,
+                    product_type: value,
+                    subscription_period: value === "recorrente" ? formData.subscription_period : "",
+                    installments: value === "recorrente" ? "1" : formData.installments,
+                    installment_interest_rates:
+                      value === "recorrente" ? {} : formData.installment_interest_rates,
+                  })
                 }
               >
                 <SelectTrigger>
@@ -315,6 +345,38 @@ export function CreateProductDialog({ onProductCreated }: CreateProductDialogPro
               </Select>
             </div>
           </div>
+
+          {formData.product_type === "recorrente" && (
+            <div className="space-y-2">
+              <Label>Período de Assinatura *</Label>
+              <Select
+                required
+                value={formData.subscription_period}
+                onValueChange={(value: SubscriptionPeriod) =>
+                  setFormData({
+                    ...formData,
+                    subscription_period: value,
+                    installments: "1",
+                    installment_interest_rates: {},
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o período" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SUBSCRIPTION_PERIOD_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Assinaturas recorrentes são cobradas em uma única parcela por ciclo.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Forma de Pagamento *</Label>

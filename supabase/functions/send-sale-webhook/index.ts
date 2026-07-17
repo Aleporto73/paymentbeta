@@ -121,6 +121,42 @@ serve(async (req) => {
       price = priceData ?? null;
     }
 
+    // For Asaas subscriptions, freeze entitlement to the persisted cycle and
+    // paid window instead of reading the current editable price period.
+    let subscription = null;
+    if (product.product_type === 'recorrente') {
+      const rawSubscriptionId = transaction.asaas_raw_payload?.payment?.subscription
+        ?? transaction.asaas_raw_payload?.subscription;
+      const asaasSubscriptionId = typeof rawSubscriptionId === 'string'
+        ? rawSubscriptionId
+        : null;
+
+      if (asaasSubscriptionId) {
+        const { data: subscriptionData } = await supabaseClient
+          .from('subscriptions')
+          .select('cycle, current_period_end, access_until')
+          .eq('asaas_subscription_id', asaasSubscriptionId)
+          .maybeSingle();
+        // Keep a truthy authoritative marker when the lookup fails so a
+        // manual resend cannot fall back to the mutable product price.
+        subscription = subscriptionData ?? {};
+      } else if (transaction.asaas_payment_id) {
+        const { data: subscriptionData } = await supabaseClient
+          .from('subscriptions')
+          .select('cycle, current_period_end, access_until')
+          .eq('last_payment_id', transaction.asaas_payment_id)
+          .maybeSingle();
+        subscription = subscriptionData ?? null;
+      }
+
+      // Only annual prepaid PIX is allowed to derive recurrence from price.
+      // Legacy/manual card resends without a resolvable subscription fail
+      // closed instead of inheriting a price period edited after the sale.
+      if (!subscription && transaction.billing_type !== 'PIX') {
+        subscription = {};
+      }
+    }
+
     // Get active webhooks for this product
     const { data: webhooks, error: webhooksError } = await supabaseClient
       .from('product_webhooks')
@@ -150,13 +186,37 @@ serve(async (req) => {
     // Send to all active webhooks (manual resend: fresh delivery_id per send)
     for (const webhook of webhooks) {
       const deliveryId = crypto.randomUUID();
-      const payload = buildEntitlementPayload({
-        event,
-        deliveryId,
-        transaction,
-        product,
-        price,
-      });
+      let payload;
+      try {
+        payload = buildEntitlementPayload({
+          event,
+          deliveryId,
+          transaction,
+          product,
+          price,
+          subscription,
+        });
+      } catch {
+        const reason = 'skipped: invalid recurring entitlement period or expiration';
+        console.error(`Webhook not sent to ${webhook.webhook_url}: ${reason}`);
+        await supabaseClient.from('webhook_logs').insert({
+          product_id: transaction.product_id,
+          webhook_url: webhook.webhook_url,
+          payload: { event, transaction_id: transaction.id },
+          response_status: null,
+          response_body: reason,
+          success: false,
+          delivery_id: deliveryId,
+          event,
+          event_version: ENTITLEMENT_EVENT_VERSION,
+        });
+        results.push({
+          webhookUrl: webhook.webhook_url,
+          success: false,
+          error: reason,
+        });
+        continue;
+      }
 
       try {
         // Explicit, auditable failure when no signing secret is configured.
