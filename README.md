@@ -1,73 +1,72 @@
-# Welcome to your Lovable project
+# PaymentBeta
 
-## Project info
+Plataforma central de checkout, pagamentos, assinaturas, cancelamentos e entrega de entitlement para os produtos do ecossistema.
 
-**URL**: https://lovable.dev/projects/aa22696f-7fee-4c9c-b549-7014d3c9e96f
+Antes de alterar pagamentos ou assinaturas, leia:
 
-## How can I edit this code?
+1. `AGENTS.md`
+2. `docs/estado/HANDOFF.md`
+3. `docs/estado/PROJECT_STATE.md`
+4. `docs/estado/DECISIONS.md`
+5. `docs/integrations/PAYMENTBETA_CONSUMER_CONTRACT.md`
 
-There are several ways of editing your application.
+## Objetivo
 
-**Use Lovable**
+O PaymentBeta é a **autoridade central** de cobrança do ecossistema. Ele concentra o
+checkout, a criação de clientes e pagamentos no Asaas, o ciclo de vida das
+assinaturas recorrentes, os cancelamentos e a emissão dos webhooks de
+entitlement que liberam acesso nos produtos consumidores.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/aa22696f-7fee-4c9c-b549-7014d3c9e96f) and start prompting.
+O PaymentBeta é a **fonte de verdade das assinaturas**: cycle, períodos pagos,
+`access_until`, ledger de idempotência e cancelamento vivem aqui. Os produtos
+consumidores apenas recebem e validam o entitlement.
 
-Changes made via Lovable will be committed automatically to this repo.
+## Stack atual
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
+- React
 - Vite
 - TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- Supabase (Postgres, RLS, Edge Functions)
+- Asaas (gateway de pagamento e assinaturas)
 
-## How can I deploy this project?
+## Papéis e fronteiras
 
-Simply open [Lovable](https://lovable.dev/projects/aa22696f-7fee-4c9c-b549-7014d3c9e96f) and click on Share -> Publish.
+- O PaymentBeta é a autoridade das assinaturas e do entitlement.
+- **Produtos consumidores não devem chamar o Asaas diretamente.** Toda cobrança,
+  assinatura e cancelamento passa pelo PaymentBeta.
+- Os consumidores liberam acesso exclusivamente pelo `entitlement.code` recebido
+  no webhook, respeitando `type`, `period` e `expires_at`.
 
-## Can I connect a custom domain to my Lovable project?
+Detalhes do contrato em `docs/integrations/PAYMENTBETA_CONSUMER_CONTRACT.md`.
 
-Yes, you can!
+## Comandos básicos
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+```bash
+npm install                 # instalar dependências
+npm run dev                 # ambiente de desenvolvimento (Vite)
+npm run build               # build de produção
+npm run test:annual-recurring   # testes da assinatura anual recorrente
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Ambiente local
+
+- Diretório local: `C:\Users\evera\Projetos\paymentbeta`
+- Branch principal: `main`
+
+## Documentação canônica
+
+A documentação canônica e atual do projeto está em:
+
+- `AGENTS.md` — regras obrigatórias para pessoas e agentes.
+- `docs/estado/HANDOFF.md` — leia primeiro; resumo de uma página.
+- `docs/estado/PROJECT_STATE.md` — estado atual do sistema.
+- `docs/estado/DECISIONS.md` — decisões de arquitetura e produto.
+- `docs/estado/NEXT_STEPS.md` — próximos passos.
+- `docs/estado/RISKS.md` — riscos conhecidos.
+- `docs/integrations/PAYMENTBETA_CONSUMER_CONTRACT.md` — contrato para produtos consumidores.
+
+## Autorização obrigatória
+
+**Deploy, execução de SQL remoto e aplicação de migrations exigem autorização
+explícita.** Nenhuma dessas ações deve ser executada automaticamente. O mesmo
+vale para `commit` e `push`: somente quando explicitamente solicitado.
