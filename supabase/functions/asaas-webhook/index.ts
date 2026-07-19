@@ -16,6 +16,10 @@ import {
   skippedQueueResult,
   type EntitlementQueueResult,
 } from "../_shared/webhookQueueResult.ts";
+import {
+  confirmedSubscriptionKey,
+  confirmedTransactionKey,
+} from "../_shared/entitlementIdempotency.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -601,6 +605,11 @@ async function queueWebhooks(
     price_id?: string | null;
   },
   subscription: EntitlementSubscriptionInput | null = null,
+  // `subscriptions.id` local. Presente => o consumidor chaveia o escopo por
+  // assinatura; ausente => cai em legacy_tx, chaveado pela transacao. Como cada
+  // renovacao cria uma transacao nova, omitir isto numa assinatura abriria um
+  // escopo novo por mes. Nunca fabricar.
+  subscriptionId: string | null = null,
 ): Promise<EntitlementQueueResult> {
   const recordRetryableFailure = async (
     webhookUrl: string | null,
@@ -739,6 +748,7 @@ async function queueWebhooks(
           product,
           price,
           subscription,
+          subscriptionId,
         });
       } catch (error) {
         const reason = 'skipped: invalid recurring entitlement period or expiration';
@@ -762,6 +772,14 @@ async function queueWebhooks(
           event: 'sale.confirmed',
           event_version: ENTITLEMENT_EVENT_VERSION,
           transaction_id: transaction.id,
+          subscription_id: subscriptionId,
+          // Assinatura: chave por (assinatura, pagamento) -- renovacao tem
+          // pagamento novo, logo chave nova. Avulsa/legado: chave pela
+          // transacao. Nunca fabricar subscription_id para caber na primeira.
+          idempotency_key: subscriptionId
+            ? confirmedSubscriptionKey(subscriptionId, transaction.asaas_payment_id)
+            : confirmedTransactionKey(transaction.id),
+          next_retry_at: new Date().toISOString(),
         });
 
       if (queueError) {
@@ -1550,6 +1568,7 @@ serve(async (req) => {
       let recurringTransactionForEmail: any = null;
       let transactionForWebhooks: typeof existingTransaction = null;
       let subscriptionForEntitlement: EntitlementSubscriptionInput | null = null;
+      let subscriptionIdForEntitlement: string | null = null;
       let subscriptionPaymentApplicationFailed = false;
 
       if (recurringSubscriptionAsaasId) {
@@ -1835,6 +1854,10 @@ serve(async (req) => {
           ));
 
         if (subscriptionForUpdate) {
+          // A assinatura local existe: o id e um fato, nao uma suposicao. Sem
+          // ele o consumidor abriria um escopo legacy_tx novo a cada renovacao.
+          subscriptionIdForEntitlement = subscriptionForUpdate.id ?? null;
+
           const paymentStatus = typeof payment?.status === 'string' ? payment.status : '';
 
           if (paymentStatus === 'CONFIRMED' || paymentStatus === 'RECEIVED') {
@@ -1923,6 +1946,7 @@ serve(async (req) => {
           supabaseAdmin,
           transactionForWebhooks,
           authoritativeSubscription,
+          subscriptionIdForEntitlement,
         );
 
         if (shouldRetryEntitlementQueue(queueResult)) {

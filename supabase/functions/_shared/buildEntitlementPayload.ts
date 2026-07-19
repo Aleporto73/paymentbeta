@@ -65,7 +65,38 @@ export interface BuildEntitlementPayloadArgs {
    * extend access past what was actually paid for.
    */
   expiresAtOverride?: string | null;
+  /**
+   * PaymentBeta's own `subscriptions.id`, nested under `entitlement`.
+   *
+   * Additive within event_version 2026-06-10 — the receiver treats it as
+   * optional. Omitting it is NOT neutral: the consumer then keys the billing
+   * scope by transaction_id (`legacy_tx`), and since every renewal creates a new
+   * transaction, every renewal would open a NEW independent scope. Send it
+   * whenever the subscription is genuinely known; never fabricate it.
+   */
+  subscriptionId?: string | null;
+  /**
+   * Immutable cycle anchor (`transactions.due_date`), nested under
+   * `entitlement`. Only meaningful for the renewal-failure event.
+   */
+  cycleFrom?: string | null;
+  /**
+   * Asaas payment status, verbatim, emitted as top-level `payment.status`.
+   * The consumer reads it only for access_revoked, to tell a refund from a
+   * chargeback by prefix. Pass the value straight from the webhook, not from a
+   * possibly stale local row.
+   */
+  paymentStatus?: string | null;
+  /** Short audit label (e.g. "refund", "chargeback"). Never PII. */
+  reason?: string | null;
 }
+
+/** Trims to a non-empty string, or null. Keeps blanks out of the payload. */
+const cleanText = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+};
 
 const PERIOD_MAP: Record<string, string> = {
   mensal: "monthly",
@@ -175,6 +206,15 @@ export function buildEntitlementPayload(args: BuildEntitlementPayloadArgs) {
     }
   }
 
+  // Campos aditivos dentro da MESMA event_version. So entram no payload quando
+  // ha valor real: enviar `undefined` some na serializacao, mas enviar `null`
+  // sem necessidade obriga o receptor a distinguir "ausente" de "nulo" sem
+  // motivo.
+  const subscriptionId = cleanText(args.subscriptionId);
+  const cycleFrom = cleanText(args.cycleFrom);
+  const paymentStatus = cleanText(args.paymentStatus);
+  const reason = cleanText(args.reason);
+
   return {
     event,
     event_version: ENTITLEMENT_EVENT_VERSION,
@@ -188,13 +228,18 @@ export function buildEntitlementPayload(args: BuildEntitlementPayloadArgs) {
       period: isLifetime ? null : entitlementPeriod,
       starts_at: startsAt,
       expires_at: isLifetime ? null : expiresAt,
+      ...(subscriptionId ? { subscription_id: subscriptionId } : {}),
+      ...(cycleFrom ? { cycle_from: cycleFrom } : {}),
     },
     customer: {
       email: transaction.customer_email,
       name: transaction.customer_name,
     },
+    ...(reason ? { reason } : {}),
     payment: {
-      status: transaction.status,
+      // O status do webhook vence o da linha local, que pode estar defasada na
+      // corrida. Sem override, mantem-se o comportamento anterior.
+      status: paymentStatus ?? transaction.status,
       billing_type: transaction.billing_type,
       value: transaction.value,
     },

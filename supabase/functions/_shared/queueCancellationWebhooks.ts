@@ -15,11 +15,9 @@
 //   `entitlement.expires_at` is the end of the period already paid for, so the
 //   receiver keeps access alive while expires_at is in the future.
 
-import {
-  buildEntitlementPayload,
-  ENTITLEMENT_EVENT_VERSION,
-  toIsoOrNull,
-} from "./buildEntitlementPayload.ts";
+import { ENTITLEMENT_EVENT_VERSION, toIsoOrNull } from "./buildEntitlementPayload.ts";
+import { cancelledKey } from "./entitlementIdempotency.ts";
+import { queueEntitlementEvent } from "./queueEntitlementEvent.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.84.0";
 
 export const CANCELLATION_EVENT = "subscription.cancelled";
@@ -186,84 +184,29 @@ export async function queueCancellationWebhooks(
       toIsoOrNull(subscription.current_period_end) ??
       cancelledAt;
 
-    let queued = 0;
-    let skippedReason: string | null = null;
-    for (const webhook of webhooks) {
-      const deliveryId = crypto.randomUUID();
+    // Enfileiramento delegado ao helper canonico. O comportamento FINANCEIRO
+    // nao muda: mesmo evento, mesmo expiresAt (fim do periodo ja pago), acesso
+    // preservado ate la, nenhuma suspensao imediata. O que muda e que a linha
+    // passa a carregar subscription_id e a chave idempotente do fato.
+    const result = await queueEntitlementEvent(supabase, {
+      event: CANCELLATION_EVENT,
+      idempotencyKey: cancelledKey(subscription.id),
+      transaction: { ...transaction, product_id: subscription.product_id },
+      product,
+      price,
+      subscription,
+      subscriptionId: subscription.id,
+      occurredAt: cancelledAt,
+      expiresAtOverride: expiresAt,
+    });
 
-      let payload;
-      try {
-        payload = buildEntitlementPayload({
-          event: CANCELLATION_EVENT,
-          deliveryId,
-          occurredAt: cancelledAt,
-          transaction,
-          product,
-          price,
-          subscription,
-          expiresAtOverride: expiresAt,
-        });
-      } catch {
-        skippedReason = "skipped: invalid recurring entitlement period or expiration";
-        console.error(
-          `Skipping cancellation entitlement for subscription ${subscription.id}: ${skippedReason}`,
-        );
-        await supabase.from("webhook_logs").insert({
-          product_id: subscription.product_id,
-          webhook_url: webhook.webhook_url,
-          payload: { event: CANCELLATION_EVENT, subscription_id: subscription.id },
-          response_status: null,
-          response_body: skippedReason,
-          success: false,
-          event: CANCELLATION_EVENT,
-          event_version: ENTITLEMENT_EVENT_VERSION,
-        });
-        continue;
-      }
-
-      const { error: queueError } = await supabase.from("webhook_queue").insert({
-        product_id: subscription.product_id,
-        product_webhook_id: webhook.id,
-        webhook_url: webhook.webhook_url,
-        payload,
-        status: "pending",
-        delivery_id: deliveryId,
-        event: CANCELLATION_EVENT,
-        event_version: ENTITLEMENT_EVENT_VERSION,
-        transaction_id: transaction.id,
-      });
-
-      if (queueError) {
-        // 23505 = unique violation on (transaction_id, event, webhook_url):
-        // this cancellation is already queued for this destination. Benign and
-        // expected -- an admin and the customer can cancel the same subscription,
-        // and a retried cancellation must not enqueue a second revocation.
-        if (queueError.code === "23505") {
-          console.log(
-            `Cancellation already queued for subscription ${subscription.id} -> ${webhook.webhook_url}, skipping duplicate`,
-          );
-        } else {
-          console.error("Error queuing cancellation webhook:", queueError);
-        }
-        continue;
-      }
-
-      queued++;
-    }
-
-    if (queued > 0) {
-      // Fire and forget: the queue row is the source of truth, and the processor
-      // picks up anything this nudge misses.
-      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/process-webhook-queue`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          "Content-Type": "application/json",
-        },
-      }).catch(console.error);
-    }
-
-    return { queued, skipped: queued === 0 ? skippedReason : null };
+    // Duplicata e benigna e esperada: admin e cliente podem cancelar a mesma
+    // assinatura, e um cancelamento retentado nao pode virar segunda revogacao.
+    const queued = result.queued;
+    return {
+      queued,
+      skipped: queued === 0 && result.duplicate === 0 ? result.reason : null,
+    };
   } catch (error) {
     console.error("Unexpected error queuing cancellation webhooks:", error);
     return { queued: 0, skipped: "unexpected error queuing cancellation webhooks" };
