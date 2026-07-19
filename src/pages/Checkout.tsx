@@ -14,7 +14,6 @@ import CheckoutOrderBump from "@/components/checkout/CheckoutOrderBump";
 import { ProductOrderBump } from "@/types/product";
 import { useCheckoutTracking } from "@/hooks/useCheckoutTracking";
 import { usePixPaymentPolling } from "@/hooks/usePixPaymentPolling";
-import { useConversionTracking } from "@/hooks/useConversionTracking";
 import { buildCheckoutInstallmentData, getCheckoutCapabilities } from "@/lib/checkoutRules";
 
 // Declarar tipos para scripts de tracking client-side
@@ -81,51 +80,27 @@ export default function Checkout() {
   const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
   const [adsConfigs, setAdsConfigs] = useState<any[]>([]);
 
-  // Função para gerar token e redirecionar
-  const generateAndRedirectWithToken = async (redirectUrl: string, transactionId: string) => {
-    try {
-      // Gerar token de transação
-      const { data: tokenData, error: tokenError } = await supabase.functions.invoke("generate-transaction-token", {
-        body: { transactionId },
-      });
-
-      if (tokenError) {
-        console.error("Error generating token:", tokenError);
-        // Redirecionar sem token em caso de erro
-        window.location.href = redirectUrl;
-        return;
-      }
-
-      // Salvar token no localStorage para acesso em múltiplas páginas
-      localStorage.setItem("transaction_token", tokenData.token);
-      localStorage.setItem("transaction_token_expiry", tokenData.expires_at);
-
-      // Adicionar token à URL de redirecionamento
-      // Se for URL absoluta (http/https), usa diretamente. Se for relativa, usa origin
-      let urlWithToken;
-      if (redirectUrl.startsWith('http://') || redirectUrl.startsWith('https://')) {
-        urlWithToken = new URL(redirectUrl);
-      } else {
-        urlWithToken = new URL(redirectUrl, window.location.origin);
-      }
-      
-      urlWithToken.searchParams.set("transaction_token", tokenData.token);
-      
-      window.location.href = urlWithToken.toString();
-    } catch (error) {
-      console.error("Error generating token:", error);
-      // Redirecionar sem token em caso de erro
-      window.location.href = redirectUrl;
-    }
-  };
+  // O redirecionamento pos-pagamento nao emite mais transaction_token.
+  //
+  // A chamada a generate-transaction-token vivia aqui e SEMPRE falhou com 401:
+  // aquela function exige service-role, que o navegador nunca teve nem deve ter.
+  // O token existia apenas para o upsell one-click, que nunca foi configurado
+  // (product_upsells, transaction_tokens, upsell_transactions e
+  // product_upsell_analytics estao vazias desde a criacao, em 2025-11-25).
+  //
+  // Removido tambem por seguranca: o token era portador de autorizacao de
+  // COBRANCA -- process-upsell-payment debita o cartao salvo apresentando apenas
+  // ele -- e era gravado na query string da URL e no localStorage. Nenhum dos
+  // dois e lugar para uma credencial que move dinheiro.
+  //
+  // O provisionamento nunca dependeu disto: o entitlement vem de
+  // asaas-webhook -> webhook_queue -> process-webhook-queue.
 
   const { trackConversion } = useCheckoutTracking({
     productId: product?.id || "",
     priceId: price?.id,
     affiliateCode,
   });
-
-  const { sendConversionEvent } = useConversionTracking();
 
   // Hook de polling inteligente para PIX
   const { isPolling, checkCount } = usePixPaymentPolling({
@@ -140,32 +115,19 @@ export default function Checkout() {
       toast.success("Pagamento confirmado! Redirecionando...");
       setPixPollingEnabled(false);
 
-      // Enviar evento de conversão Purchase
+      // Purchase apenas client-side. A chamada server-side a
+      // send-conversion-events saiu daqui: aquela function exige papel `admin`
+      // (e verify_jwt), e o comprador e anonimo, entao ela sempre respondeu 401.
+      // O evento server-side correto nasce no asaas-webhook, quando o pagamento
+      // realmente confirma -- nao no navegador, que nao pode provar isso.
       if (product?.id && paymentResult?.transaction?.id) {
-        await sendConversionEvent({
-          productId: product.id,
-          eventType: "Purchase",
-          value: totalPrice,
-          currency: "BRL",
-          transactionId: paymentResult.transaction.id,
-          customerEmail: formData.email,
-          customerName: formData.fullName,
-        });
-
-        // Disparar evento Purchase client-side
         fireClientSideEvent("Purchase", totalPrice, paymentResult.transaction.id);
       }
 
-      // Redirecionar para página configurada com token de transação
-      setTimeout(async () => {
+      // Redirecionar para a página configurada, sem token.
+      setTimeout(() => {
         const redirectUrl = product?.approved_payment_redirect_url || "/pagamento-aprovado";
-        const transactionId = paymentResult?.transaction?.id;
-
-        if (transactionId) {
-          await generateAndRedirectWithToken(redirectUrl, transactionId);
-        } else {
-          window.location.href = redirectUrl;
-        }
+        window.location.href = redirectUrl;
       }, 2000);
     },
     onError: (error) => {
@@ -287,16 +249,11 @@ export default function Checkout() {
   // Enviar evento InitiateCheckout quando produto e preço estiverem carregados
   useEffect(() => {
     if (product && price && !loading && !hasTrackedInitCheckout && totalPrice > 0) {
-      sendConversionEvent({
-        productId: product.id,
-        eventType: "InitiateCheckout",
-        value: totalPrice,
-        currency: "BRL",
-        customerEmail: formData.email || undefined,
-      });
       setHasTrackedInitCheckout(true);
 
-      // Disparar eventos client-side
+      // InitiateCheckout e client-side por natureza: nao existe fato financeiro
+      // no backend para espelha-lo. A chamada server-side removida daqui so
+      // produzia 401.
       fireClientSideEvent("InitiateCheckout", totalPrice);
     }
   }, [product, price, loading, totalPrice, hasTrackedInitCheckout]);
@@ -967,30 +924,13 @@ export default function Checkout() {
         // Modal já está aberto, iniciar polling
         setPixPollingEnabled(true);
       } else {
-        // Para cartão de crédito, enviar evento Purchase e redirecionar
-        await sendConversionEvent({
-          productId: product.id,
-          eventType: "Purchase",
-          value: totalPrice,
-          currency: "BRL",
-          transactionId: data?.transaction?.id,
-          customerEmail: formData.email,
-          customerName: formData.fullName,
-        });
-
-        // Disparar evento Purchase client-side
+        // Para cartão de crédito: Purchase client-side e redireciona.
         fireClientSideEvent("Purchase", totalPrice, data?.transaction?.id);
 
         toast.success("Pagamento processado com sucesso! Redirecionando...");
-        setTimeout(async () => {
+        setTimeout(() => {
           const redirectUrl = product.approved_payment_redirect_url || "/pagamento-aprovado";
-          const transactionId = data?.transaction?.id;
-
-          if (transactionId) {
-            await generateAndRedirectWithToken(redirectUrl, transactionId);
-          } else {
-            window.location.href = redirectUrl;
-          }
+          window.location.href = redirectUrl;
         }, 2000);
       }
     } catch (error: any) {

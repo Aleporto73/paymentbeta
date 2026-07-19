@@ -165,7 +165,11 @@ async function sendMetaPixelEvent(
   }
 
   const eventName = eventType === "InitiateCheckout" ? "InitiateCheckout" : "Purchase";
-  
+
+  // hashEmail e assincrono: sem o await, `em` receberia uma Promise e o e-mail
+  // seria serializado como {} -- ou, pior numa versao futura, vazaria.
+  const hashedEmail = customerEmail ? await hashEmail(customerEmail) : undefined;
+
   const eventData = {
     data: [{
       event_name: eventName,
@@ -173,7 +177,7 @@ async function sendMetaPixelEvent(
       action_source: "website",
       event_id: transactionId || `${Date.now()}-${Math.random()}`,
       user_data: {
-        em: customerEmail ? hashEmail(customerEmail) : undefined,
+        em: hashedEmail,
       },
       custom_data: {
         value: value,
@@ -230,7 +234,9 @@ async function sendTikTokPixelEvent(
   }
 
   const eventName = eventType === "InitiateCheckout" ? "InitiateCheckout" : "CompletePayment";
-  
+
+  const hashedEmail = customerEmail ? await hashEmail(customerEmail) : undefined;
+
   const eventData = {
     pixel_code: config.pixel_id,
     event: eventName,
@@ -238,7 +244,7 @@ async function sendTikTokPixelEvent(
     timestamp: new Date().toISOString(),
     context: {
       user: {
-        email: customerEmail ? hashEmail(customerEmail) : undefined,
+        email: hashedEmail,
       },
     },
     properties: {
@@ -282,12 +288,23 @@ async function sendTaboolaPixelEvent(
   };
 }
 
-// Helper function to hash email for privacy
-function hashEmail(email: string): string {
-  // Normalize email (lowercase, trim)
+// Hash do e-mail para as APIs de conversao.
+//
+// Esta funcao ANTES devolvia o e-mail normalizado em TEXTO PURO -- o comentario
+// original admitia ("in production, use SHA-256") e ninguem voltou. Meta e
+// TikTok exigem SHA-256 nesses campos, entao o valor antigo era ao mesmo tempo
+// invalido para as plataformas e um vazamento de dado pessoal do comprador.
+//
+// Normalizacao conforme exigido por ambas: trim + lowercase, depois SHA-256 em
+// hexadecimal minusculo de 64 caracteres.
+async function hashEmail(email: string): Promise<string> {
   const normalized = email.toLowerCase().trim();
-  
-  // Simple hash function (in production, use SHA-256)
-  // For now, just return normalized for demonstration
-  return normalized;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(normalized),
+  );
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }

@@ -89,7 +89,9 @@ serve(async (req) => {
       );
     }
 
-    console.log("[get-upsell-data] Token validated:", tokenData);
+    // Nunca logar tokenData: a linha carrega o token completo, nome, e-mail e
+    // asaas_customer_id. O fato de ter validado ja e a informacao util.
+    console.log("[get-upsell-data] Token validated");
 
     // Get original transaction to check payment method
     const { data: originalTransaction, error: transactionError } = await supabaseClient
