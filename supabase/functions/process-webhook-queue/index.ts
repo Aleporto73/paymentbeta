@@ -2,6 +2,40 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ENTITLEMENT_EVENT_VERSION } from "../_shared/buildEntitlementPayload.ts";
 import { buildAuditableHeaders, signWebhookRequest } from "../_shared/webhookSignature.ts";
+import {
+  REQUEST_TIMEOUT_MS,
+  STALE_PROCESSING_MS,
+  interpretReceiverBody,
+  isEligibleNow,
+  isStaleProcessing,
+  nextRetryAt,
+  nextStatusAfterFailure,
+  sanitizeErrorMessage,
+  truncateResponseBody,
+} from "../_shared/webhookRetryPolicy.ts";
+
+/**
+ * Cliente Supabase, com o mesmo tipo que `authorizeRequest` já usa neste
+ * arquivo — evita `any` sem inventar uma interface estrutural paralela.
+ */
+type QueueClient = ReturnType<typeof createClient>;
+
+/** Só o que este processador lê da linha da fila. */
+interface QueueRow {
+  id: string;
+  product_id: string | null;
+  product_webhook_id: string | null;
+  webhook_url: string;
+  payload: unknown;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_attempt_at: string | null;
+  next_retry_at: string | null;
+  delivery_id: string;
+  event: string | null;
+  event_version: string | null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,7 +45,8 @@ const corsHeaders = {
 // Batch processing configuration
 const BATCH_SIZE = 10; // Process 10 webhooks at a time
 const PROCESSING_DELAY = 100; // 100ms delay between batches
-const REQUEST_TIMEOUT = 10000; // 10 second timeout per webhook
+// O timeout mora em _shared/webhookRetryPolicy.ts (REQUEST_TIMEOUT_MS), junto
+// do backoff que ele alimenta.
 
 const unauthorizedResponse = () =>
   new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -88,21 +123,39 @@ serve(async (req) => {
 
     console.log("Starting webhook queue processing...");
 
-    // Get pending webhooks in batches
-    const { data: pendingWebhooks, error: fetchError } = await supabaseClient
+    const nowIso = new Date().toISOString();
+
+    // Candidatas: pendentes cujo horario de retry chegou, MAIS linhas presas em
+    // `processing` alem da janela de recuperacao (worker que morreu entre o
+    // claim e a resposta). `next_retry_at` nulo = "agora", que e o caso das
+    // linhas anteriores ao P1.
+    //
+    // `attempts < max_attempts` NAO e filtravel aqui: o PostgREST nao compara
+    // duas colunas entre si. O corte fica no isEligibleNow, logo abaixo, que le
+    // max_attempts da propria linha -- o antigo `.lt("attempts", 5)` ignorava a
+    // coluna e usava um 5 fixo que nem batia com o default 3.
+    const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS).toISOString();
+    const { data: candidates, error: fetchError } = await supabaseClient
       .from("webhook_queue")
       .select("*")
-      .eq("status", "pending")
-      .lt("attempts", 5) // Max 5 attempts
+      .or(
+        `and(status.eq.pending,next_retry_at.is.null),` +
+          `and(status.eq.pending,next_retry_at.lte.${nowIso}),` +
+          `and(status.eq.processing,last_attempt_at.lte.${staleBefore})`,
+      )
       .order("created_at", { ascending: true })
-      .limit(BATCH_SIZE);
+      .limit(BATCH_SIZE * 2);
 
     if (fetchError) {
       console.error("Error fetching pending webhooks:", fetchError);
       throw fetchError;
     }
 
-    if (!pendingWebhooks || pendingWebhooks.length === 0) {
+    const eligible = (candidates ?? [])
+      .filter((row: QueueRow) => isEligibleNow(row) || isStaleProcessing(row))
+      .slice(0, BATCH_SIZE);
+
+    if (eligible.length === 0) {
       console.log("No pending webhooks to process");
       return new Response(
         JSON.stringify({ message: "No pending webhooks", processed: 0 }),
@@ -110,11 +163,27 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processing ${pendingWebhooks.length} webhooks...`);
+    // Claim antes de qualquer chamada remota. O UPDATE condicional e a trava:
+    // dois workers competindo pela mesma linha rodam o mesmo statement, o
+    // Postgres serializa, e o segundo nao encontra mais o status esperado e
+    // recebe zero linhas. Sem isto, o SELECT anterior nao impedia entrega dupla.
+    const claimed: QueueRow[] = [];
+    for (const row of eligible) {
+      if (await claimWebhook(row, supabaseClient)) claimed.push(row);
+    }
 
-    // Process webhooks in parallel with controlled concurrency
+    if (claimed.length === 0) {
+      console.log("All candidate webhooks were claimed by another worker");
+      return new Response(
+        JSON.stringify({ message: "Nothing claimed", processed: 0 }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`Processing ${claimed.length} webhooks...`);
+
     const results = await Promise.allSettled(
-      pendingWebhooks.map((webhook) => processWebhook(webhook, supabaseClient))
+      claimed.map((webhook) => processWebhook(webhook, supabaseClient))
     );
 
     const successful = results.filter((r) => r.status === "fulfilled").length;
@@ -122,9 +191,11 @@ serve(async (req) => {
 
     console.log(`Webhook processing complete: ${successful} successful, ${failed} failed`);
 
-    // Schedule next batch processing if there are more webhooks
-    if (pendingWebhooks.length === BATCH_SIZE) {
-      // Trigger next batch processing in background
+    // Autoencadeamento apenas quando o lote encheu E ainda restam linhas
+    // ELEGIVEIS AGORA. Encadear por lote cheio, como antes, faria a fila girar
+    // sem parar quando o que sobrou tem next_retry_at futuro -- as linhas nao
+    // seriam processadas, mas cada rodada dispararia a proxima.
+    if (claimed.length === BATCH_SIZE && (await hasImmediateWork(supabaseClient))) {
       setTimeout(() => {
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/process-webhook-queue`, {
           method: "POST",
@@ -139,7 +210,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         message: "Webhooks processed",
-        processed: pendingWebhooks.length,
+        processed: claimed.length,
         successful,
         failed,
       }),
@@ -157,6 +228,60 @@ serve(async (req) => {
     );
   }
 });
+
+/**
+ * Reivindica a linha para ESTE worker.
+ *
+ * A condicao `.eq("status", row.status)` e o que torna a operacao segura: o
+ * Postgres serializa UPDATEs concorrentes sobre a mesma linha, entao apenas o
+ * primeiro encontra o status esperado. O segundo recebe zero linhas e desiste.
+ *
+ * `attempts` e incrementado AQUI, junto do claim, e nao depois do envio: se o
+ * worker morrer no meio, a tentativa ja foi contabilizada e a linha nao pode
+ * ser retentada infinitamente.
+ *
+ * `delivery_id` NAO e tocado -- e o que faz o consumidor deduplicar a
+ * reentrega em vez de conceder acesso duas vezes.
+ */
+async function claimWebhook(row: QueueRow, supabaseClient: QueueClient): Promise<boolean> {
+  const { data, error } = await supabaseClient
+    .from("webhook_queue")
+    .update({
+      status: "processing",
+      last_attempt_at: new Date().toISOString(),
+      attempts: (row.attempts ?? 0) + 1,
+    })
+    .eq("id", row.id)
+    .eq("status", row.status)
+    .select("id");
+
+  if (error) {
+    console.error(`Error claiming webhook ${row.id}:`, sanitizeErrorMessage(error));
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Existe alguma linha ELEGIVEL AGORA? Usado só para decidir o autoencadeamento.
+ * Linhas com next_retry_at futuro nao contam -- quem as pega e o agendador.
+ */
+async function hasImmediateWork(supabaseClient: QueueClient): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabaseClient
+    .from("webhook_queue")
+    .select("id, status, attempts, max_attempts, next_retry_at")
+    .or(`and(status.eq.pending,next_retry_at.is.null),and(status.eq.pending,next_retry_at.lte.${nowIso})`)
+    .limit(BATCH_SIZE);
+
+  if (error) {
+    console.error("Error checking for immediate work:", sanitizeErrorMessage(error));
+    return false;
+  }
+
+  return (data ?? []).some((row: QueueRow) => isEligibleNow(row));
+}
 
 // Resolve the signing secret for a queue row. Prefers the explicit
 // product_webhook_id link; falls back to (product_id, webhook_url) for
@@ -184,13 +309,16 @@ async function resolveWebhookSecret(webhook: any, supabaseClient: any): Promise<
   return typeof secret === "string" && secret.length > 0 ? secret : null;
 }
 
-async function processWebhook(webhook: any, supabaseClient: any) {
+async function processWebhook(webhook: QueueRow, supabaseClient: QueueClient) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   const event = webhook.event ?? "sale.confirmed";
   const eventVersion = webhook.event_version ?? ENTITLEMENT_EVENT_VERSION;
   const deliveryId = webhook.delivery_id;
+  // O claim ja incrementou attempts; e este o numero que a linha carrega agora.
+  const attempts = (webhook.attempts ?? 0) + 1;
+  const maxAttempts = webhook.max_attempts ?? 3;
 
   try {
     console.log(`Sending webhook to ${webhook.webhook_url}...`);
@@ -203,12 +331,14 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       const errorMessage = "missing webhook_secret: configure a secret for this webhook before delivery";
       console.error(`Webhook ${webhook.id} not sent: ${errorMessage}`);
 
+      // Terminal de imediato: nao e falha transitoria, retentar sem configurar
+      // o segredo daria o mesmo resultado para sempre.
       await supabaseClient
         .from("webhook_queue")
         .update({
           status: "failed",
-          last_attempt_at: new Date().toISOString(),
           error_message: errorMessage,
+          next_retry_at: null,
         })
         .eq("id", webhook.id);
 
@@ -225,16 +355,6 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       });
       return;
     }
-
-    // Update status to processing
-    await supabaseClient
-      .from("webhook_queue")
-      .update({
-        status: "processing",
-        last_attempt_at: new Date().toISOString(),
-        attempts: webhook.attempts + 1,
-      })
-      .eq("id", webhook.id);
 
     // Sign at SEND time (fresh timestamp per attempt, current secret).
     // rawBody is serialized exactly once and the same string is signed
@@ -258,8 +378,14 @@ async function processWebhook(webhook: any, supabaseClient: any) {
 
     clearTimeout(timeoutId);
 
-    const responseBody = await response.text().catch(() => "");
+    const rawResponseBody = await response.text().catch(() => "");
+    const responseBody = truncateResponseBody(rawResponseBody);
     const success = response.ok;
+
+    // O receptor pode responder 2xx e mesmo assim NAO ter concedido nada.
+    const verdict = success
+      ? interpretReceiverBody(rawResponseBody)
+      : { outcome: "unknown" as const, receiverStatus: null, needsAlert: false };
 
     // Log webhook delivery (public headers only, signature truncated)
     await supabaseClient.from("webhook_logs").insert({
@@ -267,8 +393,11 @@ async function processWebhook(webhook: any, supabaseClient: any) {
       webhook_url: webhook.webhook_url,
       payload: webhook.payload,
       response_status: response.status,
-      response_body: responseBody.substring(0, 1000), // Limit to 1000 chars
-      success,
+      response_body: responseBody,
+      // Um `unsupported_*` chegou ao destino, mas nao concedeu direito algum.
+      // Marcar success=false e o que faz o alerta aparecer na auditoria em vez
+      // de se esconder atras de um HTTP 200.
+      success: success && !verdict.needsAlert,
       delivery_id: deliveryId,
       event,
       event_version: eventVersion,
@@ -276,40 +405,64 @@ async function processWebhook(webhook: any, supabaseClient: any) {
     });
 
     if (success) {
-      // Mark as sent
-      await supabaseClient
-        .from("webhook_queue")
-        .update({ status: "sent" })
-        .eq("id", webhook.id);
-
-      console.log(`Webhook sent successfully to ${webhook.webhook_url}`);
-    } else {
-      // Mark as failed or retry
-      const shouldRetry = webhook.attempts + 1 < webhook.max_attempts;
+      // Entrega HTTP concluida em qualquer 2xx, inclusive unsupported_*:
+      // retentar um evento que o receptor recusa por contrato daria o mesmo
+      // resultado para sempre. Fica `sent`, com o motivo auditavel na linha.
       await supabaseClient
         .from("webhook_queue")
         .update({
-          status: shouldRetry ? "pending" : "failed",
-          error_message: `HTTP ${response.status}: ${responseBody.substring(0, 500)}`,
+          status: "sent",
+          response_status: response.status,
+          response_body: responseBody,
+          error_message: verdict.needsAlert
+            ? `receiver rejected by contract: ${verdict.receiverStatus}`
+            : null,
+          next_retry_at: null,
+        })
+        .eq("id", webhook.id);
+
+      if (verdict.needsAlert) {
+        console.error(
+          `CONTRACT DRIFT: ${webhook.webhook_url} answered 2xx with "${verdict.receiverStatus}" ` +
+            `for event ${event} (delivery ${deliveryId}). Nothing was granted.`,
+        );
+      } else {
+        console.log(`Webhook sent successfully to ${webhook.webhook_url}`);
+      }
+    } else {
+      const status = nextStatusAfterFailure(attempts, maxAttempts);
+      await supabaseClient
+        .from("webhook_queue")
+        .update({
+          status,
+          response_status: response.status,
+          response_body: responseBody,
+          error_message: sanitizeErrorMessage(`HTTP ${response.status}: ${rawResponseBody}`),
+          next_retry_at: nextRetryAt(attempts, maxAttempts),
         })
         .eq("id", webhook.id);
 
       console.error(
-        `Webhook failed for ${webhook.webhook_url}: HTTP ${response.status}`
+        `Webhook failed for ${webhook.webhook_url}: HTTP ${response.status} (attempt ${attempts}/${maxAttempts}, now ${status})`
       );
     }
   } catch (error) {
+    // Timeout (AbortError) e erro de rede caem aqui. Nao ha resposta remota,
+    // entao response_status/response_body ficam nulos -- e a linha NUNCA pode
+    // permanecer em `processing`.
     clearTimeout(timeoutId);
-    console.error(`Error sending webhook to ${webhook.webhook_url}:`, error);
-    
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = sanitizeErrorMessage(error);
+    console.error(`Error sending webhook to ${webhook.webhook_url}: ${errorMessage}`);
 
-    const shouldRetry = webhook.attempts + 1 < webhook.max_attempts;
+    const status = nextStatusAfterFailure(attempts, maxAttempts);
     await supabaseClient
       .from("webhook_queue")
       .update({
-        status: shouldRetry ? "pending" : "failed",
+        status,
+        response_status: null,
+        response_body: null,
         error_message: errorMessage,
+        next_retry_at: nextRetryAt(attempts, maxAttempts),
       })
       .eq("id", webhook.id);
 
