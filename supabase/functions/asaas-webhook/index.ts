@@ -1794,9 +1794,34 @@ serve(async (req) => {
           }
         }
       } else {
-        console.error('Transaction not found for Asaas webhook payment', paymentId);
         await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
-        return jsonResponse({ received: true });
+
+        // A payment carrying payment.subscription belongs to a subscription this
+        // system created, so its transaction either exists or should have just
+        // been auto-created. Reaching here means reconciliation of data that
+        // MUST exist locally failed. Answering 200 would tell Asaas the event was
+        // handled and the only delivery would be lost, so fail closed and let
+        // Asaas retry. The inbox row is already marked failed, which lets
+        // resolveExistingAsaasWebhookEvent reuse it instead of treating the
+        // retry as a duplicate.
+        if (recurringSubscriptionAsaasId) {
+          console.error(
+            'Reconciliation failed: no transaction for subscription payment',
+            paymentId,
+            'subscription:',
+            recurringSubscriptionAsaasId,
+          );
+          return jsonResponse(
+            { error: 'Subscription transaction reconciliation failed', received: true, retryable: true },
+            500,
+          );
+        }
+
+        // No subscription context: this payment was never ours (created outside
+        // PaymentBeta, or already purged). Genuinely irrelevant, so retrying it
+        // forever would be noise, not recovery.
+        console.warn('Transaction not found for Asaas webhook payment', paymentId);
+        return jsonResponse({ received: true, ignored: true });
       }
 
       // Subscription side-effects for recurring payments. Only runs on the
@@ -1870,9 +1895,19 @@ serve(async (req) => {
         }
       }
 
+      // Either the subscription row behind a confirmed payment was not found, or
+      // apply_subscription_payment did not return a usable result. In both cases
+      // the paid period was NOT advanced, so any entitlement queued from here on
+      // would carry a stale access window. Fail closed: 500 keeps the event
+      // reprocessable at Asaas instead of silently dropping a confirmed payment.
+      // Replaying is safe -- the ledger is unique per (subscription, payment) and
+      // returns `duplicate` for work already applied.
       if (subscriptionPaymentApplicationFailed) {
         await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
-        return jsonResponse({ received: true });
+        return jsonResponse(
+          { error: 'Subscription payment application failed', received: true, retryable: true },
+          500,
+        );
       }
 
       if (transactionForWebhooks) {

@@ -78,7 +78,6 @@ export default function Checkout() {
   const [paymentResult, setPaymentResult] = useState<any>(null);
   const [showPixModal, setShowPixModal] = useState(false);
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
-  const [productOwnerId, setProductOwnerId] = useState<string | null>(null);
   const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
   const [adsConfigs, setAdsConfigs] = useState<any[]>([]);
 
@@ -131,7 +130,11 @@ export default function Checkout() {
   // Hook de polling inteligente para PIX
   const { isPolling, checkCount } = usePixPaymentPolling({
     paymentId: paymentResult?.payment?.id || null,
-    userId: productOwnerId,
+    // Capacidade emitida por create-payment para este pagamento. Substitui o
+    // antigo `userId: productOwnerId`, que era o id do VENDEDOR e nao provava
+    // nada sobre quem estava chamando. Fica so em memoria, junto do
+    // paymentResult, e some com o unmount ou com um reload.
+    pollingToken: paymentResult?.pollingToken || null,
     enabled: pixPollingEnabled,
     onSuccess: async () => {
       toast.success("Pagamento confirmado! Redirecionando...");
@@ -734,7 +737,6 @@ export default function Checkout() {
 
         if (productError) throw productError;
         setProduct(productData);
-        setProductOwnerId(productData.user_id);
 
         // Buscar order bumps ativos
         const { data: orderBumpsData, error: orderBumpsError } = await supabase

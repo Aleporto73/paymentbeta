@@ -3,7 +3,15 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface UsePixPaymentPollingProps {
   paymentId: string | null;
-  userId: string | null;
+  /**
+   * Capacidade devolvida uma unica vez por create-payment. Autoriza consultar
+   * SOMENTE este paymentId e expira em 30 minutos.
+   *
+   * Vive apenas em memoria: nao vai para URL, localStorage nem sessionStorage.
+   * O polling nao precisa sobreviver a recarga -- um reload perde o paymentResult
+   * e portanto ja perdia o polling antes desta mudanca.
+   */
+  pollingToken: string | null;
   onSuccess: () => void;
   onError: (error: string) => void;
   enabled: boolean;
@@ -25,7 +33,7 @@ const DEFAULT_CONFIG: PollingConfig = {
 
 export function usePixPaymentPolling({
   paymentId,
-  userId,
+  pollingToken,
   onSuccess,
   onError,
   enabled,
@@ -38,14 +46,14 @@ export function usePixPaymentPolling({
   const abortControllerRef = useRef<AbortController>();
 
   const checkPaymentStatus = useCallback(async () => {
-    if (!paymentId || !userId || !enabled) return;
+    if (!paymentId || !pollingToken || !enabled) return;
 
     try {
       // Criar novo AbortController para esta requisição
       abortControllerRef.current = new AbortController();
 
       const { data, error } = await supabase.functions.invoke('check-payment-status', {
-        body: { paymentId, userId },
+        body: { paymentId, pollingToken },
       });
 
       if (error) throw error;
@@ -72,7 +80,7 @@ export function usePixPaymentPolling({
       // Não para o polling em caso de erro de rede, apenas loga
       return false;
     }
-  }, [paymentId, userId, enabled, onSuccess]);
+  }, [paymentId, pollingToken, enabled, onSuccess]);
 
   const scheduleNextCheck = useCallback(() => {
     if (!enabled) return;
@@ -103,7 +111,7 @@ export function usePixPaymentPolling({
   }, [enabled, checkPaymentStatus, onError]);
 
   const startPolling = useCallback(() => {
-    if (isPolling || !enabled || !paymentId || !userId) return;
+    if (isPolling || !enabled || !paymentId || !pollingToken) return;
 
     console.log('Starting intelligent PIX payment polling...');
     setIsPolling(true);
@@ -117,7 +125,7 @@ export function usePixPaymentPolling({
         scheduleNextCheck();
       }
     });
-  }, [isPolling, enabled, paymentId, userId, checkPaymentStatus, scheduleNextCheck]);
+  }, [isPolling, enabled, paymentId, pollingToken, checkPaymentStatus, scheduleNextCheck]);
 
   const stopPolling = useCallback(() => {
     console.log('Stopping PIX payment polling...');
@@ -136,14 +144,14 @@ export function usePixPaymentPolling({
 
   // Iniciar polling quando enabled muda para true
   useEffect(() => {
-    if (enabled && paymentId && userId && !isPolling) {
+    if (enabled && paymentId && pollingToken && !isPolling) {
       startPolling();
     }
 
     return () => {
       stopPolling();
     };
-  }, [enabled, paymentId, userId]);
+  }, [enabled, paymentId, pollingToken]);
 
   // Cleanup ao desmontar
   useEffect(() => {

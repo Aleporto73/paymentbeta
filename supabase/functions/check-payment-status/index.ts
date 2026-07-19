@@ -1,19 +1,66 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import {
+  isPollTokenFormatValid,
+  verifyPollCapability,
+} from "../_shared/pollCapability.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Rate limiting configuration
+// One shape for every authorization DENIAL. The body never says which check
+// failed, so this endpoint cannot be used to probe which payment ids exist.
+// Reserved for answers the database actually gave us: no such payment, no
+// capability, wrong token, expired token.
+const forbiddenResponse = () =>
+  new Response(
+    JSON.stringify({ error: 'Forbidden' }),
+    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  );
+
+// A technical failure is NOT a denial. Answering 403 when the database errored
+// would tell an honest caller "you are not allowed" for what is really our
+// outage, and would make the client stop retrying something that might succeed
+// a second later. The body stays opaque; the detail goes to the log, sanitized.
+const internalErrorResponse = () =>
+  new Response(
+    JSON.stringify({ error: 'Internal server error', retryable: true }),
+    { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  );
+
+// Logs carry a short technical message and nothing else: never the polling
+// token, never the stored hash, never customer data.
+const sanitizeErrorForLog = (value: unknown) => {
+  let message = 'Unknown error';
+
+  if (value instanceof Error) {
+    message = value.message;
+  } else if (typeof value === 'string') {
+    message = value;
+  } else if (value && typeof value === 'object') {
+    const candidate = value as { message?: unknown; code?: unknown };
+    if (typeof candidate.message === 'string') {
+      message = candidate.message;
+    } else if (typeof candidate.code === 'string') {
+      message = `code ${candidate.code}`;
+    }
+  }
+
+  return message.slice(0, 200);
+};
+
+// Rate limiting configuration.
+// The key is the authorized transaction id, never a value taken from the request
+// body -- otherwise the caller just rotates the key to reset their own budget.
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 100; // 100 requests per minute per user
+const MAX_REQUESTS_PER_WINDOW = 100; // 100 requests per minute per transaction
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
+function checkRateLimit(rateLimitKey: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
-  const userLimit = rateLimitMap.get(userId);
+  const userLimit = rateLimitMap.get(rateLimitKey);
 
   // Clean up expired entries periodically
   if (rateLimitMap.size > 1000) {
@@ -26,7 +73,7 @@ function checkRateLimit(userId: string): { allowed: boolean; remaining: number }
 
   if (!userLimit || userLimit.resetTime < now) {
     // Create new window
-    rateLimitMap.set(userId, {
+    rateLimitMap.set(rateLimitKey, {
       count: 1,
       resetTime: now + RATE_LIMIT_WINDOW_MS,
     });
@@ -41,103 +88,20 @@ function checkRateLimit(userId: string): { allowed: boolean; remaining: number }
   return { allowed: true, remaining: MAX_REQUESTS_PER_WINDOW - userLimit.count };
 }
 
-async function queueWebhooksForTransaction(supabaseClient: any, transaction: any) {
-  try {
-    if (!transaction.product_id) {
-      console.log('No product_id in transaction, skipping webhook queue');
-      return;
-    }
-
-    // Get active webhooks for this product
-    const { data: webhooks, error: webhooksError } = await supabaseClient
-      .from('product_webhooks')
-      .select('*')
-      .eq('product_id', transaction.product_id)
-      .eq('is_active', true);
-
-    if (webhooksError) {
-      console.error('Error fetching product webhooks:', webhooksError);
-      return;
-    }
-
-    if (!webhooks || webhooks.length === 0) {
-      console.log('No active webhooks configured for product:', transaction.product_id);
-      return;
-    }
-
-    // Prepare comprehensive webhook payload
-    const payload = {
-      event: 'sale.confirmed',
-      transaction_id: transaction.id,
-      asaas_payment_id: transaction.asaas_payment_id,
-      product_id: transaction.product_id,
-      price_id: transaction.price_id,
-      customer: {
-        name: transaction.customer_name,
-        email: transaction.customer_email,
-        cpf_cnpj: transaction.customer_cpf_cnpj,
-        phone: transaction.customer_phone,
-        state: transaction.customer_state,
-      },
-      payment: {
-        status: transaction.status,
-        payment_method: transaction.payment_method,
-        billing_type: transaction.billing_type,
-        value: transaction.value,
-        net_value: transaction.net_value,
-        installment_count: transaction.installment_count,
-        installment_value: transaction.installment_value,
-        payment_date: transaction.payment_date,
-        confirmed_date: transaction.confirmed_date,
-        credit_date: transaction.credit_date,
-        due_date: transaction.due_date,
-      },
-      order_bumps: {
-        selected: transaction.order_bumps_selected,
-        amount: transaction.order_bumps_amount,
-      },
-      affiliate_code: transaction.affiliate_code,
-      metadata: {
-        ip_address: transaction.ip_address,
-        user_agent: transaction.user_agent,
-        device_type: transaction.device_type,
-      },
-      created_at: transaction.created_at,
-      updated_at: transaction.updated_at,
-    };
-
-    // Queue webhook for each active URL
-    const queueEntries = webhooks.map((webhook: any) => ({
-      product_id: transaction.product_id,
-      webhook_url: webhook.webhook_url,
-      payload,
-      status: 'pending',
-    }));
-
-    const { error: queueError } = await supabaseClient
-      .from('webhook_queue')
-      .insert(queueEntries);
-
-    if (queueError) {
-      console.error('Error queuing webhooks:', queueError);
-      return;
-    }
-
-    console.log(`Queued ${webhooks.length} webhooks for product ${transaction.product_id}`);
-
-    // Trigger webhook processor
-    fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/process-webhook-queue`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-    }).catch(console.error);
-
-  } catch (error) {
-    console.error('Error in queueWebhooksForTransaction:', error);
-  }
-}
+// NOTE: this function used to build and queue its own `sale.confirmed` payload.
+// It was removed deliberately. asaas-webhook is the SINGLE authority that emits
+// entitlement, through _shared/buildEntitlementPayload.ts. The payload built
+// here diverged from that contract in every way that matters:
+//   * no `entitlement` object at all -- receivers decide access by
+//     entitlement.code, so the event could never grant anything;
+//   * carried CPF/CNPJ, phone, state, IP and user-agent, which the canonical
+//     payload sanitizes away;
+//   * left webhook_queue.transaction_id null, so the partial unique index
+//     (transaction_id, event, webhook_url) could not deduplicate it against the
+//     row asaas-webhook queues for the same payment;
+//   * never called apply_subscription_payment, so the paid period was not
+//     advanced and the entitlement window was not authoritative.
+// This endpoint reconciles the local transaction against Asaas and nothing more.
 
 async function getAffiliateSaleData(supabaseClient: any, fullTransaction: any) {
   const emptyAffiliateData = {
@@ -449,30 +413,106 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { paymentId, userId } = await req.json();
+    // `userId` is deliberately NOT destructured. Older clients still send it and
+    // it is simply ignored: it was always attacker-chosen and never proved
+    // anything. Authorization now comes from the polling capability alone.
+    const { paymentId, pollingToken } = await req.json();
 
-    if (!paymentId || !userId) {
-      throw new Error('Payment ID and User ID are required');
+    // Shape check before any lookup. Nothing about the failure is echoed back.
+    if (typeof paymentId !== 'string' || paymentId.length === 0 || paymentId.length > 128) {
+      return forbiddenResponse();
     }
 
-    // Apply rate limiting
-    const rateLimit = checkRateLimit(userId);
+    if (!isPollTokenFormatValid(pollingToken)) {
+      return forbiddenResponse();
+    }
+
+    // Authorization: the caller must hold the capability minted by create-payment
+    // for THIS payment. Only the hash is stored, the comparison is constant-time,
+    // and an expired capability is as good as none.
+    //
+    // Nothing below this gate touches Asaas or writes anything: no transaction
+    // update, no product_sales, no split reconciliation, no entitlement. That
+    // holds for BOTH exits below -- a denial and an outage are equally inert.
+    let authorizedTransaction: {
+      id: string;
+      payment_poll_token_hash: string | null;
+      payment_poll_token_expires_at: string | null;
+    } | null = null;
+
+    try {
+      const lookup = await supabaseClient
+        .from('transactions')
+        .select('id, payment_poll_token_hash, payment_poll_token_expires_at')
+        .eq('asaas_payment_id', paymentId)
+        .maybeSingle();
+
+      // A database error is an outage, not an answer. We do not know whether the
+      // caller is authorized, so we must not claim they are not.
+      if (lookup.error) {
+        console.error(
+          'Polling authorization lookup failed:',
+          sanitizeErrorForLog(lookup.error),
+        );
+        return internalErrorResponse();
+      }
+
+      authorizedTransaction = lookup.data ?? null;
+    } catch (error) {
+      console.error(
+        'Unexpected error during polling authorization lookup:',
+        sanitizeErrorForLog(error),
+      );
+      return internalErrorResponse();
+    }
+
+    // Zero rows IS an answer: this payment does not exist here. Denial, not error.
+    if (!authorizedTransaction) {
+      console.warn('Polling capability rejected: unknown payment');
+      return forbiddenResponse();
+    }
+
+    let capabilityAccepted = false;
+    try {
+      capabilityAccepted = await verifyPollCapability(pollingToken, authorizedTransaction);
+    } catch (error) {
+      // Crypto or runtime failure while hashing. Again: we do not know, so we
+      // cannot deny.
+      console.error(
+        'Polling capability verification failed technically:',
+        sanitizeErrorForLog(error),
+      );
+      return internalErrorResponse();
+    }
+
+    if (!capabilityAccepted) {
+      // One generic answer for every cause the database did answer: missing
+      // capability, wrong token, expired token, token belonging to another
+      // payment. Telling them apart would turn this into a payment-id oracle.
+      console.warn('Polling capability rejected for payment:', paymentId);
+      return forbiddenResponse();
+    }
+
+    // Rate limit keyed on the authorized transaction id, which the caller cannot
+    // choose: it is reached only by holding a valid capability. The previous key
+    // was the request-supplied userId, so an attacker simply rotated it.
+    const rateLimit = checkRateLimit(authorizedTransaction.id);
     if (!rateLimit.allowed) {
-      console.warn(`Rate limit exceeded for user ${userId}`);
+      console.warn('Rate limit exceeded for transaction:', authorizedTransaction.id);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: 'Rate limit exceeded. Please try again later.',
           retryAfter: Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)
         }),
-        { 
+        {
           status: 429,
-          headers: { 
-            ...corsHeaders, 
+          headers: {
+            ...corsHeaders,
             'Content-Type': 'application/json',
             'X-RateLimit-Limit': String(MAX_REQUESTS_PER_WINDOW),
             'X-RateLimit-Remaining': '0',
             'Retry-After': String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1000))
-          } 
+          }
         }
       );
     }
@@ -669,21 +709,29 @@ serve(async (req) => {
           );
         }
 
-        // If status changed to confirmed/received, trigger webhooks
+        // Entitlement is NOT emitted here. The Asaas webhook owns that decision
+        // and is the only path that advances the paid period before queueing.
         if (!isConfirmedPaymentStatus(previousStatus)) {
-          console.log('Status changed to confirmed/received via polling, processing webhooks');
-          await queueWebhooksForTransaction(supabaseClient, fullTransaction);
+          console.log(
+            'Status changed to confirmed/received via polling; entitlement left to asaas-webhook for payment:',
+            paymentId,
+          );
         }
       } else {
         console.error('Error fetching full transaction after polling update:', fetchError);
       }
     }
 
+    // Only the payment status leaves this function. This endpoint is reachable
+    // without an authenticated session (see supabase/config.toml: verify_jwt =
+    // false) because the buyer polling it on /checkout is anonymous, so echoing
+    // the raw Asaas payment object here disclosed customer and billing detail to
+    // anyone who could guess a payment id. The polling hook only reads
+    // `success` and `status`.
     return new Response(
       JSON.stringify({
         success: true,
         status: paymentData.status,
-        payment: paymentData,
       }),
       { 
         headers: { 

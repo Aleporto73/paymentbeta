@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import { generatePollCapability } from "../_shared/pollCapability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -910,12 +911,39 @@ serve(async (req) => {
       }
     }
 
-    // 4. Save transaction to local database
+    // 4. Save transaction to local database.
+    //
+    // PIX is the only flow that polls check-payment-status (Checkout.tsx enables
+    // polling for PIX and nothing else), so it is the only flow that gets a
+    // polling capability. Minting one for card or boleto would create a live
+    // credential nobody uses, and would let a failure here break a checkout that
+    // never needed the token.
+    //
+    // The capability is generated before the INSERT and written as part of it, on
+    // purpose: the row and its capability become visible in the same statement,
+    // so there is no window where the transaction exists without one and no
+    // second write that can fail halfway. The token is only ever usable after the
+    // row exists, because verification reads the row.
+    let pollCapability: Awaited<ReturnType<typeof generatePollCapability>> | null = null;
+    if (billingType === "PIX") {
+      try {
+        pollCapability = await generatePollCapability();
+      } catch (error) {
+        // Never hand back a checkout whose polling cannot be authorized: the
+        // buyer would sit on a PIX screen that can never confirm. 503 so the
+        // caller can retry.
+        console.error("Error generating polling capability:", error);
+        throw new HttpError("Failed to prepare payment polling", 503);
+      }
+    }
+
     const { data: transactionData, error: transactionError } = await supabaseClient
       .from("transactions")
       .insert({
         user_id: productOwnerId,
         asaas_payment_id: paymentResult.id,
+        payment_poll_token_hash: pollCapability?.tokenHash ?? null,
+        payment_poll_token_expires_at: pollCapability?.expiresAt ?? null,
         asaas_customer_id: customerResult.id,
         product_id: product.id,
         price_id: price.id,
@@ -1032,6 +1060,10 @@ serve(async (req) => {
           bankSlipUrl: paymentResult.bankSlipUrl,
         },
         transaction: transactionData,
+        // Entregue UMA unica vez. So o hash ficou no banco; a partir daqui este
+        // valor nao existe mais em lugar nenhum do lado do servidor. Nunca vai
+        // para log, para URL nem para query string.
+        pollingToken: pollCapability?.token ?? null,
         pixData,
         invoiceUrl: paymentResult.invoiceUrl,
         bankSlipUrl: paymentResult.bankSlipUrl,
