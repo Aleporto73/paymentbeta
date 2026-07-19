@@ -19,7 +19,18 @@ import {
 import {
   confirmedSubscriptionKey,
   confirmedTransactionKey,
+  paymentFailedKey,
+  pendingKey,
+  revokedChargebackKey,
+  revokedRefundKey,
 } from "../_shared/entitlementIdempotency.ts";
+import { queueEntitlementEvent } from "../_shared/queueEntitlementEvent.ts";
+import {
+  classifyRevocation,
+  decidePaymentFailed,
+  pendingExpiresAt,
+  shouldEmitPending,
+} from "../_shared/subscriptionEventRules.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1064,6 +1075,138 @@ async function applySubscriptionPaymentConfirmed(
   };
 }
 
+// ---------------------------------------------------------------------
+// Eventos financeiros de assinatura (pending, payment_failed, access_revoked).
+//
+// O ledger subscription_payment_applications e a fonte de verdade sobre "esta
+// assinatura ja teve pagamento aplicado?". Nao usamos datas proximas nem
+// last_payment_id: este ultimo continua nulo tanto na primeira cobranca pendente
+// quanto na primeira que vence sem pagar, e por isso nao distingue os dois.
+// ---------------------------------------------------------------------
+
+interface LedgerContext {
+  /** Quantos pagamentos desta assinatura ja foram aplicados, alguma vez. */
+  totalApplications: number;
+  /** Linha deste pagamento especifico, se ja aplicado. */
+  currentApplication: { applied_period_end: string | null } | null;
+  /** Falha de leitura: o chamador NAO pode decidir sem esta informacao. */
+  failed: boolean;
+}
+
+/** Linha do ledger, limitada ao que estes eventos leem. */
+interface LedgerRow {
+  asaas_payment_id: string | null;
+  applied_period_end: string | null;
+}
+
+/** Cliente Supabase, mesmo tipo que o restante do arquivo ja usa. */
+type AdminClient = ReturnType<typeof createClient>;
+
+async function loadLedgerContext(
+  supabaseAdmin: AdminClient,
+  subscriptionId: string,
+  asaasPaymentId: string | null,
+): Promise<LedgerContext> {
+  const { data, error } = await supabaseAdmin
+    .from('subscription_payment_applications')
+    .select('asaas_payment_id, applied_period_end')
+    .eq('subscription_id', subscriptionId);
+
+  if (error) {
+    console.error('Error loading subscription payment ledger:', sanitizeForLog(error));
+    return { totalApplications: 0, currentApplication: null, failed: true };
+  }
+
+  const rows = data ?? [];
+  return {
+    totalApplications: rows.length,
+    currentApplication:
+      rows.find((row: LedgerRow) => row.asaas_payment_id === asaasPaymentId) ?? null,
+    failed: false,
+  };
+}
+
+/**
+ * Enfileira um evento de assinatura pela outbox canonica.
+ *
+ * Carrega produto e preco e delega a queueEntitlementEvent -- mesmo builder,
+ * mesma fila, mesma idempotencia do sale.confirmed. Produto sem
+ * entitlement_code falha fechado la dentro, com trilha em webhook_logs.
+ */
+async function queueSubscriptionEvent(
+  supabaseAdmin: AdminClient,
+  args: {
+    event: string;
+    idempotencyKey: string;
+    transaction: EntitlementTransactionInput & {
+      product_id?: string | null;
+      price_id?: string | null;
+      due_date?: string | null;
+    };
+    subscription: {
+      id: string;
+      cycle?: string | null;
+      created_at?: string | null;
+      product_id?: string | null;
+      product_price_id?: string | null;
+    };
+    subscriptionId: string;
+    expiresAt: string;
+    cycleFrom?: string | null;
+    paymentStatus?: string | null;
+    reason?: string | null;
+  },
+) {
+  const productId = args.transaction?.product_id ?? args.subscription?.product_id ?? null;
+  if (!productId) {
+    console.error(`Skipping ${args.event}: no product_id for subscription ${args.subscriptionId}`);
+    return;
+  }
+
+  const { data: product, error: productError } = await supabaseAdmin
+    .from('products')
+    .select('id, unique_code, entitlement_code, product_type')
+    .eq('id', productId)
+    .single();
+
+  if (productError || !product) {
+    console.error(`Skipping ${args.event}: product not found`, sanitizeForLog(productError));
+    return;
+  }
+
+  const priceId = args.transaction?.price_id ?? args.subscription?.product_price_id ?? null;
+  let price = null;
+  if (priceId) {
+    const { data: priceData } = await supabaseAdmin
+      .from('product_prices')
+      .select('id, unique_code, subscription_period')
+      .eq('id', priceId)
+      .maybeSingle();
+    price = priceData ?? null;
+  }
+
+  const result = await queueEntitlementEvent(supabaseAdmin, {
+    event: args.event,
+    idempotencyKey: args.idempotencyKey,
+    transaction: { ...args.transaction, product_id: productId },
+    product,
+    price,
+    // O ciclo da assinatura define entitlement.period; expiresAtOverride define
+    // a data. Sem o ciclo, o builder falharia fechado.
+    subscription: { cycle: args.subscription?.cycle ?? null },
+    subscriptionId: args.subscriptionId,
+    expiresAtOverride: args.expiresAt,
+    cycleFrom: args.cycleFrom,
+    paymentStatus: args.paymentStatus,
+    reason: args.reason,
+  });
+
+  console.log(
+    `${args.event} queued=${result.queued} duplicate=${result.duplicate} ` +
+      `skipped=${result.skipped} failed=${result.failed} key=${args.idempotencyKey}`,
+  );
+}
+
 async function applySubscriptionPaymentOverdue(
   supabaseAdmin: any,
   subscription: any,
@@ -1883,6 +2026,51 @@ serve(async (req) => {
               subscriptionForUpdate,
               payment,
             );
+
+            // P4 — subscription.payment_failed. SOMENTE renovacao.
+            const ledger = await loadLedgerContext(
+              supabaseAdmin,
+              subscriptionForUpdate.id,
+              paymentId,
+            );
+
+            if (ledger.failed) {
+              // Sem o ledger nao da para saber se e primeira compra ou
+              // renovacao. Decidir no escuro poderia dar 3 dias extras a quem
+              // so tem a janela provisoria. Falha fechada e reprocessavel.
+              subscriptionPaymentApplicationFailed = true;
+              console.error('Cannot classify OVERDUE without the payment ledger:', paymentId);
+            } else {
+              const decision = decidePaymentFailed({
+                ledgerCount: ledger.totalApplications,
+                currentPaymentInLedger: Boolean(ledger.currentApplication),
+                dueDate: existingTransaction?.due_date ?? payment?.dueDate,
+              });
+
+              if (decision.emit) {
+                await queueSubscriptionEvent(supabaseAdmin, {
+                  event: 'subscription.payment_failed',
+                  idempotencyKey: paymentFailedKey(
+                    subscriptionForUpdate.id,
+                    decision.cycleFrom,
+                  ),
+                  transaction: existingTransaction,
+                  subscription: subscriptionForUpdate,
+                  subscriptionId: subscriptionForUpdate.id,
+                  expiresAt: decision.expiresAt,
+                  cycleFrom: decision.cycleFrom,
+                  paymentStatus,
+                  reason: 'payment_failed',
+                });
+              } else if (decision.reason === 'missing_due_date') {
+                // Nao fabricar data. Sem due_date nao ha ancora de ciclo.
+                console.error(
+                  `needs_action: OVERDUE without due_date for subscription ${subscriptionForUpdate.id}, payment ${paymentId}`,
+                );
+              } else {
+                console.log(`payment_failed skipped (${decision.reason}) for payment ${paymentId}`);
+              }
+            }
           } else if (REFUND_OR_CANCEL_STATUSES.has(paymentStatus)) {
             await applySubscriptionPaymentRefundOrCancel(
               supabaseAdmin,
@@ -1890,6 +2078,47 @@ serve(async (req) => {
               payment,
               eventType ?? '',
             );
+
+            // P5 — subscription.access_revoked. So estados TERMINAIS:
+            // REFUNDED e CHARGEBACK_REQUESTED. Pedido de estorno em curso,
+            // disputa, reversao em analise e cobranca removida nao revogam.
+            const revocation = classifyRevocation(paymentStatus);
+
+            if (revocation) {
+              const ledger = await loadLedgerContext(
+                supabaseAdmin,
+                subscriptionForUpdate.id,
+                paymentId,
+              );
+
+              if (ledger.failed) {
+                subscriptionPaymentApplicationFailed = true;
+                console.error('Cannot revoke without the payment ledger:', paymentId);
+              } else if (!ledger.currentApplication?.applied_period_end) {
+                // Sem linha no ledger, este pagamento nunca concedeu acesso --
+                // nao ha periodo a revogar, e inventar um com now() tiraria
+                // acesso que veio de outro pagamento.
+                console.log(
+                  `access_revoked skipped: payment ${paymentId} never granted access`,
+                );
+              } else {
+                await queueSubscriptionEvent(supabaseAdmin, {
+                  event: 'subscription.access_revoked',
+                  idempotencyKey: revocation === 'refund'
+                    ? revokedRefundKey(paymentId)
+                    : revokedChargebackKey(paymentId),
+                  transaction: existingTransaction,
+                  subscription: subscriptionForUpdate,
+                  subscriptionId: subscriptionForUpdate.id,
+                  // Periodo REAL aplicado, vindo do ledger.
+                  expiresAt: ledger.currentApplication.applied_period_end,
+                  // O consumidor distingue refund de chargeback por este
+                  // prefixo: CHARGEBACK* vira revogacao absorvente (infinity).
+                  paymentStatus,
+                  reason: revocation,
+                });
+              }
+            }
           } else {
             // Other statuses (PENDING, AWAITING_RISK_ANALYSIS, etc.): keep
             // status audit data in sync. last_payment_id is deliberately
@@ -1907,6 +2136,42 @@ serve(async (req) => {
                 'Error tracking last_payment_status on subscription:',
                 trackError,
               );
+            }
+
+            // P3 — subscription.pending. Primeira cobranca ainda nao paga.
+            // Emitido aqui, e nao em SUBSCRIPTION_CREATED, porque so neste
+            // ponto a transaction local ja existe: transaction_id e um UUID
+            // obrigatorio no contrato do consumidor.
+            const ledger = await loadLedgerContext(
+              supabaseAdmin,
+              subscriptionForUpdate.id,
+              paymentId,
+            );
+
+            if (ledger.failed) {
+              subscriptionPaymentApplicationFailed = true;
+              console.error('Cannot classify pending charge without the ledger:', paymentId);
+            } else if (shouldEmitPending(ledger.totalApplications) && existingTransaction) {
+              const expiresAt = pendingExpiresAt(subscriptionForUpdate.created_at);
+
+              if (!expiresAt) {
+                console.error(
+                  `needs_action: subscription ${subscriptionForUpdate.id} has no usable created_at for the provisional window`,
+                );
+              } else {
+                await queueSubscriptionEvent(supabaseAdmin, {
+                  event: 'subscription.pending',
+                  // Uma chave por assinatura, para sempre: a janela provisoria
+                  // nasce uma unica vez e repeticao nao a prorroga.
+                  idempotencyKey: pendingKey(subscriptionForUpdate.id),
+                  transaction: existingTransaction,
+                  subscription: subscriptionForUpdate,
+                  subscriptionId: subscriptionForUpdate.id,
+                  expiresAt,
+                  paymentStatus,
+                  reason: 'first_charge_pending',
+                });
+              }
             }
           }
         } else if (payment?.status === 'CONFIRMED' || payment?.status === 'RECEIVED') {

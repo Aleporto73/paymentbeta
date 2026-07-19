@@ -424,26 +424,32 @@ test("19. transaction_id continua presente em ambos os emissores", () => {
   assert.ok(stripComments(cancellation).includes("transaction: { ...transaction,"));
 });
 
-test("20. NENHUM evento novo e emitido neste bloco", () => {
-  for (const [nome, code] of [
-    ["asaas-webhook", stripComments(asaasWebhook)],
-    ["queueCancellationWebhooks", stripComments(cancellation)],
+test("20. o cancelamento NUNCA emite os eventos de assinatura", () => {
+  // Este teste nasceu no P1 afirmando que os tres eventos ainda nao existiam.
+  // O P3/P4/P5 os implementou no asaas-webhook, entao aquela metade caducou --
+  // sua cobertura vive agora em tests/p3p4p5-subscription-events.test.mjs.
+  //
+  // O que permanece verdadeiro e vale travar: cancelar uma assinatura NAO e
+  // revogar acesso. O cancelamento interrompe a renovacao e preserva o periodo
+  // ja pago; transforma-lo em access_revoked tiraria acesso que o cliente
+  // comprou.
+  const code = stripComments(cancellation);
+
+  for (const evento of [
+    "subscription.pending",
+    "subscription.payment_failed",
+    "subscription.access_revoked",
   ]) {
-    for (const evento of [
-      "subscription.pending",
-      "subscription.payment_failed",
-      "subscription.access_revoked",
-    ]) {
-      assert.ok(!code.includes(evento), `${nome} nao pode emitir ${evento} no P1`);
-    }
+    assert.ok(
+      !code.includes(evento),
+      `queueCancellationWebhooks nunca pode emitir ${evento}`,
+    );
   }
 
-  // As chaves existem, mas nenhum emissor as chama.
+  // E continua usando exclusivamente a chave de cancelamento.
+  assert.ok(code.includes("cancelledKey(subscription.id)"));
   for (const chave of ["pendingKey", "paymentFailedKey", "revokedRefundKey", "revokedChargebackKey"]) {
-    assert.ok(
-      !stripComments(asaasWebhook).includes(chave),
-      `${chave} nao pode estar em uso ainda`,
-    );
+    assert.ok(!code.includes(chave), `${chave} nao pertence ao cancelamento`);
   }
 });
 
