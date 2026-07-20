@@ -67,11 +67,42 @@ const getBearerToken = (req: Request) => {
   return match?.[1] ?? null;
 };
 
-const isServiceRoleToken = (token: string) => {
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+/**
+ * Comparação de segredo em tempo constante.
+ *
+ * Sai cedo apenas no tamanho, que não é segredo. Sem isto, a comparação `===`
+ * do JavaScript retorna assim que encontra o primeiro byte diferente, e o tempo
+ * de resposta vaza quantos caracteres do prefixo o atacante acertou.
+ */
+const secretMatches = (candidate: string, expected: string): boolean => {
+  // Segredo ausente ou vazio NUNCA autentica -- senão um deploy sem a variável
+  // configurada aceitaria qualquer bearer, ou até string vazia.
+  if (!expected || expected.length === 0) return false;
+  if (candidate.length !== expected.length) return false;
 
-  return serviceRoleKey.length > 0 && token === serviceRoleKey;
+  let diff = 0;
+  for (let i = 0; i < candidate.length; i++) {
+    diff |= candidate.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return diff === 0;
 };
+
+/**
+ * Token dedicado do agendador.
+ *
+ * O cron autentica com ESTE segredo, não com a service-role key. Duas razões:
+ *   * a service-role key que a plataforma injeta em SUPABASE_SERVICE_ROLE_KEY
+ *     não é necessariamente a mesma string guardada no Vault -- foi exatamente
+ *     isso que produziu 401 em 21 execuções seguidas do cron;
+ *   * um token dedicado pode ser rotacionado sem tocar na chave que dá acesso
+ *     total ao banco, e seu escopo é uma única função.
+ */
+const isCronToken = (token: string) =>
+  secretMatches(token, Deno.env.get("WEBHOOK_QUEUE_CRON_TOKEN") ?? "");
+
+/** Service-role continua aceita: é como as Edge Functions cutucam a fila. */
+const isServiceRoleToken = (token: string) =>
+  secretMatches(token, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
 const authorizeRequest = async (req: Request, supabaseClient: ReturnType<typeof createClient>) => {
   const token = getBearerToken(req);
@@ -80,10 +111,15 @@ const authorizeRequest = async (req: Request, supabaseClient: ReturnType<typeof 
     return unauthorizedResponse();
   }
 
-  if (isServiceRoleToken(token)) {
+  // Dois segredos de máquina, ambos por igualdade exata em tempo constante.
+  if (isCronToken(token) || isServiceRoleToken(token)) {
     return null;
   }
 
+  // Caminho administrativo, inalterado: o JWT é validado pelo Supabase Auth --
+  // assinatura inclusive -- e só então o papel é lido do banco. Uma claim
+  // `service_role` forjada não passa por aqui: getUser rejeita a assinatura, e
+  // mesmo que passasse, o papel vem de user_roles, não do token.
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
 
   if (authError || !user) {
