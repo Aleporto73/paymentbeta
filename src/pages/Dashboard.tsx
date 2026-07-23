@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
-import { DollarSign, Eye, RefreshCw, ShoppingCart, Users, Wallet } from "lucide-react";
+import { Link } from "react-router-dom";
+import { DollarSign, MousePointerClick, RefreshCw, ShoppingCart, Users, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentSales } from "@/components/dashboard/RecentSales";
-import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import { DailyMetric, RevenueChart } from "@/components/dashboard/RevenueChart";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { paidSaleDate } from "@/lib/salesDate";
-import { startOfDay, startOfMonth, subDays, format } from "date-fns";
+import { businessDay, businessDayRange, formatDayOverDayChange, paidSaleDate } from "@/lib/salesDate";
+import { startOfMonth, subDays, format } from "date-fns";
+
+// Janela máxima do gráfico. Buscamos sempre 30 dias e o seletor 7/30 fatia em
+// memória — assim trocar o período não dispara request nova.
+const CHART_DAYS = 30;
 
 // Lista fixa das afiliadas reais para os cards do Dashboard.
 // Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora dos cards,
@@ -24,6 +29,13 @@ interface AffiliateCardStats {
   sales: { product: string; value: number; date: string }[];
 }
 
+interface TopCheckoutStats {
+  productId: string;
+  name: string;
+  accesses: number;
+  sales: number;
+}
+
 interface DashboardStats {
   revenueToday: number;
   revenueYesterday: number;
@@ -36,7 +48,11 @@ interface DashboardStats {
   salesThisMonth: number;
   affiliateCards: AffiliateCardStats[];
   affiliateCommissionsThisMonth: number;
-  checkoutViewsToday: number;
+  accessesToday: number;
+  accessesYesterday: number;
+  abandonsToday: number;
+  topCheckouts: TopCheckoutStats[];
+  dailyMetrics: DailyMetric[];
 }
 
 interface DashboardTransaction {
@@ -45,7 +61,15 @@ interface DashboardTransaction {
   created_at: string;
   confirmed_date: string | null;
   payment_date: string | null;
+  product_id: string | null;
   status: string;
+}
+
+interface CheckoutEventRow {
+  event_type: string;
+  product_id: string | null;
+  created_at: string;
+  products: { name: string } | null;
 }
 
 interface DashboardSale {
@@ -56,6 +80,33 @@ interface DashboardSale {
   product_affiliate_links: { affiliates: { name: string } | null } | null;
   products: { name: string } | null;
 }
+
+// ponytail: pagina em blocos porque o teto de linhas da API é configuração de
+// servidor, não do cliente — sem isso o gráfico perderia eventos em silêncio
+// assim que a janela de 30 dias passar do limite.
+const CHECKOUT_EVENTS_PAGE_SIZE = 1000;
+
+const fetchCheckoutEvents = async (fromDay: string): Promise<CheckoutEventRow[]> => {
+  const rows: CheckoutEventRow[] = [];
+
+  for (let offset = 0; ; offset += CHECKOUT_EVENTS_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("checkout_events")
+      .select("event_type, product_id, created_at, products ( name )")
+      .in("event_type", ["view", "abandon"])
+      // -03:00 fixo: o Brasil não usa mais horário de verão desde 2019.
+      .gte("created_at", `${fromDay}T00:00:00-03:00`)
+      .order("created_at")
+      .range(offset, offset + CHECKOUT_EVENTS_PAGE_SIZE - 1);
+
+    if (error || !data?.length) break;
+
+    rows.push(...(data as unknown as CheckoutEventRow[]));
+    if (data.length < CHECKOUT_EVENTS_PAGE_SIZE) break;
+  }
+
+  return rows;
+};
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
@@ -70,7 +121,11 @@ export default function Dashboard() {
     salesThisMonth: 0,
     affiliateCards: AFFILIATE_REPORT_NAMES.map((name) => ({ name, revenue: 0, commission: 0, salesCount: 0, sales: [] })),
     affiliateCommissionsThisMonth: 0,
-    checkoutViewsToday: 0,
+    accessesToday: 0,
+    accessesYesterday: 0,
+    abandonsToday: 0,
+    topCheckouts: [],
+    dailyMetrics: [],
   });
   const [loading, setLoading] = useState(true);
   const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateCardStats | null>(null);
@@ -87,10 +142,11 @@ export default function Dashboard() {
 
       const now = new Date();
       const monthStart = startOfMonth(now);
-      const todayStr = format(now, "yyyy-MM-dd");
-      const yesterdayStr = format(subDays(now, 1), "yyyy-MM-dd");
-      const last7DaysStr = format(subDays(now, 7), "yyyy-MM-dd");
+      const todayStr = businessDay(now);
+      const yesterdayStr = businessDay(subDays(now, 1));
+      const last7DaysStr = businessDay(subDays(now, 7));
       const monthStartDateStr = format(monthStart, "yyyy-MM-dd");
+      const chartDays = businessDayRange(todayStr, CHART_DAYS);
 
       const { data: transactionRows } = await supabase
         .from("transactions")
@@ -100,6 +156,7 @@ export default function Dashboard() {
           created_at,
           confirmed_date,
           payment_date,
+          product_id,
           status
         `);
 
@@ -160,13 +217,68 @@ export default function Dashboard() {
       const salesThisMonth = thisMonth.count;
       const asaasFeesThisMonth = sumNullable(thisMonth.rows.map((transaction) => transaction.asaas_fee_amount));
 
-      // Mesma fonte e janela do Relatórios > Checkout ("Hoje"): checkout_events
-      // grava created_at como timestamp real, então aqui o corte é por instante.
-      const { count: checkoutViewsToday } = await supabase
-        .from("checkout_events")
-        .select("id", { count: "exact", head: true })
-        .eq("event_type", "view")
-        .gte("created_at", startOfDay(now).toISOString());
+      // Mesma fonte do Relatórios > Checkout. checkout_events.created_at é
+      // timestamp real, então o dia comercial vem de businessDay (não de UTC).
+      const checkoutEvents = await fetchCheckoutEvents(chartDays[0]);
+      const eventsByDay = new Map<string, CheckoutEventRow[]>();
+      checkoutEvents.forEach((event) => {
+        const day = businessDay(event.created_at);
+        eventsByDay.set(day, [...(eventsByDay.get(day) ?? []), event]);
+      });
+
+      const eventsToday = eventsByDay.get(todayStr) ?? [];
+      const countViews = (events: CheckoutEventRow[]) => events.filter((e) => e.event_type === "view").length;
+
+      const accessesToday = countViews(eventsToday);
+      const accessesYesterday = countViews(eventsByDay.get(yesterdayStr) ?? []);
+      const abandonsToday = eventsToday.filter((e) => e.event_type === "abandon").length;
+
+      // checkout_events.product_id é FK de products — relação canônica, sem
+      // casar por nome. Vendas do dia vêm de transactions.product_id.
+      const salesByProduct = new Map<string, number>();
+      today.rows.forEach((transaction) => {
+        if (!transaction.product_id) return;
+        salesByProduct.set(transaction.product_id, (salesByProduct.get(transaction.product_id) ?? 0) + 1);
+      });
+
+      const accessesByProduct = new Map<string, TopCheckoutStats>();
+      eventsToday
+        .filter((event) => event.event_type === "view" && event.product_id)
+        .forEach((event) => {
+          const productId = event.product_id as string;
+          const current = accessesByProduct.get(productId) ?? {
+            productId,
+            name: event.products?.name || "Produto não identificado",
+            accesses: 0,
+            sales: salesByProduct.get(productId) ?? 0,
+          };
+          accessesByProduct.set(productId, { ...current, accesses: current.accesses + 1 });
+        });
+
+      const topCheckouts = [...accessesByProduct.values()]
+        .sort((a, b) => b.accesses - a.accesses)
+        .slice(0, 4);
+
+      const revenueByDay = new Map<string, { sales: number; revenue: number }>();
+      confirmedTransactions.forEach((transaction) => {
+        const day = paidSaleDate(transaction);
+        const current = revenueByDay.get(day) ?? { sales: 0, revenue: 0 };
+        revenueByDay.set(day, {
+          sales: current.sales + 1,
+          revenue: current.revenue + Number(transaction.value || 0),
+        });
+      });
+
+      const dailyMetrics: DailyMetric[] = chartDays.map((day) => {
+        const daySales = revenueByDay.get(day) ?? { sales: 0, revenue: 0 };
+        return {
+          day,
+          label: `${day.slice(8, 10)}/${day.slice(5, 7)}`,
+          accesses: countViews(eventsByDay.get(day) ?? []),
+          sales: daySales.sales,
+          revenue: daySales.revenue,
+        };
+      });
 
       // Vendas por afiliada (mês atual) — alimenta os cards de afiliada e a
       // dedução de comissão do bloco "Meu lucro real". Fonte: product_sales,
@@ -237,7 +349,11 @@ export default function Dashboard() {
         salesThisMonth,
         affiliateCards,
         affiliateCommissionsThisMonth,
-        checkoutViewsToday: checkoutViewsToday ?? 0,
+        accessesToday,
+        accessesYesterday,
+        abandonsToday,
+        topCheckouts,
+        dailyMetrics,
       });
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
@@ -270,14 +386,15 @@ export default function Dashboard() {
     return `${day}/${month}/${year}`;
   };
 
-  const calculateChange = (current: number, previous: number) => {
-    if (previous === 0) return current > 0 ? "+100%" : "0%";
-    const change = ((current - previous) / previous) * 100;
-    return `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`;
-  };
+  // "Acessos", não "pessoas": contamos eventos de view, sem deduplicação
+  // garantida por visitante.
+  const formatConversion = (sales: number, accesses: number) =>
+    accesses > 0 ? `${((sales / accesses) * 100).toFixed(1)}%` : "—";
 
-  const revenueChange = calculateChange(stats.revenueToday, stats.revenueYesterday);
-  const salesChange = calculateChange(stats.salesToday, stats.salesYesterday);
+  const revenueChange = formatDayOverDayChange(stats.revenueToday, stats.revenueYesterday);
+  const accessesChange = formatDayOverDayChange(stats.accessesToday, stats.accessesYesterday);
+  const averageTicketToday = stats.salesToday > 0 ? stats.revenueToday / stats.salesToday : 0;
+  const conversionToday = formatConversion(stats.salesToday, stats.accessesToday);
 
   const netProfitThisMonth =
     stats.revenueThisMonth - (stats.asaasFeesThisMonth || 0) - stats.affiliateCommissionsThisMonth;
@@ -308,48 +425,78 @@ export default function Dashboard() {
       </div>
 
       {loading ? (
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="h-40 bg-muted animate-pulse rounded-lg" />
-          <div className="h-40 bg-muted animate-pulse rounded-lg" />
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="h-56 bg-muted animate-pulse rounded-lg" />
+          <div className="h-56 bg-muted animate-pulse rounded-lg" />
+          <div className="h-56 bg-muted animate-pulse rounded-lg" />
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          <StatCard
-            title="Receita cobrada hoje"
-            value={formatCurrency(stats.revenueToday)}
-            change={`${revenueChange} vs ontem`}
-            changeType={stats.revenueToday >= stats.revenueYesterday ? "positive" : "negative"}
-            icon={DollarSign}
-            iconColor="text-primary"
-            additionalMetrics={[
-              { label: "Ontem", value: formatCurrency(stats.revenueYesterday) },
-              { label: "Últimos 7 dias", value: formatCurrency(stats.revenueLast7Days) },
-              { label: "Mês atual", value: formatCurrency(stats.revenueThisMonth) },
-            ]}
-          />
-          <StatCard
-            title="Total de Vendas"
-            value={stats.salesToday.toString()}
-            change={`${stats.salesToday > 0 ? '+' : ''}${stats.salesToday} vendas hoje`}
-            changeType={stats.salesToday >= stats.salesYesterday ? "positive" : "negative"}
-            icon={ShoppingCart}
-            iconColor="text-success"
-            additionalMetrics={[
-              { label: "Ontem", value: stats.salesYesterday.toString() },
-              { label: "Últimos 7 dias", value: stats.salesLast7Days.toString() },
-              { label: "Mês atual", value: stats.salesThisMonth.toString() },
-            ]}
-          />
-          <StatCard
-            title="Visualizações do checkout hoje"
-            value={stats.checkoutViewsToday.toString()}
-            change="Mesma fonte de Relatórios > Checkout"
-            changeType="neutral"
-            icon={Eye}
-            iconColor="text-info"
-          />
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Link to="/relatorios?tab=vendas&period=today" className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard
+              title="Resumo de hoje"
+              value={formatCurrency(stats.revenueToday)}
+              change={revenueChange}
+              changeType={stats.revenueToday >= stats.revenueYesterday ? "positive" : "negative"}
+              subtitle={`${stats.salesToday} ${stats.salesToday === 1 ? "venda" : "vendas"} · ticket médio ${formatCurrency(averageTicketToday)}`}
+              icon={DollarSign}
+              iconColor="text-primary"
+              additionalMetrics={[
+                { label: "Ontem", value: formatCurrency(stats.revenueYesterday) },
+                { label: "Últimos 7 dias", value: formatCurrency(stats.revenueLast7Days) },
+                { label: "Mês atual", value: formatCurrency(stats.revenueThisMonth) },
+              ]}
+            />
+          </Link>
+          <Link to="/relatorios?tab=checkout&period=today" className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard
+              title="Acessos aos checkouts hoje"
+              value={stats.accessesToday.toString()}
+              change={accessesChange}
+              changeType={stats.accessesToday >= stats.accessesYesterday ? "positive" : "negative"}
+              subtitle={`${stats.abandonsToday} ${stats.abandonsToday === 1 ? "abandono" : "abandonos"} hoje`}
+              icon={MousePointerClick}
+              iconColor="text-info"
+              additionalMetrics={[
+                { label: "Vendas confirmadas", value: stats.salesToday.toString() },
+                { label: "Conversão", value: conversionToday },
+                { label: "Ontem", value: stats.accessesYesterday.toString() },
+              ]}
+            />
+          </Link>
+          <Card className="hover:shadow-md transition-shadow duration-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Top 4 checkouts hoje</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {stats.topCheckouts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">Nenhum acesso registrado hoje.</p>
+              ) : (
+                <div className="space-y-3">
+                  {stats.topCheckouts.map((checkout) => (
+                    <div key={checkout.productId} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                      <p className="text-sm font-medium truncate" title={checkout.name}>{checkout.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {checkout.accesses} {checkout.accesses === 1 ? "acesso" : "acessos"} ·{" "}
+                        {checkout.sales} {checkout.sales === 1 ? "venda" : "vendas"} ·{" "}
+                        {formatConversion(checkout.sales, checkout.accesses)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Link
+                to="/relatorios?tab=produtos&period=today"
+                className="text-sm text-primary hover:underline mt-4 inline-block"
+              >
+                Ver todos os produtos →
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       )}
+
+      <RevenueChart data={stats.dailyMetrics} loading={loading} />
 
       {!loading && (
         <section className="space-y-4">
@@ -429,8 +576,6 @@ export default function Dashboard() {
           </Card>
         </section>
       )}
-
-      <RevenueChart />
 
       <RecentSales />
 

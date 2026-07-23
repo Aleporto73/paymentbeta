@@ -1,141 +1,148 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
-  AreaChart,
-  Area,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
 } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
-import { startOfMonth, endOfMonth, eachDayOfInterval, format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { formatCurrency } from "@/lib/utils";
 
-interface RevenueData {
-  name: string;
+export interface DailyMetric {
+  /** Dia comercial (yyyy-MM-dd, America/Sao_Paulo). */
+  day: string;
+  /** Rótulo curto do eixo X (dd/MM). */
+  label: string;
+  accesses: number;
+  sales: number;
   revenue: number;
-  day: number;
 }
 
-export function RevenueChart() {
-  const [data, setData] = useState<RevenueData[]>([]);
-  const [loading, setLoading] = useState(true);
+interface RevenueChartProps {
+  data: DailyMetric[];
+  loading: boolean;
+}
 
-  useEffect(() => {
-    fetchRevenueData();
-  }, []);
+const ACCESS_COLOR = "hsl(217, 91%, 60%)";
+const SALES_COLOR = "hsl(142, 71%, 45%)";
+const REVENUE_COLOR = "hsl(38, 92%, 50%)";
 
-  const fetchRevenueData = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+const conversionRate = (sales: number, accesses: number) =>
+  accesses > 0 ? `${((sales / accesses) * 100).toFixed(1)}%` : "—";
 
-      const now = new Date();
-      const monthStart = startOfMonth(now);
-      const monthEnd = endOfMonth(now);
+// Conversão entra só no tooltip: como % num gráfico de contagens/reais, uma
+// quarta linha ficaria ilegível em qualquer um dos dois eixos.
+const ChartTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: DailyMetric }[] }) => {
+  if (!active || !payload?.length) return null;
 
-      // Get all days in the current month
-      const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const point = payload[0].payload;
+  const rows = [
+    { label: "Acessos", value: point.accesses.toString(), color: ACCESS_COLOR },
+    { label: "Vendas", value: point.sales.toString(), color: SALES_COLOR },
+    { label: "Receita", value: `R$ ${formatCurrency(point.revenue)}`, color: REVENUE_COLOR },
+    { label: "Conversão", value: conversionRate(point.sales, point.accesses), color: null },
+  ];
 
-      // Fetch transactions for the current month
-      const { data: transactions } = await supabase
-        .from("transactions")
-        .select("value, created_at")
-        .in("status", ["RECEIVED", "CONFIRMED"])
-        .gte("created_at", monthStart.toISOString())
-        .lte("created_at", monthEnd.toISOString());
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 shadow-md">
+      <p className="text-sm font-semibold mb-2">{point.label}</p>
+      <div className="space-y-1">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-4 text-xs">
+            <span className="flex items-center gap-2 text-muted-foreground">
+              {row.color && (
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />
+              )}
+              {row.label}
+            </span>
+            <span className="font-medium">{row.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
-      // Group transactions by day
-      const revenueByDay = new Map<number, number>();
-
-      daysInMonth.forEach((day) => {
-        const dayNumber = day.getDate();
-        revenueByDay.set(dayNumber, 0);
-      });
-
-      transactions?.forEach((transaction) => {
-        const transactionDate = new Date(transaction.created_at);
-        const dayNumber = transactionDate.getDate();
-        const currentRevenue = revenueByDay.get(dayNumber) || 0;
-        revenueByDay.set(dayNumber, currentRevenue + Number(transaction.value));
-      });
-
-      // Convert to chart data
-      const chartData = Array.from(revenueByDay.entries())
-        .map(([day, revenue]) => ({
-          name: day.toString(),
-          revenue,
-          day,
-        }))
-        .sort((a, b) => a.day - b.day);
-
-      setData(chartData);
-    } catch (error) {
-      console.error("Error fetching revenue data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+export function RevenueChart({ data, loading }: RevenueChartProps) {
+  const [days, setDays] = useState<7 | 30>(7);
+  const visibleData = data.slice(-days);
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-xl">Receita cobrada do mês</CardTitle>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle className="text-xl">Acessos × vendas × receita</CardTitle>
+        <div className="flex gap-2">
+          {([7, 30] as const).map((option) => (
+            <Button
+              key={option}
+              variant={days === option ? "default" : "outline"}
+              size="sm"
+              onClick={() => setDays(option)}
+            >
+              {option} dias
+            </Button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="h-[350px] flex items-center justify-center">
+          <div className="h-[320px] flex items-center justify-center">
             <p className="text-muted-foreground">Carregando dados...</p>
           </div>
-        ) : data.length === 0 ? (
-          <div className="h-[350px] flex items-center justify-center">
-            <p className="text-muted-foreground">
-              Nenhuma venda registrada neste mês
-            </p>
-          </div>
         ) : (
-          <ResponsiveContainer width="100%" height={350}>
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={visibleData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis
-                dataKey="name"
+              <XAxis dataKey="label" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+              <YAxis
+                yAxisId="left"
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={12}
+                allowDecimals={false}
               />
               <YAxis
+                yAxisId="right"
+                orientation="right"
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={12}
+                width={72}
                 tickFormatter={(value) => `R$ ${formatCurrency(Number(value))}`}
               />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
-                }}
-                formatter={(value: number) => [
-                  `R$ ${formatCurrency(Number(value))}`,
-                  "Receita cobrada",
-                ]}
+              <Tooltip content={<ChartTooltip />} />
+              <Legend />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="accesses"
+                name="Acessos"
+                stroke={ACCESS_COLOR}
+                strokeWidth={2}
+                dot={false}
               />
-              <Area
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="sales"
+                name="Vendas"
+                stroke={SALES_COLOR}
+                strokeWidth={2}
+                dot={false}
+              />
+              <Line
+                yAxisId="right"
                 type="monotone"
                 dataKey="revenue"
-                stroke="hsl(217, 91%, 60%)"
+                name="Receita"
+                stroke={REVENUE_COLOR}
                 strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorRevenue)"
+                dot={false}
               />
-            </AreaChart>
+            </LineChart>
           </ResponsiveContainer>
         )}
       </CardContent>

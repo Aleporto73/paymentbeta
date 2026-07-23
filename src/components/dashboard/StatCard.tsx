@@ -9,19 +9,22 @@ interface StatCardProps {
   changeType?: "positive" | "negative" | "neutral";
   icon: LucideIcon;
   iconColor?: string;
+  /** Linha extra de contexto abaixo da variação (ex.: contagem + ticket médio). */
+  subtitle?: string;
   additionalMetrics?: {
     label: string;
     value: string;
   }[];
 }
 
-export function StatCard({ 
-  title, 
-  value, 
-  change, 
-  changeType = "neutral", 
+export function StatCard({
+  title,
+  value,
+  change,
+  changeType = "neutral",
   icon: Icon,
   iconColor = "text-primary",
+  subtitle,
   additionalMetrics
 }: StatCardProps) {
   return (
@@ -41,6 +44,7 @@ export function StatCard({
                 {change}
               </p>
             )}
+            {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
           </div>
           <div className={cn(
             "p-3 rounded-lg",
