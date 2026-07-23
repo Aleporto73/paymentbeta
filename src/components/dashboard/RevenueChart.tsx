@@ -75,7 +75,10 @@ export function RevenueChart({ data, loading }: RevenueChartProps) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle className="text-xl">Acessos × vendas × receita</CardTitle>
+        <div className="space-y-1">
+          <CardTitle className="text-xl">Acessos × vendas × receita</CardTitle>
+          <p className="text-xs text-muted-foreground">Hoje: dados parciais</p>
+        </div>
         <div className="flex gap-2">
           {([7, 30] as const).map((option) => (
             <Button
