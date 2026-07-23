@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { DollarSign, ShoppingCart, Users, Wallet } from "lucide-react";
+import { DollarSign, Eye, RefreshCw, ShoppingCart, Users, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentSales } from "@/components/dashboard/RecentSales";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { startOfDay, startOfMonth, subDays, endOfDay, format } from "date-fns";
+import { paidSaleDate } from "@/lib/salesDate";
+import { startOfDay, startOfMonth, subDays, format } from "date-fns";
 
 // Lista fixa das afiliadas reais para os cards do Dashboard.
 // Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora dos cards,
@@ -34,12 +36,15 @@ interface DashboardStats {
   salesThisMonth: number;
   affiliateCards: AffiliateCardStats[];
   affiliateCommissionsThisMonth: number;
+  checkoutViewsToday: number;
 }
 
 interface DashboardTransaction {
   value: number | null;
   asaas_fee_amount: number | null;
   created_at: string;
+  confirmed_date: string | null;
+  payment_date: string | null;
   status: string;
 }
 
@@ -65,6 +70,7 @@ export default function Dashboard() {
     salesThisMonth: 0,
     affiliateCards: AFFILIATE_REPORT_NAMES.map((name) => ({ name, revenue: 0, commission: 0, salesCount: 0, sales: [] })),
     affiliateCommissionsThisMonth: 0,
+    checkoutViewsToday: 0,
   });
   const [loading, setLoading] = useState(true);
   const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateCardStats | null>(null);
@@ -74,16 +80,17 @@ export default function Dashboard() {
   }, []);
 
   const fetchDashboardStats = async () => {
+    setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const now = new Date();
-      const todayStart = startOfDay(now);
-      const yesterdayStart = startOfDay(subDays(now, 1));
-      const yesterdayEnd = endOfDay(subDays(now, 1));
-      const last7DaysStart = startOfDay(subDays(now, 7));
       const monthStart = startOfMonth(now);
+      const todayStr = format(now, "yyyy-MM-dd");
+      const yesterdayStr = format(subDays(now, 1), "yyyy-MM-dd");
+      const last7DaysStr = format(subDays(now, 7), "yyyy-MM-dd");
+      const monthStartDateStr = format(monthStart, "yyyy-MM-dd");
 
       const { data: transactionRows } = await supabase
         .from("transactions")
@@ -91,6 +98,8 @@ export default function Dashboard() {
           value,
           asaas_fee_amount,
           created_at,
+          confirmed_date,
+          payment_date,
           status
         `);
 
@@ -125,49 +134,39 @@ export default function Dashboard() {
         return validValues.reduce((sum, value) => sum + value, 0);
       };
 
-      // Calculate stats
-      const revenueToday = confirmedTransactions
-        .filter((t) => new Date(t.created_at) >= todayStart)
-        .reduce((sum, t) => sum + Number(t.value || 0), 0);
+      // Buckets pela data real do pagamento (ver paidSaleDate), não por created_at.
+      const bucket = (matches: (paidDateStr: string) => boolean) => {
+        const rows = confirmedTransactions.filter((t) => matches(paidSaleDate(t)));
+        return {
+          rows,
+          revenue: rows.reduce((sum, t) => sum + Number(t.value || 0), 0),
+          count: rows.length,
+        };
+      };
 
-      const revenueYesterday = confirmedTransactions
-        .filter(
-          (t) =>
-            new Date(t.created_at) >= yesterdayStart &&
-            new Date(t.created_at) <= yesterdayEnd
-        )
-        .reduce((sum, t) => sum + Number(t.value || 0), 0);
+      const today = bucket((d) => d === todayStr);
+      const yesterday = bucket((d) => d === yesterdayStr);
+      const last7Days = bucket((d) => d >= last7DaysStr);
+      const thisMonth = bucket((d) => d >= monthStartDateStr);
 
-      const revenueLast7Days = confirmedTransactions
-        .filter((t) => new Date(t.created_at) >= last7DaysStart)
-        .reduce((sum, t) => sum + Number(t.value || 0), 0);
+      const revenueToday = today.revenue;
+      const revenueYesterday = yesterday.revenue;
+      const revenueLast7Days = last7Days.revenue;
+      const revenueThisMonth = thisMonth.revenue;
 
-      const revenueThisMonth = confirmedTransactions
-        .filter((t) => new Date(t.created_at) >= monthStart)
-        .reduce((sum, t) => sum + Number(t.value || 0), 0);
+      const salesToday = today.count;
+      const salesYesterday = yesterday.count;
+      const salesLast7Days = last7Days.count;
+      const salesThisMonth = thisMonth.count;
+      const asaasFeesThisMonth = sumNullable(thisMonth.rows.map((transaction) => transaction.asaas_fee_amount));
 
-      const transactionsToday = confirmedTransactions.filter(
-        (t) => new Date(t.created_at) >= todayStart
-      );
-
-      const transactionsThisMonth = confirmedTransactions.filter(
-        (t) => new Date(t.created_at) >= monthStart
-      );
-
-      const salesToday = transactionsToday.length;
-
-      const salesYesterday = confirmedTransactions.filter(
-        (t) =>
-          new Date(t.created_at) >= yesterdayStart &&
-          new Date(t.created_at) <= yesterdayEnd
-      ).length;
-
-      const salesLast7Days = confirmedTransactions.filter(
-        (t) => new Date(t.created_at) >= last7DaysStart
-      ).length;
-
-      const salesThisMonth = transactionsThisMonth.length;
-      const asaasFeesThisMonth = sumNullable(transactionsThisMonth.map((transaction) => transaction.asaas_fee_amount));
+      // Mesma fonte e janela do Relatórios > Checkout ("Hoje"): checkout_events
+      // grava created_at como timestamp real, então aqui o corte é por instante.
+      const { count: checkoutViewsToday } = await supabase
+        .from("checkout_events")
+        .select("id", { count: "exact", head: true })
+        .eq("event_type", "view")
+        .gte("created_at", startOfDay(now).toISOString());
 
       // Vendas por afiliada (mês atual) — alimenta os cards de afiliada e a
       // dedução de comissão do bloco "Meu lucro real". Fonte: product_sales,
@@ -187,7 +186,6 @@ export default function Dashboard() {
       // padrão do bug corrigido em Relatorios.tsx). Comparar por instante UTC
       // exato pode excluir o dia 1º do mês por até 3h. Aqui comparamos pela
       // data-calendário (yyyy-MM-dd) do início do mês, não pelo instante.
-      const monthStartDateStr = format(monthStart, "yyyy-MM-dd");
       const salesThisMonthList = ((saleRows || []) as unknown as DashboardSale[]).filter(
         (sale) => sale.sale_date.slice(0, 10) >= monthStartDateStr
       );
@@ -239,6 +237,7 @@ export default function Dashboard() {
         salesThisMonth,
         affiliateCards,
         affiliateCommissionsThisMonth,
+        checkoutViewsToday: checkoutViewsToday ?? 0,
       });
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
@@ -295,11 +294,17 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">
-          Visão geral do seu negócio em tempo real com valores cobrados do cliente
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Visão geral do seu negócio em tempo real com valores cobrados do cliente
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={fetchDashboardStats} disabled={loading}>
+          <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          Atualizar
+        </Button>
       </div>
 
       {loading ? (
@@ -334,6 +339,14 @@ export default function Dashboard() {
               { label: "Últimos 7 dias", value: stats.salesLast7Days.toString() },
               { label: "Mês atual", value: stats.salesThisMonth.toString() },
             ]}
+          />
+          <StatCard
+            title="Visualizações do checkout hoje"
+            value={stats.checkoutViewsToday.toString()}
+            change="Mesma fonte de Relatórios > Checkout"
+            changeType="neutral"
+            icon={Eye}
+            iconColor="text-info"
           />
         </div>
       )}
