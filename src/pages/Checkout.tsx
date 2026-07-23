@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { publicSupabase } from "@/integrations/supabase/publicClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,10 @@ declare global {
   }
 }
 
+// Teto do carregamento inicial. Loader sem teto e a classe do bug: qualquer
+// requisicao que estagne deixa a tela pulsando para sempre.
+const CHECKOUT_LOAD_TIMEOUT_MS = 8000;
+
 export default function Checkout() {
   const [searchParams] = useSearchParams();
   const productCode = searchParams.get("product");
@@ -34,6 +39,7 @@ export default function Checkout() {
   const affiliateCode = searchParams.get("affiliate");
 
   const [loading, setLoading] = useState(true);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
   const [product, setProduct] = useState<any>(null);
   const [price, setPrice] = useState<any>(null);
   const [orderBumps, setOrderBumps] = useState<ProductOrderBump[]>([]);
@@ -678,6 +684,21 @@ export default function Checkout() {
   }, [searchParams]);
 
   useEffect(() => {
+    // `unmounted` cobre desmontagem e troca de produto/preco; `timedOut` cobre a
+    // resposta que chega depois do teto. Juntos garantem que nenhuma resposta
+    // tardia sobrescreva o estado ja decidido.
+    let unmounted = false;
+    let timedOut = false;
+    const isStale = () => unmounted || timedOut;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (unmounted) return;
+      console.error("Checkout: carregamento excedeu", CHECKOUT_LOAD_TIMEOUT_MS, "ms");
+      setLoadTimedOut(true);
+      setLoading(false);
+    }, CHECKOUT_LOAD_TIMEOUT_MS);
+
     const fetchCheckoutData = async () => {
       try {
         if (!productCode) {
@@ -685,29 +706,41 @@ export default function Checkout() {
           return;
         }
 
+        // As consultas de carregamento usam `publicSupabase`: sem sessao, sem
+        // localStorage e sem o Web Lock do GoTrue, que era o que travava a
+        // primeira query dentro do navegador. Ver publicClient.ts.
+
         // Buscar produto
-        const { data: productData, error: productError } = await supabase
+        const { data: productData, error: productError } = await publicSupabase
           .from("products")
           .select("*, checkout_header_image_url, approved_payment_redirect_url, rejected_payment_redirect_url")
           .eq("unique_code", productCode)
           .single();
 
         if (productError) throw productError;
+        if (isStale()) return;
         setProduct(productData);
 
         // Buscar order bumps ativos
-        const { data: orderBumpsData, error: orderBumpsError } = await supabase
+        const { data: orderBumpsData, error: orderBumpsError } = await publicSupabase
           .from("product_order_bumps")
           .select("*")
           .eq("product_id", productData.id)
           .eq("is_active", true)
           .order("display_order");
 
+        if (isStale()) return;
+
         if (!orderBumpsError && orderBumpsData) {
           // Buscar imagens dos produtos dos order bumps
           if (orderBumpsData.length > 0) {
             const productIds = orderBumpsData.map((ob) => ob.order_bump_product_id);
-            const { data: productsData } = await supabase.from("products").select("id, image_url").in("id", productIds);
+            const { data: productsData } = await publicSupabase
+              .from("products")
+              .select("id, image_url")
+              .in("id", productIds);
+
+            if (isStale()) return;
 
             const orderBumpsWithImages = orderBumpsData.map((ob) => ({
               ...ob,
@@ -722,7 +755,7 @@ export default function Checkout() {
 
         // Se tiver código de preço específico, buscar, senão usar o padrão
         if (priceCode) {
-          const { data: priceData, error: priceError } = await supabase
+          const { data: priceData, error: priceError } = await publicSupabase
             .from("product_prices")
             .select("*")
             .eq("unique_code", priceCode)
@@ -730,15 +763,18 @@ export default function Checkout() {
             .single();
 
           if (priceError) throw priceError;
+          if (isStale()) return;
           setPrice(priceData);
         } else {
           // Buscar preço padrão
-          const { data: defaultPrice, error: priceError } = await supabase
+          const { data: defaultPrice, error: priceError } = await publicSupabase
             .from("product_prices")
             .select("*")
             .eq("product_id", productData.id)
             .eq("is_default", true)
             .single();
+
+          if (isStale()) return;
 
           if (priceError) {
             // Se não houver preço padrão, usar o preço do produto
@@ -749,24 +785,33 @@ export default function Checkout() {
         }
 
         // Buscar configurações de pixels ativos
-        const { data: adsConfigsData, error: adsError } = await supabase
+        const { data: adsConfigsData, error: adsError } = await publicSupabase
           .from("product_ads_configs")
           .select("*")
           .eq("product_id", productData.id)
           .eq("is_active", true);
 
+        if (isStale()) return;
+
         if (!adsError && adsConfigsData) {
           setAdsConfigs(adsConfigsData);
         }
       } catch (error) {
+        if (isStale()) return;
         console.error("Erro ao carregar dados:", error);
         toast.error("Erro ao carregar informações do produto");
       } finally {
-        setLoading(false);
+        clearTimeout(timer);
+        if (!isStale()) setLoading(false);
       }
     };
 
     fetchCheckoutData();
+
+    return () => {
+      unmounted = true;
+      clearTimeout(timer);
+    };
   }, [productCode, priceCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -969,12 +1014,17 @@ export default function Checkout() {
             </div>
           </div>
 
-          <h1 className="text-3xl font-bold mb-3">Ops! Oferta Não Encontrada</h1>
+          <h1 className="text-3xl font-bold mb-3">
+            {loadTimedOut ? "Não conseguimos carregar a oferta" : "Ops! Oferta Não Encontrada"}
+          </h1>
           <p className="text-muted-foreground mb-8">
-            A oferta que você está procurando não foi encontrada ou não está mais disponível.
+            {loadTimedOut
+              ? "A conexão demorou demais para responder. Tente novamente — seus dados não foram enviados."
+              : "A oferta que você está procurando não foi encontrada ou não está mais disponível."}
           </p>
 
-          <Card className="mb-8">
+          {/* No timeout o link esta certo -- so a rede falhou. Nao sugerir o contrario. */}
+          <Card className={`mb-8 ${loadTimedOut ? "hidden" : ""}`}>
             <CardContent className="pt-6">
               <h2 className="text-xl font-semibold mb-4 text-left">O que você pode fazer?</h2>
               <ul className="text-left space-y-2 text-muted-foreground">
@@ -996,9 +1046,9 @@ export default function Checkout() {
 
           <Button
             className="w-full md:w-auto px-12 h-12 bg-[#157347] hover:bg-[#157347]/90 text-white font-semibold"
-            onClick={() => (window.location.href = "/")}
+            onClick={() => (loadTimedOut ? window.location.reload() : (window.location.href = "/"))}
           >
-            Voltar para a Página Inicial
+            {loadTimedOut ? "Tentar novamente" : "Voltar para a Página Inicial"}
           </Button>
 
           <footer className="mt-12 text-sm text-muted-foreground">
