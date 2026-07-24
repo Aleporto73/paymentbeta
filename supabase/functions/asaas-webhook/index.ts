@@ -60,6 +60,19 @@ const validateWebhookToken = (req: Request) => {
 };
 
 const CONFIRMED_PAYMENT_STATUSES = new Set(['RECEIVED', 'CONFIRMED']);
+const VITALICIO_PRODUCT_ID = 'ad27ba35-92a5-4a60-aec8-0b82ae7c0f44';
+const VITALICIO_PENDING_PAYMENT_STATUSES = new Set([
+  'PENDING',
+  'OVERDUE',
+  'AUTHORIZED',
+  'AWAITING_RISK_ANALYSIS',
+]);
+const VITALICIO_FAILED_PAYMENT_STATUSES = new Set([
+  'DECLINED',
+  'REFUSED',
+  'FAILED',
+  'REJECTED',
+]);
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -71,6 +84,74 @@ const getValidNumber = (value: unknown) => {
 
 const isConfirmedPaymentStatus = (status: unknown) =>
   typeof status === 'string' && CONFIRMED_PAYMENT_STATUSES.has(status);
+
+const getVitalicioGuardStatusFromWebhook = (
+  eventType: string,
+  paymentStatus: unknown,
+) => {
+  const normalizedStatus = typeof paymentStatus === 'string'
+    ? paymentStatus.trim().toUpperCase()
+    : '';
+
+  if (CONFIRMED_PAYMENT_STATUSES.has(normalizedStatus)) {
+    return 'paid';
+  }
+
+  if (
+    normalizedStatus === 'DELETED'
+    || normalizedStatus === 'CANCELLED'
+    || eventType === 'PAYMENT_DELETED'
+    || eventType === 'PAYMENT_CANCELLED'
+  ) {
+    return 'cancelled';
+  }
+
+  if (
+    VITALICIO_FAILED_PAYMENT_STATUSES.has(normalizedStatus)
+    || eventType.includes('REFUSED')
+    || eventType.includes('REJECTED')
+  ) {
+    return 'failed';
+  }
+
+  if (
+    VITALICIO_PENDING_PAYMENT_STATUSES.has(normalizedStatus)
+    || eventType === 'PAYMENT_AWAITING_RISK_ANALYSIS'
+  ) {
+    return 'pending';
+  }
+
+  // REFUNDED and CHARGEBACK intentionally remain blocking in this phase.
+  return 'unknown';
+};
+
+async function updateVitalicioGuardFromWebhook(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  paymentId: string,
+  eventType: string,
+  paymentStatus: unknown,
+) {
+  const nextStatus = getVitalicioGuardStatusFromWebhook(eventType, paymentStatus);
+  let updateQuery = supabaseAdmin
+    .from('vitalicio_purchase_guards')
+    .update({
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    });
+
+  if (nextStatus !== 'paid') {
+    updateQuery = updateQuery.neq('status', 'paid');
+  }
+
+  const { error } = await updateQuery.eq('asaas_payment_id', paymentId);
+
+  if (error) {
+    console.error('Error updating lifetime purchase guard from webhook');
+    return false;
+  }
+
+  return true;
+}
 
 const getAsaasFeeAmount = (payment: any) => {
   const paymentValue = getValidNumber(payment?.value);
@@ -1797,6 +1878,23 @@ serve(async (req) => {
           return jsonResponse({ received: true });
         } else {
           console.log('Transaction updated:', paymentId, 'Status:', payment.status);
+
+          if (existingTransaction.product_id === VITALICIO_PRODUCT_ID) {
+            const guardUpdated = await updateVitalicioGuardFromWebhook(
+              supabaseAdmin,
+              paymentId,
+              eventType,
+              payment.status,
+            );
+
+            if (!guardUpdated) {
+              await updateAsaasWebhookEventStatus(supabaseAdmin, webhookEventRowId, 'failed');
+              return jsonResponse(
+                { error: 'Lifetime purchase guard update failed', received: true, retryable: true },
+                500,
+              );
+            }
+          }
           
           // If payment is confirmed/received, process sale data
           if (payment.status === 'RECEIVED' || payment.status === 'CONFIRMED') {

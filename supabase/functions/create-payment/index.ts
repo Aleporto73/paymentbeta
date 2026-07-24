@@ -9,6 +9,38 @@ const corsHeaders = {
 
 const MINIMUM_PAYMENT_VALUE = 5;
 const MAX_INSTALLMENTS = 12;
+const VITALICIO_PRODUCT_ID = "ad27ba35-92a5-4a60-aec8-0b82ae7c0f44";
+const VITALICIO_GENERIC_MESSAGE =
+  "Não foi possível iniciar uma nova compra. Verifique seu acesso ou entre em contato com o suporte.";
+
+const VITALICIO_PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED"]);
+const VITALICIO_PENDING_STATUSES = new Set([
+  "PENDING",
+  "OVERDUE",
+  "AUTHORIZED",
+  "AWAITING_RISK_ANALYSIS",
+]);
+const VITALICIO_FAILED_STATUSES = new Set(["DECLINED", "REFUSED", "FAILED", "REJECTED"]);
+const VITALICIO_CANCELLED_STATUSES = new Set(["DELETED", "CANCELLED"]);
+
+type VitalicioGuardStatus =
+  | "creating"
+  | "pending"
+  | "paid"
+  | "failed"
+  | "cancelled"
+  | "unknown";
+
+type VitalicioReservation = {
+  result: "reserved" | "purchase_blocked" | "purchase_processing";
+  guard_id: string | null;
+  external_reference: string | null;
+};
+
+type VitalicioGuardContext = {
+  id: string;
+  externalReference: string;
+};
 
 const SUBSCRIPTION_CYCLE_BY_PERIOD: Record<string, string> = {
   mensal: "MONTHLY",
@@ -148,6 +180,333 @@ const getInstallmentInterestRate = (rates: unknown, installmentCount: number) =>
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const getTextValue = (value: unknown) =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
+
+const getAsaasErrorDescription = (value: unknown) => {
+  if (!isRecord(value) || !Array.isArray(value.errors) || !isRecord(value.errors[0])) {
+    return null;
+  }
+
+  return getTextValue(value.errors[0].description);
+};
+
+const normalizeCustomerDocument = (value: unknown) =>
+  typeof value === "string" || typeof value === "number"
+    ? String(value).replace(/\D/g, "")
+    : "";
+
+const getCustomerDocumentCandidates = (document: string) => {
+  const candidates = new Set([document]);
+
+  if (document.length === 11) {
+    candidates.add(
+      `${document.slice(0, 3)}.${document.slice(3, 6)}.${document.slice(6, 9)}-${document.slice(9)}`,
+    );
+  } else if (document.length === 14) {
+    candidates.add(
+      `${document.slice(0, 2)}.${document.slice(2, 5)}.${document.slice(5, 8)}/${document.slice(8, 12)}-${document.slice(12)}`,
+    );
+  }
+
+  return Array.from(candidates);
+};
+
+const getVitalicioGuardStatus = (paymentStatus: unknown): VitalicioGuardStatus => {
+  const normalizedStatus = typeof paymentStatus === "string"
+    ? paymentStatus.trim().toUpperCase()
+    : "";
+
+  if (VITALICIO_PAID_STATUSES.has(normalizedStatus)) {
+    return "paid";
+  }
+
+  if (VITALICIO_PENDING_STATUSES.has(normalizedStatus)) {
+    return "pending";
+  }
+
+  if (VITALICIO_FAILED_STATUSES.has(normalizedStatus)) {
+    return "failed";
+  }
+
+  if (VITALICIO_CANCELLED_STATUSES.has(normalizedStatus)) {
+    return "cancelled";
+  }
+
+  return "unknown";
+};
+
+const vitalicioGuardResponse = (
+  result: "purchase_blocked" | "purchase_processing",
+  status: 200 | 202,
+) =>
+  new Response(
+    JSON.stringify({
+      success: false,
+      result,
+      message: VITALICIO_GENERIC_MESSAGE,
+      new_charge_allowed: false,
+    }),
+    {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+
+async function updateVitalicioGuard(
+  supabaseClient: ReturnType<typeof createClient>,
+  guardId: string,
+  updates: {
+    status?: VitalicioGuardStatus;
+    asaas_customer_id?: string;
+    asaas_payment_id?: string;
+  },
+  preservePaid = false,
+) {
+  let updateQuery = supabaseClient
+    .from("vitalicio_purchase_guards")
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", guardId);
+
+  if (preservePaid && updates.status !== "paid") {
+    updateQuery = updateQuery.neq("status", "paid");
+  }
+
+  const { data, error } = await updateQuery
+    .select("id")
+    .maybeSingle();
+
+  if (error || (!data && !preservePaid)) {
+    console.error("Failed to update the lifetime purchase guard");
+    throw new HttpError("Falha ao proteger a tentativa de pagamento", 503);
+  }
+}
+
+async function markVitalicioGuardFailed(
+  supabaseClient: ReturnType<typeof createClient>,
+  guardId: string,
+) {
+  const { error } = await supabaseClient
+    .from("vitalicio_purchase_guards")
+    .update({
+      status: "failed",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", guardId)
+    .in("status", ["creating", "unknown"]);
+
+  if (error) {
+    console.error("Failed to release the lifetime purchase guard");
+  }
+}
+
+const compareAsaasCustomersByCreation = (
+  first: Record<string, unknown>,
+  second: Record<string, unknown>,
+) => {
+  const firstDate = Date.parse(
+    String(first.dateCreated ?? first.createdAt ?? first.created_at ?? ""),
+  );
+  const secondDate = Date.parse(
+    String(second.dateCreated ?? second.createdAt ?? second.created_at ?? ""),
+  );
+  const firstTime = Number.isFinite(firstDate) ? firstDate : Number.MAX_SAFE_INTEGER;
+  const secondTime = Number.isFinite(secondDate) ? secondDate : Number.MAX_SAFE_INTEGER;
+
+  if (firstTime !== secondTime) {
+    return firstTime - secondTime;
+  }
+
+  return String(first.id ?? "").localeCompare(String(second.id ?? ""));
+};
+
+async function saveVitalicioAsaasCustomer(
+  supabaseClient: ReturnType<typeof createClient>,
+  producerId: string,
+  asaasCustomerId: string,
+  normalizedDocument: string,
+  customerData: Record<string, unknown>,
+) {
+  const { error } = await supabaseClient.from("asaas_customers").upsert({
+    user_id: producerId,
+    asaas_customer_id: asaasCustomerId,
+    name: String(customerData.name ?? ""),
+    email: String(customerData.email ?? ""),
+    cpf_cnpj: normalizedDocument,
+    phone: customerData.phone,
+    mobile_phone: customerData.mobilePhone,
+    postal_code: customerData.postalCode,
+    address: customerData.address,
+    address_number: customerData.addressNumber,
+    complement: customerData.complement,
+    province: customerData.province,
+    city: customerData.city,
+    state: customerData.state,
+  }, {
+    onConflict: "asaas_customer_id",
+  });
+
+  if (error) {
+    console.error("Failed to save the reused Asaas customer");
+    throw new HttpError("Falha ao preparar o cliente", 503);
+  }
+}
+
+async function resolveVitalicioAsaasCustomer(
+  supabaseClient: ReturnType<typeof createClient>,
+  producerId: string,
+  normalizedDocument: string,
+  customerData: Record<string, unknown>,
+  asaasBaseUrl: string,
+  apiKey: string,
+) {
+  const documentCandidates = getCustomerDocumentCandidates(normalizedDocument);
+  const { data: transactionCustomers, error: transactionCustomersError } =
+    await supabaseClient
+      .from("transactions")
+      .select("asaas_customer_id, status, created_at")
+      .eq("user_id", producerId)
+      .in("customer_cpf_cnpj", documentCandidates)
+      .not("asaas_customer_id", "is", null);
+
+  if (transactionCustomersError) {
+    console.error("Failed to find a reusable transaction customer");
+    throw new HttpError("Falha ao preparar o cliente", 503);
+  }
+
+  const reusableTransactionCustomer = (transactionCustomers ?? [])
+    .filter((row) => getTextValue(row.asaas_customer_id))
+    .sort((first, second) => {
+      const firstPaid = VITALICIO_PAID_STATUSES.has(
+        String(first.status ?? "").toUpperCase(),
+      );
+      const secondPaid = VITALICIO_PAID_STATUSES.has(
+        String(second.status ?? "").toUpperCase(),
+      );
+
+      if (firstPaid !== secondPaid) {
+        return firstPaid ? -1 : 1;
+      }
+
+      const firstCreatedAt = Date.parse(String(first.created_at ?? ""));
+      const secondCreatedAt = Date.parse(String(second.created_at ?? ""));
+      const firstTime = Number.isFinite(firstCreatedAt) ? firstCreatedAt : 0;
+      const secondTime = Number.isFinite(secondCreatedAt) ? secondCreatedAt : 0;
+
+      if (firstTime !== secondTime) {
+        return secondTime - firstTime;
+      }
+
+      return String(first.asaas_customer_id ?? "")
+        .localeCompare(String(second.asaas_customer_id ?? ""));
+    })[0];
+  const reusableTransactionCustomerId = getTextValue(
+    reusableTransactionCustomer?.asaas_customer_id,
+  );
+
+  if (reusableTransactionCustomerId) {
+    return reusableTransactionCustomerId;
+  }
+
+  const { data: localCustomers, error: localCustomersError } = await supabaseClient
+    .from("asaas_customers")
+    .select("asaas_customer_id, created_at")
+    .eq("user_id", producerId)
+    .in("cpf_cnpj", documentCandidates)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (localCustomersError) {
+    console.error("Failed to find a reusable local Asaas customer");
+    throw new HttpError("Falha ao preparar o cliente", 503);
+  }
+
+  const localCustomerId = getTextValue(localCustomers?.[0]?.asaas_customer_id);
+
+  if (localCustomerId) {
+    return localCustomerId;
+  }
+
+  const remoteLookupResponse = await fetch(
+    `${asaasBaseUrl}/customers?cpfCnpj=${encodeURIComponent(normalizedDocument)}&limit=100`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "access_token": apiKey,
+      },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const remoteLookupBody: unknown = await remoteLookupResponse.json().catch(() => null);
+
+  if (!remoteLookupResponse.ok || !isRecord(remoteLookupBody)) {
+    console.error("Asaas customer lookup failed with status:", remoteLookupResponse.status);
+    throw new HttpError("Falha ao consultar o cliente", 503);
+  }
+
+  const remoteCustomers = Array.isArray(remoteLookupBody.data)
+    ? remoteLookupBody.data.filter(isRecord).sort(compareAsaasCustomersByCreation)
+    : [];
+  const remoteCustomerId = getTextValue(remoteCustomers[0]?.id);
+
+  if (remoteCustomerId) {
+    await saveVitalicioAsaasCustomer(
+      supabaseClient,
+      producerId,
+      remoteCustomerId,
+      normalizedDocument,
+      customerData,
+    );
+    return remoteCustomerId;
+  }
+
+  const customerResponse = await fetch(`${asaasBaseUrl}/customers`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "access_token": apiKey,
+    },
+    body: JSON.stringify({
+      name: customerData.name,
+      email: customerData.email,
+      cpfCnpj: normalizedDocument,
+      phone: customerData.phone,
+      mobilePhone: customerData.mobilePhone,
+      postalCode: customerData.postalCode,
+      address: customerData.address,
+      addressNumber: customerData.addressNumber,
+      complement: customerData.complement,
+      province: customerData.province,
+      city: customerData.city,
+      state: customerData.state,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const customerResult: unknown = await customerResponse.json().catch(() => null);
+  const newCustomerId = isRecord(customerResult) ? getTextValue(customerResult.id) : null;
+
+  if (!customerResponse.ok || !newCustomerId) {
+    console.error("Asaas customer creation failed with status:", customerResponse.status);
+    throw new HttpError("Falha ao criar cliente");
+  }
+
+  await saveVitalicioAsaasCustomer(
+    supabaseClient,
+    producerId,
+    newCustomerId,
+    normalizedDocument,
+    customerData,
+  );
+  return newCustomerId;
+}
 
 async function validateCouponCode(
   supabaseClient: ReturnType<typeof createClient>,
@@ -490,6 +849,8 @@ serve(async (req) => {
       throw new HttpError("Produto sem dono configurado");
     }
 
+    const isVitalicioProduct = product.id === VITALICIO_PRODUCT_ID;
+
     const { data: price, error: priceError } = await supabaseClient
       .from("product_prices")
       .select("id, product_id, name, price, installments, subscription_period, installment_interest_rates")
@@ -614,6 +975,58 @@ serve(async (req) => {
       product.id,
     );
 
+    let vitalicioGuard: VitalicioGuardContext | null = null;
+    let normalizedVitalicioDocument = "";
+
+    if (isVitalicioProduct) {
+      normalizedVitalicioDocument = normalizeCustomerDocument(customerData?.cpfCnpj);
+
+      if (!/^(?:[0-9]{11}|[0-9]{14})$/.test(normalizedVitalicioDocument)) {
+        throw new HttpError("CPF/CNPJ inválido");
+      }
+
+      const { data: reservationData, error: reservationError } = await supabaseClient.rpc(
+        "reserve_vitalicio_purchase",
+        {
+          p_producer_id: productOwnerId,
+          p_product_id: product.id,
+          p_customer_document: normalizedVitalicioDocument,
+          p_payment_method: billingType,
+        },
+      );
+
+      if (reservationError) {
+        console.error("Lifetime purchase reservation failed");
+        throw new HttpError("Não foi possível proteger a tentativa de pagamento", 503);
+      }
+
+      const reservation = (
+        Array.isArray(reservationData) ? reservationData[0] : reservationData
+      ) as VitalicioReservation | null;
+
+      if (reservation?.result === "purchase_blocked") {
+        return vitalicioGuardResponse("purchase_blocked", 200);
+      }
+
+      if (reservation?.result === "purchase_processing") {
+        return vitalicioGuardResponse("purchase_processing", 202);
+      }
+
+      if (
+        reservation?.result !== "reserved"
+        || !reservation.guard_id
+        || !reservation.external_reference
+      ) {
+        console.error("Lifetime purchase reservation returned an invalid result");
+        throw new HttpError("Não foi possível proteger a tentativa de pagamento", 503);
+      }
+
+      vitalicioGuard = {
+        id: reservation.guard_id,
+        externalReference: reservation.external_reference,
+      };
+    }
+
     // Get integration settings to fetch API key from the real product owner.
     const { data: integrationSettings, error: settingsError } = await supabaseClient
       .from("integration_settings")
@@ -625,6 +1038,11 @@ serve(async (req) => {
 
     if (settingsError || !integrationSettings) {
       console.error("Asaas integration error:", settingsError);
+
+      if (vitalicioGuard) {
+        await markVitalicioGuardFailed(supabaseClient, vitalicioGuard.id);
+      }
+
       throw new HttpError("Asaas integration not configured");
     }
 
@@ -633,6 +1051,10 @@ serve(async (req) => {
       : integrationSettings.production_api_key;
 
     if (!apiKey) {
+      if (vitalicioGuard) {
+        await markVitalicioGuardFailed(supabaseClient, vitalicioGuard.id);
+      }
+
       throw new HttpError("Asaas API key not found");
     }
 
@@ -643,60 +1065,83 @@ serve(async (req) => {
     console.log("Creating payment with customer data");
 
     // 1. Create or get customer in Asaas
-    const customerResponse = await fetch(`${asaasBaseUrl}/customers`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "access_token": apiKey,
-      },
-      body: JSON.stringify({
+    let asaasCustomerId: string;
+
+    if (vitalicioGuard) {
+      try {
+        asaasCustomerId = await resolveVitalicioAsaasCustomer(
+          supabaseClient,
+          productOwnerId,
+          normalizedVitalicioDocument,
+          customerData,
+          asaasBaseUrl,
+          apiKey,
+        );
+      } catch (error) {
+        await markVitalicioGuardFailed(supabaseClient, vitalicioGuard.id);
+        throw error;
+      }
+    } else {
+      const customerResponse = await fetch(`${asaasBaseUrl}/customers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": apiKey,
+        },
+        body: JSON.stringify({
+          name: customerData.name,
+          email: customerData.email,
+          cpfCnpj: customerData.cpfCnpj,
+          phone: customerData.phone,
+          mobilePhone: customerData.mobilePhone,
+          postalCode: customerData.postalCode,
+          address: customerData.address,
+          addressNumber: customerData.addressNumber,
+          complement: customerData.complement,
+          province: customerData.province,
+          city: customerData.city,
+          state: customerData.state,
+        }),
+      });
+
+      const customerResult = await customerResponse.json();
+
+      if (!customerResponse.ok) {
+        console.error("Error creating customer:", customerResult);
+        throw new HttpError(customerResult.errors?.[0]?.description || "Failed to create customer");
+      }
+
+      asaasCustomerId = customerResult.id;
+      console.log("Customer created:", asaasCustomerId);
+
+      // Save customer to local database
+      await supabaseClient.from("asaas_customers").upsert({
+        user_id: productOwnerId,
+        asaas_customer_id: asaasCustomerId,
         name: customerData.name,
         email: customerData.email,
-        cpfCnpj: customerData.cpfCnpj,
+        cpf_cnpj: customerData.cpfCnpj,
         phone: customerData.phone,
-        mobilePhone: customerData.mobilePhone,
-        postalCode: customerData.postalCode,
+        mobile_phone: customerData.mobilePhone,
+        postal_code: customerData.postalCode,
         address: customerData.address,
-        addressNumber: customerData.addressNumber,
+        address_number: customerData.addressNumber,
         complement: customerData.complement,
         province: customerData.province,
         city: customerData.city,
         state: customerData.state,
-      }),
-    });
-
-    const customerResult = await customerResponse.json();
-
-    if (!customerResponse.ok) {
-      console.error("Error creating customer:", customerResult);
-      throw new HttpError(customerResult.errors?.[0]?.description || "Failed to create customer");
+      }, {
+        onConflict: "asaas_customer_id",
+      });
     }
 
-    console.log("Customer created:", customerResult.id);
-
-    // Save customer to local database
-    await supabaseClient.from("asaas_customers").upsert({
-      user_id: productOwnerId,
-      asaas_customer_id: customerResult.id,
-      name: customerData.name,
-      email: customerData.email,
-      cpf_cnpj: customerData.cpfCnpj,
-      phone: customerData.phone,
-      mobile_phone: customerData.mobilePhone,
-      postal_code: customerData.postalCode,
-      address: customerData.address,
-      address_number: customerData.addressNumber,
-      complement: customerData.complement,
-      province: customerData.province,
-      city: customerData.city,
-      state: customerData.state,
-    }, {
-      onConflict: "asaas_customer_id",
-    });
-
+    const chargeCustomerDocument = vitalicioGuard
+      ? normalizedVitalicioDocument
+      : customerData.cpfCnpj;
     const dueDate = getServerDueDate();
     const serverDescription = `${product.name}${price.name ? ` - ${price.name}` : ""}`;
-    const serverExternalReference = `${product.unique_code}-${Date.now()}`;
+    const serverExternalReference =
+      vitalicioGuard?.externalReference ?? `${product.unique_code}-${Date.now()}`;
 
     // 2a. If product is recurring and not the annual prepaid PIX exception,
     // create an Asaas subscription instead of a one-shot payment.
@@ -706,7 +1151,7 @@ serve(async (req) => {
       const asaasSplit = buildAsaasSplit(validatedAffiliateLink, 1);
 
       const subscriptionPayload: any = {
-        customer: customerResult.id,
+        customer: asaasCustomerId,
         billingType,
         value: serverTotal,
         nextDueDate: dueDate,
@@ -724,7 +1169,7 @@ serve(async (req) => {
         subscriptionPayload.creditCardHolderInfo = {
           name: customerData.name,
           email: customerData.email,
-          cpfCnpj: customerData.cpfCnpj,
+          cpfCnpj: chargeCustomerDocument,
           postalCode: customerData.postalCode,
           addressNumber: customerData.addressNumber,
           addressComplement: customerData.complement,
@@ -761,7 +1206,7 @@ serve(async (req) => {
         .insert({
           user_id: productOwnerId,
           asaas_subscription_id: subscriptionResult.id,
-          asaas_customer_id: customerResult.id,
+          asaas_customer_id: asaasCustomerId,
           product_id: product.id,
           product_price_id: price.id,
           affiliate_code: validatedAffiliateLink?.id ?? null,
@@ -804,7 +1249,7 @@ serve(async (req) => {
 
     // 2. Create payment in Asaas with server-side pricing only.
     const paymentPayload: any = {
-      customer: customerResult.id,
+      customer: asaasCustomerId,
       billingType,
       value: serverChargeTotal,
       dueDate,
@@ -831,7 +1276,7 @@ serve(async (req) => {
       paymentPayload.creditCardHolderInfo = {
         name: customerData.name,
         email: customerData.email,
-        cpfCnpj: customerData.cpfCnpj,
+        cpfCnpj: chargeCustomerDocument,
         postalCode: customerData.postalCode,
         addressNumber: customerData.addressNumber,
         addressComplement: customerData.complement,
@@ -846,20 +1291,92 @@ serve(async (req) => {
       }
     }
 
-    const paymentResponse = await fetch(`${asaasBaseUrl}/payments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "access_token": apiKey,
-      },
-      body: JSON.stringify(paymentPayload),
-    });
+    if (vitalicioGuard) {
+      // From this point onward a network failure is ambiguous: the Asaas may
+      // have accepted the charge even if its response never reached us.
+      await updateVitalicioGuard(supabaseClient, vitalicioGuard.id, {
+        status: "unknown",
+        asaas_customer_id: asaasCustomerId,
+      });
+    }
 
-    const paymentResult = await paymentResponse.json();
+    let paymentResponse: Response;
+
+    try {
+      paymentResponse = await fetch(`${asaasBaseUrl}/payments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "access_token": apiKey,
+        },
+        body: JSON.stringify(paymentPayload),
+        ...(vitalicioGuard ? { signal: AbortSignal.timeout(30_000) } : {}),
+      });
+    } catch (error) {
+      if (vitalicioGuard) {
+        console.error("Ambiguous Asaas payment creation result");
+        return vitalicioGuardResponse("purchase_processing", 202);
+      }
+
+      throw error;
+    }
+
+    let paymentResult: Record<string, unknown>;
+
+    try {
+      paymentResult = await paymentResponse.json() as Record<string, unknown>;
+    } catch (error) {
+      if (vitalicioGuard) {
+        console.error("Asaas payment response could not be read");
+        return vitalicioGuardResponse("purchase_processing", 202);
+      }
+
+      throw error;
+    }
 
     if (!paymentResponse.ok) {
-      console.error("Error creating payment:", paymentResult);
-      throw new HttpError(paymentResult.errors?.[0]?.description || "Failed to create payment");
+      const isAmbiguousFailure = paymentResponse.status === 408
+        || paymentResponse.status === 409
+        || paymentResponse.status === 425
+        || paymentResponse.status === 429
+        || paymentResponse.status >= 500;
+
+      if (vitalicioGuard && isAmbiguousFailure) {
+        console.error("Ambiguous Asaas payment status:", paymentResponse.status);
+        return vitalicioGuardResponse("purchase_processing", 202);
+      }
+
+      if (vitalicioGuard) {
+        await markVitalicioGuardFailed(supabaseClient, vitalicioGuard.id);
+        console.error("Definitive Asaas payment rejection:", paymentResponse.status);
+      } else {
+        console.error("Error creating payment:", paymentResult);
+      }
+
+      throw new HttpError(
+        getAsaasErrorDescription(paymentResult) || "Failed to create payment",
+      );
+    }
+
+    const asaasPaymentId = getTextValue(paymentResult.id);
+
+    if (vitalicioGuard && !asaasPaymentId) {
+      console.error("Asaas payment response did not include a payment id");
+      return vitalicioGuardResponse("purchase_processing", 202);
+    }
+
+    if (vitalicioGuard && asaasPaymentId) {
+      try {
+        await updateVitalicioGuard(supabaseClient, vitalicioGuard.id, {
+          status: getVitalicioGuardStatus(paymentResult.status),
+          asaas_customer_id: asaasCustomerId,
+          asaas_payment_id: asaasPaymentId,
+        }, true);
+      } catch (_error) {
+        // The guard was already moved to unknown before the POST. Keep writing
+        // the transaction so support and the webhook can reconcile the charge.
+        console.error("Asaas payment exists but the lifetime guard remains unknown");
+      }
     }
 
     console.log("Payment created:", paymentResult.id);
@@ -876,7 +1393,7 @@ serve(async (req) => {
             "access_token": apiKey,
           },
           body: JSON.stringify({
-            customer: customerResult.id,
+            customer: asaasCustomerId,
             creditCard: {
               holderName: paymentData.creditCard.holderName,
               number: paymentData.creditCard.number,
@@ -887,7 +1404,7 @@ serve(async (req) => {
             creditCardHolderInfo: {
               name: customerData.name,
               email: customerData.email,
-              cpfCnpj: customerData.cpfCnpj,
+              cpfCnpj: chargeCustomerDocument,
               postalCode: customerData.postalCode,
               addressNumber: customerData.addressNumber,
               addressComplement: customerData.complement,
@@ -944,12 +1461,12 @@ serve(async (req) => {
         asaas_payment_id: paymentResult.id,
         payment_poll_token_hash: pollCapability?.tokenHash ?? null,
         payment_poll_token_expires_at: pollCapability?.expiresAt ?? null,
-        asaas_customer_id: customerResult.id,
+        asaas_customer_id: asaasCustomerId,
         product_id: product.id,
         price_id: price.id,
         customer_name: customerData.name,
         customer_email: customerData.email,
-        customer_cpf_cnpj: customerData.cpfCnpj,
+        customer_cpf_cnpj: chargeCustomerDocument,
         customer_phone: customerData.mobilePhone || customerData.phone,
         customer_state: customerData.state,
         payment_method: billingType,

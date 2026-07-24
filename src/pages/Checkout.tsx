@@ -31,6 +31,7 @@ declare global {
 // Teto do carregamento inicial. Loader sem teto e a classe do bug: qualquer
 // requisicao que estagne deixa a tela pulsando para sempre.
 const CHECKOUT_LOAD_TIMEOUT_MS = 8000;
+type VitalicioGuardResult = "purchase_blocked" | "purchase_processing";
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
@@ -81,6 +82,8 @@ export default function Checkout() {
   const [showCoupon, setShowCoupon] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [paymentResult, setPaymentResult] = useState<any>(null);
+  const [vitalicioGuardResult, setVitalicioGuardResult] =
+    useState<VitalicioGuardResult | null>(null);
   const [showPixModal, setShowPixModal] = useState(false);
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
   const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
@@ -817,6 +820,10 @@ export default function Checkout() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (vitalicioGuardResult) {
+      return;
+    }
+
     if (isCardOnlyRecurringCheckout && paymentMethod === "pix") {
       setPaymentMethod("card");
       toast.error("Assinaturas são pagas por cartão de crédito.");
@@ -947,6 +954,21 @@ export default function Checkout() {
       });
 
       if (error) throw error;
+
+      if (
+        data?.result === "purchase_blocked"
+        || data?.result === "purchase_processing"
+      ) {
+        setVitalicioGuardResult(data.result);
+        setPaymentResult(null);
+        setPixPollingEnabled(false);
+        setShowPixModal(false);
+        toast.info(
+          data.message
+            || "Não foi possível iniciar uma nova compra. Verifique seu acesso ou entre em contato com o suporte.",
+        );
+        return;
+      }
 
       if (!data.success) {
         throw new Error(data.error || "Erro ao processar pagamento");
@@ -1666,11 +1688,42 @@ export default function Checkout() {
                     </Card>
                   )}
 
+                  {vitalicioGuardResult && (
+                    <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+                      <CardContent className="space-y-3 p-4">
+                        <div className="flex items-start gap-2">
+                          <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
+                          <p className="text-sm text-amber-950 dark:text-amber-100">
+                            Não foi possível iniciar uma nova compra. Verifique seu acesso ou entre em contato com o suporte.
+                          </p>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => window.location.reload()}
+                          >
+                            Recarregar a página
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              toast.info("Use o canal de suporte informado na oferta.")
+                            }
+                          >
+                            Falar com suporte
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Botão Principal */}
                   <Button
                     type="submit"
                     className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
-                    disabled={processing || isBelowMinimum}
+                    disabled={processing || isBelowMinimum || Boolean(vitalicioGuardResult)}
                   >
                     {processing ? "Processando..." : selectedPaymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
                   </Button>

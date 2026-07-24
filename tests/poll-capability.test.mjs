@@ -535,8 +535,16 @@ test("18. o fluxo PIX valido continua alimentando a tela", () => {
   // A capacidade so pode existir depois da transacao persistida: create-payment
   // insere a linha e devolve o token na MESMA resposta que o Checkout consome.
   const code = stripComments(createPayment);
+  const capabilityGeneration = code.indexOf("generatePollCapability()");
+  const transactionInsert = code.indexOf("const { data: transactionData");
+  const persistedCapability = code.indexOf(
+    "payment_poll_token_hash: pollCapability?.tokenHash",
+  );
+
   assert.ok(
-    code.indexOf("generatePollCapability()") < code.indexOf('.from("transactions")'),
+    capabilityGeneration > -1
+      && transactionInsert > capabilityGeneration
+      && persistedCapability > transactionInsert,
     "a capacidade e escrita junto com a transacao",
   );
 });
