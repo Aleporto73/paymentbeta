@@ -1,0 +1,263 @@
+name: Teste PostgreSQL do guard vitalício
+
+on:
+  push:
+    branches:
+      - fix/vitalicio-single-purchase-guard
+    paths:
+      - ".github/workflows/test-vitalicio-guard.yml"
+      - "supabase/migrations/20260724170000_add_vitalicio_purchase_guard.sql"
+      - "tests/vitalicio-purchase-guard.test.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      PRODUCER_ID: b803d01d-8511-4280-a4fc-dac718f3f33e
+      PRODUCT_ID: ad27ba35-92a5-4a60-aec8-0b82ae7c0f44
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar testes específicos existentes
+        run: node --test tests/vitalicio-purchase-guard.test.mjs
+
+      - name: Instalar cliente PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Preparar schema mínimo compatível
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $roles$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+              CREATE ROLE anon NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+              CREATE ROLE authenticated NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+              CREATE ROLE service_role NOLOGIN;
+            END IF;
+          END
+          $roles$;
+
+          CREATE TABLE public.transactions (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id uuid,
+            product_id uuid,
+            customer_cpf_cnpj text,
+            status text
+          );
+          SQL
+
+      - name: Aplicar Migration A em PostgreSQL real
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20260724170000_add_vitalicio_purchase_guard.sql
+
+      - name: Validar schema, RLS e permissões
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          BEGIN
+            IF to_regclass('public.vitalicio_purchase_guards') IS NULL THEN
+              RAISE EXCEPTION 'tabela vitalicio_purchase_guards não foi criada';
+            END IF;
+
+            IF to_regprocedure('public.reserve_vitalicio_purchase(uuid,uuid,text,text)') IS NULL THEN
+              RAISE EXCEPTION 'RPC reserve_vitalicio_purchase não foi criada';
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_class
+              WHERE oid = 'public.vitalicio_purchase_guards'::regclass
+                AND relrowsecurity
+            ) THEN
+              RAISE EXCEPTION 'RLS não está habilitada';
+            END IF;
+
+            IF has_table_privilege('anon', 'public.vitalicio_purchase_guards', 'SELECT') THEN
+              RAISE EXCEPTION 'anon recebeu SELECT indevido';
+            END IF;
+
+            IF has_table_privilege('authenticated', 'public.vitalicio_purchase_guards', 'INSERT') THEN
+              RAISE EXCEPTION 'authenticated recebeu INSERT indevido';
+            END IF;
+
+            IF NOT has_table_privilege('service_role', 'public.vitalicio_purchase_guards', 'INSERT') THEN
+              RAISE EXCEPTION 'service_role não recebeu acesso esperado';
+            END IF;
+
+            IF has_function_privilege(
+              'anon',
+              'public.reserve_vitalicio_purchase(uuid,uuid,text,text)',
+              'EXECUTE'
+            ) THEN
+              RAISE EXCEPTION 'anon recebeu EXECUTE indevido';
+            END IF;
+
+            IF NOT has_function_privilege(
+              'service_role',
+              'public.reserve_vitalicio_purchase(uuid,uuid,text,text)',
+              'EXECUTE'
+            ) THEN
+              RAISE EXCEPTION 'service_role não recebeu EXECUTE esperado';
+            END IF;
+          END
+          $test$;
+          SQL
+
+      - name: Testar bloqueios por histórico
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test_result() {
+            local expected="$1"
+            local document="$2"
+            local actual
+            actual=$(psql "$DATABASE_URL" -Atq -v ON_ERROR_STOP=1 -c "
+              SELECT result
+              FROM public.reserve_vitalicio_purchase(
+                '$PRODUCER_ID'::uuid,
+                '$PRODUCT_ID'::uuid,
+                '$document',
+                'PIX'
+              );")
+            echo "esperado=$expected atual=$actual documento=$document"
+            test "$actual" = "$expected"
+          }
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO public.transactions(user_id, product_id, customer_cpf_cnpj, status)
+            VALUES ('$PRODUCER_ID', '$PRODUCT_ID', '33333333333', 'CONFIRMED');"
+          test_result purchase_blocked 33333333333
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO public.transactions(user_id, product_id, customer_cpf_cnpj, status)
+            VALUES ('$PRODUCER_ID', '$PRODUCT_ID', '44444444444', 'RECEIVED');"
+          test_result purchase_blocked 44444444444
+
+          for status in PENDING OVERDUE AUTHORIZED AWAITING_RISK_ANALYSIS; do
+            doc=$(printf '5%010d' "$((RANDOM % 1000000000))")
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+              INSERT INTO public.transactions(user_id, product_id, customer_cpf_cnpj, status)
+              VALUES ('$PRODUCER_ID', '$PRODUCT_ID', '$doc', '$status');"
+            test_result purchase_processing "$doc"
+          done
+
+      - name: Testar concorrência real com 2 conexões
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /tmp/guard_two_*.txt
+
+          for i in 1 2; do
+            psql "$DATABASE_URL" -Atq -v ON_ERROR_STOP=1 -c "
+              SELECT result
+              FROM public.reserve_vitalicio_purchase(
+                '$PRODUCER_ID'::uuid,
+                '$PRODUCT_ID'::uuid,
+                '11111111111',
+                'PIX'
+              );" > "/tmp/guard_two_${i}.txt" &
+          done
+          wait
+
+          cat /tmp/guard_two_*.txt
+          reserved=$(cat /tmp/guard_two_*.txt | grep -c '^reserved$' || true)
+          processing=$(cat /tmp/guard_two_*.txt | grep -c '^purchase_processing$' || true)
+
+          echo "reserved=$reserved processing=$processing"
+          test "$reserved" -eq 1
+          test "$processing" -eq 1
+
+      - name: Testar concorrência real com 50 conexões
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /tmp/guard_fifty_*.txt
+
+          for i in $(seq 1 50); do
+            psql "$DATABASE_URL" -Atq -v ON_ERROR_STOP=1 -c "
+              SELECT result
+              FROM public.reserve_vitalicio_purchase(
+                '$PRODUCER_ID'::uuid,
+                '$PRODUCT_ID'::uuid,
+                '22222222222',
+                'CREDIT_CARD'
+              );" > "/tmp/guard_fifty_${i}.txt" &
+          done
+          wait
+
+          reserved=$(cat /tmp/guard_fifty_*.txt | grep -c '^reserved$' || true)
+          processing=$(cat /tmp/guard_fifty_*.txt | grep -c '^purchase_processing$' || true)
+          total=$(cat /tmp/guard_fifty_*.txt | grep -c -E '^(reserved|purchase_processing)$' || true)
+
+          echo "reserved=$reserved processing=$processing total=$total"
+          test "$reserved" -eq 1
+          test "$processing" -eq 49
+          test "$total" -eq 50
+
+          active=$(psql "$DATABASE_URL" -Atq -v ON_ERROR_STOP=1 -c "
+            SELECT count(*)
+            FROM public.vitalicio_purchase_guards
+            WHERE producer_id = '$PRODUCER_ID'::uuid
+              AND product_id = '$PRODUCT_ID'::uuid
+              AND customer_document = '22222222222'
+              AND status IN ('creating', 'pending', 'paid', 'unknown');")
+
+          echo "guards_ativos=$active"
+          test "$active" -eq 1
+
+      - name: Rejeitar produto fora do escopo
+        shell: bash
+        run: |
+          set -euo pipefail
+          if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            SELECT *
+            FROM public.reserve_vitalicio_purchase(
+              '$PRODUCER_ID'::uuid,
+              '00000000-0000-0000-0000-000000000001'::uuid,
+              '99999999999',
+              'PIX'
+            );"; then
+            echo 'ERRO: RPC aceitou produto fora do escopo'
+            exit 1
+          fi
+          echo 'Produto fora do escopo rejeitado corretamente.'
