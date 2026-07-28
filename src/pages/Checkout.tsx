@@ -33,6 +33,18 @@ declare global {
 const CHECKOUT_LOAD_TIMEOUT_MS = 8000;
 type VitalicioGuardResult = "purchase_blocked" | "purchase_processing";
 
+// A edge function devolve a mesma mensagem generica para os dois resultados.
+// Quem separa "ja comprou" de "falha tecnica" e o checkout, pelo data.result.
+const VITALICIO_GUARD_MESSAGES: Record<VitalicioGuardResult, string> = {
+  purchase_blocked:
+    "Consta em nosso sistema que este CPF já adquiriu este produto anteriormente.\n\nSe deseja comprar novamente ou acredita que isso seja um engano, fale com o suporte.",
+  purchase_processing:
+    "Não foi possível gerar o PIX neste momento.\n\nTente recarregar a página. Se o problema continuar, fale com o suporte.",
+};
+
+const SUPPORT_WHATSAPP_URL =
+  "https://wa.me/5511992367278?text=Olá,%20estou%20com%20problema%20para%20gerar%20o%20PIX%20no%20checkout%20do%20PsicoPlanilhas.";
+
 export default function Checkout() {
   const [searchParams] = useSearchParams();
   const productCode = searchParams.get("product");
@@ -963,10 +975,7 @@ export default function Checkout() {
         setPaymentResult(null);
         setPixPollingEnabled(false);
         setShowPixModal(false);
-        toast.info(
-          data.message
-            || "Não foi possível iniciar uma nova compra. Verifique seu acesso ou entre em contato com o suporte.",
-        );
+        toast.info(VITALICIO_GUARD_MESSAGES[data.result as VitalicioGuardResult]);
         return;
       }
 
@@ -1693,26 +1702,36 @@ export default function Checkout() {
                       <CardContent className="space-y-3 p-4">
                         <div className="flex items-start gap-2">
                           <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
-                          <p className="text-sm text-amber-950 dark:text-amber-100">
-                            Não foi possível iniciar uma nova compra. Verifique seu acesso ou entre em contato com o suporte.
+                          <p className="whitespace-pre-line text-sm text-amber-950 dark:text-amber-100">
+                            {VITALICIO_GUARD_MESSAGES[vitalicioGuardResult]}
                           </p>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => window.location.reload()}
-                          >
-                            Recarregar a página
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              toast.info("Use o canal de suporte informado na oferta.")
-                            }
-                          >
-                            Falar com suporte
+                        <div
+                          className={
+                            vitalicioGuardResult === "purchase_processing"
+                              ? "grid gap-2 sm:grid-cols-2"
+                              : "grid gap-2"
+                          }
+                        >
+                          {/* Recarregar so ajuda na falha tecnica. Para quem ja
+                              comprou, a saida e o suporte. */}
+                          {vitalicioGuardResult === "purchase_processing" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => window.location.reload()}
+                            >
+                              Recarregar a página
+                            </Button>
+                          )}
+                          <Button asChild type="button" variant="outline">
+                            <a
+                              href={SUPPORT_WHATSAPP_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Falar no WhatsApp
+                            </a>
                           </Button>
                         </div>
                       </CardContent>
