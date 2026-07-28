@@ -1139,6 +1139,96 @@ export default function Checkout() {
     toast.success("Cupom removido");
   };
 
+  // Um unico CTA, renderizado no fluxo (desktop) e na barra fixa (mobile).
+  // Mesmo type="submit", mesmo handleSubmit: nada de handler novo.
+  // O valor segue o total exibido no resumo, incluindo taxa de parcelamento.
+  const ctaAmount = hasInstallmentFee ? totalParcelado : totalPrice;
+  const mainCta = (
+    <Button
+      type="submit"
+      className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
+      disabled={processing || isBelowMinimum || Boolean(vitalicioGuardResult)}
+    >
+      {processing
+        ? "Processando..."
+        : `${selectedPaymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"} — R$ ${formatCurrency(ctaAmount)}`}
+    </Button>
+  );
+
+  // Sem order bumps o CTA vem logo apos o metodo. Com order bumps ele vem
+  // depois deles: a oferta precisa ser vista antes do botao, e o valor do
+  // CTA muda quando um bump e adicionado.
+  const hasOrderBumps = checkoutCapabilities.allowOrderBumps && orderBumps.length > 0;
+
+  // Os avisos que desabilitam o botao andam junto com ele: separados, o
+  // usuario ve o CTA travado sem nenhuma explicacao na tela.
+  const ctaBlock = (
+    <div className="space-y-4">
+      {/* Alerta valor mínimo */}
+      {isBelowMinimum && (
+        <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800">
+          <CardContent className="p-3">
+            <div className="flex items-start gap-2">
+              <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  Valor mínimo não atingido
+                </p>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                  O valor total da compra deve ser de pelo menos R$ 5,00 para processar o pagamento.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {vitalicioGuardResult && (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start gap-2">
+              <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
+              <p className="whitespace-pre-line text-sm text-amber-950 dark:text-amber-100">
+                {VITALICIO_GUARD_MESSAGES[vitalicioGuardResult]}
+              </p>
+            </div>
+            <div
+              className={
+                vitalicioGuardResult === "purchase_processing"
+                  ? "grid gap-2 sm:grid-cols-2"
+                  : "grid gap-2"
+              }
+            >
+              {/* Recarregar so ajuda na falha tecnica. Para quem ja
+                  comprou, a saida e o suporte. */}
+              {vitalicioGuardResult === "purchase_processing" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                >
+                  Recarregar a página
+                </Button>
+              )}
+              <Button asChild type="button" variant="outline">
+                <a
+                  href={SUPPORT_WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Falar no WhatsApp
+                </a>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No mobile quem aparece e a barra fixa do rodape. */}
+      <div className="hidden sm:block">{mainCta}</div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-2xl mx-auto">
@@ -1181,7 +1271,8 @@ export default function Checkout() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            {/* pb no mobile reserva o espaco da barra fixa do CTA. */}
+            <form onSubmit={handleSubmit} className="space-y-6 pb-28 sm:pb-0">
               {/* Identificação */}
               <div className="mb-8">
                 <div className="space-y-4">
@@ -1541,8 +1632,11 @@ export default function Checkout() {
                 </div>
               )}
 
+              {/* Sem order bumps: CTA imediatamente apos o metodo escolhido. */}
+              {!hasOrderBumps && ctaBlock}
+
               {/* Order Bumps */}
-              {checkoutCapabilities.allowOrderBumps && orderBumps.length > 0 && (
+              {hasOrderBumps && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">🎁</span>
@@ -1615,6 +1709,9 @@ export default function Checkout() {
                 </div>
               )}
 
+              {/* Com order bumps: CTA depois deles, ja com o total atualizado. */}
+              {hasOrderBumps && ctaBlock}
+
               {/* Resumo da Compra */}
               <div className="border-t pt-6">
                 <div className="flex items-center gap-2 mb-4">
@@ -1678,75 +1775,6 @@ export default function Checkout() {
                     )}
                   </div>
 
-                  {/* Alerta valor mínimo */}
-                  {isBelowMinimum && (
-                    <Card className="bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800">
-                      <CardContent className="p-3">
-                        <div className="flex items-start gap-2">
-                          <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                              Valor mínimo não atingido
-                            </p>
-                            <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                              O valor total da compra deve ser de pelo menos R$ 5,00 para processar o pagamento.
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {vitalicioGuardResult && (
-                    <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
-                      <CardContent className="space-y-3 p-4">
-                        <div className="flex items-start gap-2">
-                          <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
-                          <p className="whitespace-pre-line text-sm text-amber-950 dark:text-amber-100">
-                            {VITALICIO_GUARD_MESSAGES[vitalicioGuardResult]}
-                          </p>
-                        </div>
-                        <div
-                          className={
-                            vitalicioGuardResult === "purchase_processing"
-                              ? "grid gap-2 sm:grid-cols-2"
-                              : "grid gap-2"
-                          }
-                        >
-                          {/* Recarregar so ajuda na falha tecnica. Para quem ja
-                              comprou, a saida e o suporte. */}
-                          {vitalicioGuardResult === "purchase_processing" && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => window.location.reload()}
-                            >
-                              Recarregar a página
-                            </Button>
-                          )}
-                          <Button asChild type="button" variant="outline">
-                            <a
-                              href={SUPPORT_WHATSAPP_URL}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              Falar no WhatsApp
-                            </a>
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Botão Principal */}
-                  <Button
-                    type="submit"
-                    className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
-                    disabled={processing || isBelowMinimum || Boolean(vitalicioGuardResult)}
-                  >
-                    {processing ? "Processando..." : selectedPaymentMethod === "pix" ? "Gerar PIX" : "Comprar agora"}
-                  </Button>
-
                   {/* Termos */}
                   <p className="text-center text-[11px] leading-snug text-muted-foreground sm:text-xs">
                     Ao comprar, você aceita os{" "}
@@ -1797,6 +1825,18 @@ export default function Checkout() {
                   </div>
                 </div>
               </div>
+
+              {/* CTA fixo apenas no mobile. Some quando o modal do PIX abre ou
+                  quando a cobranca ja foi criada, para nunca haver dois CTAs
+                  ativos ao mesmo tempo. */}
+              {!showPixModal && !paymentResult && (
+                <div
+                  className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-4 pt-3 backdrop-blur sm:hidden"
+                  style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+                >
+                  {mainCta}
+                </div>
+              )}
             </form>
           </CardContent>
         </Card>
