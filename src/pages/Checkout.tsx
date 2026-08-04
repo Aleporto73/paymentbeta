@@ -120,7 +120,7 @@ export default function Checkout() {
   // O provisionamento nunca dependeu disto: o entitlement vem de
   // asaas-webhook -> webhook_queue -> process-webhook-queue.
 
-  const { trackConversion } = useCheckoutTracking({
+  const { trackPaymentAttempt } = useCheckoutTracking({
     productId: product?.id || "",
     priceId: price?.id,
     affiliateCode,
@@ -892,6 +892,10 @@ export default function Checkout() {
 
     setProcessing(true);
 
+    // O cliente pediu a cobranca. Este e o unico ponto do funil que depende de
+    // intencao do usuario — o resto e fato do servidor.
+    trackPaymentAttempt();
+
     try {
       // Preparar dados do cliente
       const customerData = {
@@ -986,6 +990,10 @@ export default function Checkout() {
 
       if (error) throw error;
 
+      // O navegador nao registra cobranca nem venda: ele nao tem como provar
+      // esses fatos. Ambas sao contadas em `transactions`, onde cada linha so
+      // existe porque o Asaas devolveu um asaas_payment_id.
+
       if (
         data?.result === "purchase_blocked"
         || data?.result === "purchase_processing"
@@ -1002,7 +1010,6 @@ export default function Checkout() {
       // recusa nem erro: o modal mostra o fallback com a pagina do PIX
       // (invoiceUrl) e o polling segue confirmando normalmente.
       if (data?.result === "pix_qr_unavailable") {
-        trackConversion(checkoutOrderBumpIds, totalPrice, orderBumpsTotal);
         setPaymentResult(data);
         setPixPollingTimedOut(false);
         setPixPollingEnabled(Boolean(data.pollingToken));
@@ -1011,8 +1018,7 @@ export default function Checkout() {
       }
 
       // Cobranca PIX recente deste CPF recuperada pelo servidor: nenhuma
-      // cobranca nova foi criada (por isso NAO ha trackConversion aqui) — o
-      // mesmo QR/copia-e-cola volta para a tela.
+      // cobranca nova foi criada — o mesmo QR/copia-e-cola volta para a tela.
       if (data?.recovered) {
         setPaymentResult(data);
         setPixPollingTimedOut(false);
@@ -1032,9 +1038,6 @@ export default function Checkout() {
         }, 2000);
         return;
       }
-
-      // Track conversion
-      trackConversion(checkoutOrderBumpIds, totalPrice, orderBumpsTotal);
 
       setPaymentResult(data);
 

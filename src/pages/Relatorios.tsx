@@ -6,8 +6,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BarChart3, ShoppingCart, TrendingUp, TrendingDown, Package, Users, CalendarIcon } from "lucide-react";
+import { BarChart3, ShoppingCart, TrendingUp, Package, Users, CalendarIcon } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
+import {
+  APPROVED_TRANSACTION_STATUSES,
+  CHECKOUT_EVENT,
+  countChargesCreated,
+  countSessions,
+  type CheckoutEvent,
+} from "@/lib/checkoutMetrics";
 import { format, subDays, addDays, startOfDay, endOfDay } from "date-fns";
 import {
   LineChart,
@@ -123,7 +130,6 @@ const getDateStateFromParams = (params: URLSearchParams) => {
   };
 };
 
-const APPROVED_TRANSACTION_STATUSES = ["RECEIVED", "CONFIRMED"];
 // Lista fixa das afiliadas reais para o comparativo "Minhas vendas vs Afiliadas".
 // Contas de teste (ex.: "Ana teste", "teste 2") ficam de fora de propósito.
 const AFFILIATE_REPORT_NAMES = ["Jayane", "Lívia Tadesco", "Laís Sant Anna"];
@@ -211,10 +217,10 @@ export default function Relatorios() {
 
   const [checkoutStats, setCheckoutStats] = useState({
     totalViews: 0,
-    totalAbandons: 0,
+    paymentAttempts: 0,
+    chargesCreated: 0,
     totalConversions: 0,
     conversionRate: 0,
-    abandonRate: 0,
     totalRevenue: 0,
     orderBumpsRevenue: 0,
     orderBumpsConversionRate: 0,
@@ -294,9 +300,16 @@ export default function Relatorios() {
         .lte("created_at", endDate)
         .order("created_at", { ascending: false });
 
-      const checkoutEventList = checkoutEvents || [];
-      const views = checkoutEventList.filter((e) => e.event_type === "view").length;
-      const abandons = checkoutEventList.filter((e) => e.event_type === "abandon").length;
+      // Só os dois degraus que o navegador mede, deduplicados por session_id:
+      // reload não inventa acesso, e uma sessão que tentou pagar duas vezes
+      // continua sendo uma tentativa.
+      //
+      // `abandon`, `conversion` e `payment_created` históricos não entram em
+      // métrica nenhuma: nenhum deles prova o fato que nomeia. Cobrança criada
+      // e venda confirmada vêm de transactions, logo abaixo.
+      const checkoutEventList = (checkoutEvents || []) as unknown as CheckoutEvent[];
+      const views = countSessions(checkoutEventList, [CHECKOUT_EVENT.view]);
+      const paymentAttempts = countSessions(checkoutEventList, [CHECKOUT_EVENT.paymentAttempt]);
 
       const { data: transactionRows } = await supabase
         .from("transactions")
@@ -319,6 +332,13 @@ export default function Relatorios() {
       const approvedTransactionList = transactionList.filter((transaction) =>
         APPROVED_TRANSACTION_STATUSES.includes(transaction.status)
       );
+
+      // Cobranças criadas: uma linha de transactions por cobrança real do
+      // Asaas, no MESMO período dos eventos (startDate/endDate acima).
+      // Todos os status entram — PENDING, OVERDUE, CONFIRMED, RECEIVED —,
+      // porque a cobrança existiu no gateway. Venda confirmada é o subconjunto
+      // financeiro logo abaixo.
+      const chargesCreated = countChargesCreated(transactionList);
       const approvedTransactionIds = approvedTransactionList.map((transaction) => transaction.id);
       const approvedAsaasPaymentIds = approvedTransactionList
         .map((transaction) => transaction.asaas_payment_id)
@@ -404,20 +424,22 @@ export default function Relatorios() {
 
       setCheckoutStats({
         totalViews: views,
-        totalAbandons: abandons,
+        paymentAttempts,
+        chargesCreated,
         totalConversions: conversions,
         conversionRate: views > 0 ? (conversions / views) * 100 : 0,
-        abandonRate: views > 0 ? (abandons / views) * 100 : 0,
         totalRevenue,
         orderBumpsRevenue,
         orderBumpsConversionRate: conversions > 0 ? (conversionsWithOrderBumps / conversions) * 100 : 0,
       });
 
-      // Funil de conversão
+      // Funil objetivo. Os dois primeiros degraus são eventos do navegador; os
+      // dois últimos são linhas de transactions, no mesmo período.
       setCheckoutFunnel([
-        { name: "Visualizações", value: views, fill: "#3b82f6" },
-        { name: "Conversões", value: conversions, fill: "#10b981" },
-        { name: "Abandonos", value: abandons, fill: "#ef4444" },
+        { name: "Acessos", value: views, fill: "#3b82f6" },
+        { name: "Tentativas de pagamento", value: paymentAttempts, fill: "#6366f1" },
+        { name: "Cobranças criadas", value: chargesCreated, fill: "#f59e0b" },
+        { name: "Vendas confirmadas", value: conversions, fill: "#10b981" },
       ]);
 
       // Buscar vendas — inclui produto e afiliada vinculados para alimentar
@@ -681,32 +703,34 @@ export default function Relatorios() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{checkoutStats.totalViews}</div>
-                <p className="text-xs text-muted-foreground mt-1">Total de acessos ao checkout</p>
+                <p className="text-xs text-muted-foreground mt-1">Sessões distintas no checkout</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Taxa de Conversão</CardTitle>
+                <CardTitle className="text-sm font-medium">Acesso → venda confirmada</CardTitle>
                 <TrendingUp className="w-4 h-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{checkoutStats.conversionRate.toFixed(1)}%</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {checkoutStats.totalConversions} conversões
+                  {checkoutStats.totalConversions} vendas confirmadas
                 </p>
               </CardContent>
             </Card>
 
+            {/* Substitui o antigo card "Taxa de Abandono", que media saidas de
+                pagina — inclusive de quem tinha acabado de comprar. */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Taxa de Abandono</CardTitle>
-                <TrendingDown className="w-4 h-4 text-red-500" />
+                <CardTitle className="text-sm font-medium">Cobranças criadas</CardTitle>
+                <ShoppingCart className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{checkoutStats.abandonRate.toFixed(1)}%</div>
+                <div className="text-2xl font-bold">{checkoutStats.chargesCreated}</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {checkoutStats.totalAbandons} abandonos
+                  {checkoutStats.paymentAttempts} tentativas de pagamento
                 </p>
               </CardContent>
             </Card>

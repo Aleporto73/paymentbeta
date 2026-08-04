@@ -9,6 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { businessDay, businessDayRange, formatDayOverDayChange, paidSaleDate } from "@/lib/salesDate";
+import {
+  APPROVED_TRANSACTION_STATUSES,
+  CHECKOUT_EVENT,
+  countChargesCreated,
+  countSessions,
+} from "@/lib/checkoutMetrics";
 import { startOfMonth, subDays, format } from "date-fns";
 
 // Janela máxima do gráfico. Buscamos sempre 30 dias e o seletor 7/30 fatia em
@@ -50,7 +56,8 @@ interface DashboardStats {
   affiliateCommissionsThisMonth: number;
   accessesToday: number;
   accessesYesterday: number;
-  abandonsToday: number;
+  paymentAttemptsToday: number;
+  chargesCreatedToday: number;
   topCheckouts: TopCheckoutStats[];
   dailyMetrics: DailyMetric[];
 }
@@ -63,10 +70,12 @@ interface DashboardTransaction {
   payment_date: string | null;
   product_id: string | null;
   status: string;
+  asaas_payment_id: string | null;
 }
 
 interface CheckoutEventRow {
   event_type: string;
+  session_id: string;
   product_id: string | null;
   created_at: string;
   products: { name: string } | null;
@@ -92,8 +101,11 @@ const fetchCheckoutEvents = async (fromDay: string): Promise<CheckoutEventRow[]>
   for (let offset = 0; ; offset += CHECKOUT_EVENTS_PAGE_SIZE) {
     const { data, error } = await supabase
       .from("checkout_events")
-      .select("event_type, product_id, created_at, products ( name )")
-      .in("event_type", ["view", "abandon"])
+      .select("event_type, session_id, product_id, created_at, products ( name )")
+      // Só os dois eventos que o navegador pode medir. `abandon`, `conversion` e
+      // `payment_created` históricos ficam FORA: nenhum deles prova o que
+      // nomeia, e cobrança/venda agora vêm de transactions.
+      .in("event_type", [CHECKOUT_EVENT.view, CHECKOUT_EVENT.paymentAttempt])
       // -03:00 fixo: o Brasil não usa mais horário de verão desde 2019.
       .gte("created_at", `${fromDay}T00:00:00-03:00`)
       .order("created_at")
@@ -123,7 +135,8 @@ export default function Dashboard() {
     affiliateCommissionsThisMonth: 0,
     accessesToday: 0,
     accessesYesterday: 0,
-    abandonsToday: 0,
+    paymentAttemptsToday: 0,
+    chargesCreatedToday: 0,
     topCheckouts: [],
     dailyMetrics: [],
   });
@@ -157,7 +170,8 @@ export default function Dashboard() {
           confirmed_date,
           payment_date,
           product_id,
-          status
+          status,
+          asaas_payment_id
         `);
 
       if (!transactionRows) {
@@ -167,7 +181,7 @@ export default function Dashboard() {
 
       const transactions = transactionRows as DashboardTransaction[];
       const confirmedTransactions = transactions.filter((transaction) =>
-        ["RECEIVED", "CONFIRMED"].includes(transaction.status)
+        APPROVED_TRANSACTION_STATUSES.includes(transaction.status)
       );
 
       const getNumberOrNull = (value: number | null | undefined) => {
@@ -227,11 +241,21 @@ export default function Dashboard() {
       });
 
       const eventsToday = eventsByDay.get(todayStr) ?? [];
-      const countViews = (events: CheckoutEventRow[]) => events.filter((e) => e.event_type === "view").length;
+      // Acesso = SESSAO distinta que carregou o checkout. Contar linhas contava
+      // reload como visitante novo.
+      const countViews = (events: CheckoutEventRow[]) => countSessions(events, [CHECKOUT_EVENT.view]);
 
       const accessesToday = countViews(eventsToday);
       const accessesYesterday = countViews(eventsByDay.get(yesterdayStr) ?? []);
-      const abandonsToday = eventsToday.filter((e) => e.event_type === "abandon").length;
+      const paymentAttemptsToday = countSessions(eventsToday, [CHECKOUT_EVENT.paymentAttempt]);
+
+      // Cobranças criadas hoje: linhas REAIS de transactions, pelo mesmo dia
+      // comercial dos acessos (businessDay de created_at — a data em que a
+      // cobrança nasceu, não a do pagamento). Uma linha por cobrança do Asaas;
+      // PIX recuperado não cria linha nova, então não conta duas vezes.
+      const chargesCreatedToday = countChargesCreated(
+        transactions.filter((transaction) => businessDay(transaction.created_at) === todayStr),
+      );
 
       // checkout_events.product_id é FK de products — relação canônica, sem
       // casar por nome. Vendas do dia vêm de transactions.product_id.
@@ -242,10 +266,16 @@ export default function Dashboard() {
       });
 
       const accessesByProduct = new Map<string, TopCheckoutStats>();
+      const countedSessionsByProduct = new Set<string>();
       eventsToday
-        .filter((event) => event.event_type === "view" && event.product_id)
+        .filter((event) => event.event_type === CHECKOUT_EVENT.view && event.product_id)
         .forEach((event) => {
           const productId = event.product_id as string;
+          // Mesma sessao no mesmo produto conta uma vez, igual ao card de acessos.
+          const sessionKey = `${productId}:${event.session_id}`;
+          if (countedSessionsByProduct.has(sessionKey)) return;
+          countedSessionsByProduct.add(sessionKey);
+
           const current = accessesByProduct.get(productId) ?? {
             productId,
             name: event.products?.name || "Produto não identificado",
@@ -351,7 +381,8 @@ export default function Dashboard() {
         affiliateCommissionsThisMonth,
         accessesToday,
         accessesYesterday,
-        abandonsToday,
+        paymentAttemptsToday,
+        chargesCreatedToday,
         topCheckouts,
         dailyMetrics,
       });
@@ -386,8 +417,9 @@ export default function Dashboard() {
     return `${day}/${month}/${year}`;
   };
 
-  // "Acessos", não "pessoas": contamos eventos de view, sem deduplicação
-  // garantida por visitante.
+  // Acessos = sessões distintas com `view`; vendas = transações aprovadas no
+  // mesmo dia comercial. Reload não cria acesso novo, e nenhuma venda sai de
+  // evento do navegador.
   const formatConversion = (sales: number, accesses: number) =>
     accesses > 0 ? `${((sales / accesses) * 100).toFixed(1)}%` : "—";
 
@@ -454,13 +486,19 @@ export default function Dashboard() {
               value={stats.accessesToday.toString()}
               change={accessesChange}
               changeType={stats.accessesToday >= stats.accessesYesterday ? "positive" : "negative"}
-              subtitle={`${stats.abandonsToday} ${stats.abandonsToday === 1 ? "abandono" : "abandonos"} hoje`}
+              subtitle={`Sessões distintas · ${stats.paymentAttemptsToday} ${
+                stats.paymentAttemptsToday === 1 ? "tentativa de pagamento" : "tentativas de pagamento"
+              }`}
               icon={MousePointerClick}
               iconColor="text-info"
+              // O card de "abandonos" saiu. Ele contava saidas de pagina, e a
+              // maioria das saidas era gente que TINHA comprado. Volta quando
+              // existir abandono derivado no servidor (tentativa sem pagamento
+              // confirmado dentro de uma janela).
               additionalMetrics={[
+                { label: "Cobranças criadas", value: stats.chargesCreatedToday.toString() },
                 { label: "Vendas confirmadas", value: stats.salesToday.toString() },
-                { label: "Conversão", value: conversionToday },
-                { label: "Ontem", value: stats.accessesYesterday.toString() },
+                { label: "Acesso → venda", value: conversionToday },
               ]}
             />
           </Link>

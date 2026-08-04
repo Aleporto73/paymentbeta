@@ -1505,6 +1505,19 @@ export type Database = {
     }
     Functions: {
       generate_unique_code: { Args: never; Returns: string }
+      // Definida em supabase/migrations/20260804130000_public_checkout_event_rpc.sql.
+      // Assinatura escrita a mao porque a migration ainda NAO foi aplicada;
+      // regenerar os tipos a partir do banco produz exatamente este formato.
+      track_public_checkout_event: {
+        Args: {
+          p_session_id: string
+          p_event_type: string
+          p_product_id: string
+          p_price_id?: string | null
+          p_affiliate_code?: string | null
+        }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
