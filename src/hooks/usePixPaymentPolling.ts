@@ -13,9 +13,32 @@ interface UsePixPaymentPollingProps {
    */
   pollingToken: string | null;
   onSuccess: () => void;
-  onError: (error: string) => void;
+  /**
+   * Recusa/cancelamento FINANCEIRO confirmado pelo gateway (REFUSED, DECLINED,
+   * FAILED, REJECTED, CANCELLED, DELETED). So este callback deve levar o
+   * cliente ao fluxo de pagamento recusado.
+   */
+  onRefused: (status: string) => void;
+  /**
+   * Fim da janela de verificacao SEM resposta definitiva. Nao e recusa: o PIX
+   * continua valido e pagavel. O chamador decide como orientar o cliente e pode
+   * reiniciar a verificacao com startPolling().
+   */
+  onTimeout: () => void;
   enabled: boolean;
 }
+
+// Status finais negativos do Asaas. Qualquer outro status nao confirmado
+// (PENDING, AWAITING_RISK_ANALYSIS, ...) mantem o polling: ausencia de
+// confirmacao nunca e tratada como recusa.
+const REFUSED_STATUSES = new Set([
+  'REFUSED',
+  'DECLINED',
+  'FAILED',
+  'REJECTED',
+  'CANCELLED',
+  'DELETED',
+]);
 
 interface PollingConfig {
   initialDelay: number;
@@ -35,7 +58,8 @@ export function usePixPaymentPolling({
   paymentId,
   pollingToken,
   onSuccess,
-  onError,
+  onRefused,
+  onTimeout,
   enabled,
 }: UsePixPaymentPollingProps) {
   const [isPolling, setIsPolling] = useState(false);
@@ -71,26 +95,38 @@ export function usePixPaymentPolling({
         return true; // Parar polling
       }
 
-      return false; // Continuar polling
+      // Recusa/cancelamento definitivo: este e o UNICO caminho que leva ao
+      // fluxo de pagamento recusado. Timeout e erro tecnico nao passam por aqui.
+      // check-payment-status repassa o status cru do Asaas, sempre maiusculo.
+      if (REFUSED_STATUSES.has(data.status)) {
+        setIsPolling(false);
+        onRefused(data.status);
+        return true; // Parar polling
+      }
+
+      return false; // Continuar polling (pending e afins)
     } catch (error: any) {
       // Ignorar erros de abort
       if (error.name === 'AbortError') return false;
-      
+
       console.error('Error checking payment status:', error);
-      // Não para o polling em caso de erro de rede, apenas loga
+      // Erro tecnico/de rede nao e recusa: nao para o polling, apenas loga
       return false;
     }
-  }, [paymentId, pollingToken, enabled, onSuccess]);
+  }, [paymentId, pollingToken, enabled, onSuccess, onRefused]);
 
   const scheduleNextCheck = useCallback(() => {
     if (!enabled) return;
 
     const elapsed = Date.now() - (startTimeRef.current || 0);
-    
-    // Verificar timeout total
+
+    // Fim da janela de verificacao. Isto NAO e recusa: o PIX segue valido (o
+    // vencimento da cobranca e de dias, nao minutos). Apenas paramos de
+    // consultar e avisamos o chamador; o cliente pode reiniciar com
+    // startPolling() ("Ja paguei") e o webhook confirma de qualquer forma.
     if (elapsed >= DEFAULT_CONFIG.maxDuration) {
       setIsPolling(false);
-      onError('Tempo limite para verificação do pagamento excedido. Por favor, verifique seu e-mail ou entre em contato com o suporte.');
+      onTimeout();
       return;
     }
 
@@ -108,7 +144,7 @@ export function usePixPaymentPolling({
         scheduleNextCheck();
       }
     }, currentDelayRef.current);
-  }, [enabled, checkPaymentStatus, onError]);
+  }, [enabled, checkPaymentStatus, onTimeout]);
 
   const startPolling = useCallback(() => {
     if (isPolling || !enabled || !paymentId || !pollingToken) return;

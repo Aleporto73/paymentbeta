@@ -98,6 +98,9 @@ export default function Checkout() {
     useState<VitalicioGuardResult | null>(null);
   const [showPixModal, setShowPixModal] = useState(false);
   const [pixPollingEnabled, setPixPollingEnabled] = useState(false);
+  // Fim da janela de verificacao automatica SEM confirmacao — nao e recusa.
+  // O PIX continua valido; o cliente pode reabrir o QR e verificar de novo.
+  const [pixPollingTimedOut, setPixPollingTimedOut] = useState(false);
   const [hasTrackedInitCheckout, setHasTrackedInitCheckout] = useState(false);
   const [adsConfigs, setAdsConfigs] = useState<any[]>([]);
 
@@ -124,7 +127,7 @@ export default function Checkout() {
   });
 
   // Hook de polling inteligente para PIX
-  const { isPolling, checkCount } = usePixPaymentPolling({
+  const { isPolling, checkCount, startPolling } = usePixPaymentPolling({
     paymentId: paymentResult?.payment?.id || null,
     // Capacidade emitida por create-payment para este pagamento. Substitui o
     // antigo `userId: productOwnerId`, que era o id do VENDEDOR e nao provava
@@ -151,14 +154,22 @@ export default function Checkout() {
         window.location.href = redirectUrl;
       }, 2000);
     },
-    onError: (error) => {
-      toast.error(error);
+    // Recusa/cancelamento FINANCEIRO confirmado pelo gateway: unico caminho
+    // que leva a pagina de pagamento recusado.
+    onRefused: () => {
+      toast.error("O pagamento não foi aprovado.");
       setPixPollingEnabled(false);
-      // Redirecionar para página de erro configurada ou página padrão
       setTimeout(() => {
         const redirectUrl = product?.rejected_payment_redirect_url || "/pagamento-recusado";
         window.location.href = redirectUrl;
       }, 2000);
+    },
+    // Janela de verificacao terminou sem resposta definitiva. NAO redireciona e
+    // NAO fala em recusa: o PIX segue valido e o webhook confirma de qualquer
+    // forma. So paramos de consultar ate o cliente pedir de novo.
+    onTimeout: () => {
+      setPixPollingTimedOut(true);
+      toast.info("Ainda não recebemos a confirmação do pagamento.");
     },
   });
 
@@ -836,6 +847,14 @@ export default function Checkout() {
       return;
     }
 
+    // Ja existe uma cobranca PIX criada nesta pagina: reabrir o MESMO QR em vez
+    // de solicitar outra cobranca. Defesa em profundidade — o CTA visivel neste
+    // estado ja e "Ver PIX novamente" (type="button"), nao um submit.
+    if (paymentMethod === "pix" && paymentResult?.payment?.id) {
+      setShowPixModal(true);
+      return;
+    }
+
     if (isCardOnlyRecurringCheckout && paymentMethod === "pix") {
       setPaymentMethod("card");
       toast.error("Assinaturas são pagas por cartão de crédito.");
@@ -979,6 +998,29 @@ export default function Checkout() {
         return;
       }
 
+      // A cobranca PIX FOI criada, mas o QR Code nao pode ser exibido. Nao e
+      // recusa nem erro: o modal mostra o fallback com a pagina do PIX
+      // (invoiceUrl) e o polling segue confirmando normalmente.
+      if (data?.result === "pix_qr_unavailable") {
+        trackConversion(checkoutOrderBumpIds, totalPrice, orderBumpsTotal);
+        setPaymentResult(data);
+        setPixPollingTimedOut(false);
+        setPixPollingEnabled(Boolean(data.pollingToken));
+        toast.info(data.message || "Seu PIX foi criado. Abra a página do PIX para concluir o pagamento.");
+        return;
+      }
+
+      // Cobranca PIX recente deste CPF recuperada pelo servidor: nenhuma
+      // cobranca nova foi criada (por isso NAO ha trackConversion aqui) — o
+      // mesmo QR/copia-e-cola volta para a tela.
+      if (data?.recovered) {
+        setPaymentResult(data);
+        setPixPollingTimedOut(false);
+        setPixPollingEnabled(Boolean(data.pollingToken));
+        toast.info(data.message || "Você já possui um PIX disponível. Continue com o pagamento abaixo.");
+        return;
+      }
+
       if (!data.success) {
         throw new Error(data.error || "Erro ao processar pagamento");
       }
@@ -998,6 +1040,7 @@ export default function Checkout() {
 
       if (selectedPaymentMethod === "pix") {
         // Modal já está aberto, iniciar polling
+        setPixPollingTimedOut(false);
         setPixPollingEnabled(true);
       } else {
         // Para cartão de crédito: Purchase client-side e redireciona.
@@ -1140,10 +1183,26 @@ export default function Checkout() {
   };
 
   // Um unico CTA, renderizado no fluxo (desktop) e na barra fixa (mobile).
-  // Mesmo type="submit", mesmo handleSubmit: nada de handler novo.
   // O valor segue o total exibido no resumo, incluindo taxa de parcelamento.
   const ctaAmount = hasInstallmentFee ? totalParcelado : totalPrice;
-  const mainCta = (
+
+  // Depois que uma cobranca PIX existe, "Gerar PIX" some: o unico CTA passa a
+  // reabrir o MESMO QR Code (type="button", nao dispara submit nem cria outra
+  // cobranca). Fechar o modal nao apaga paymentResult, entao o botao continua
+  // funcionando ate a confirmacao redirecionar.
+  const hasOpenPixCharge =
+    selectedPaymentMethod === "pix" && Boolean(paymentResult?.payment?.id);
+
+  const mainCta = hasOpenPixCharge ? (
+    <Button
+      type="button"
+      onClick={() => setShowPixModal(true)}
+      className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
+      disabled={processing}
+    >
+      Ver PIX novamente
+    </Button>
+  ) : (
     <Button
       type="submit"
       className="w-full h-12 text-base font-semibold bg-teal-600 hover:bg-teal-700 text-white"
@@ -1826,10 +1885,11 @@ export default function Checkout() {
                 </div>
               </div>
 
-              {/* CTA fixo apenas no mobile. Some quando o modal do PIX abre ou
-                  quando a cobranca ja foi criada, para nunca haver dois CTAs
-                  ativos ao mesmo tempo. */}
-              {!showPixModal && !paymentResult && (
+              {/* CTA fixo apenas no mobile. Some quando o modal do PIX esta
+                  aberto (nunca dois CTAs ativos ao mesmo tempo) e apos um
+                  resultado de cartao. Com cobranca PIX aberta, a barra mostra
+                  o MESMO mainCta, que neste estado e "Ver PIX novamente". */}
+              {!showPixModal && (hasOpenPixCharge || !paymentResult) && (
                 <div
                   className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-4 pt-3 backdrop-blur sm:hidden"
                   style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
@@ -1853,32 +1913,55 @@ export default function Checkout() {
                 <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                 <p className="text-muted-foreground">Aguarde, estamos gerando seu QR Code PIX...</p>
               </div>
-            ) : paymentResult?.pixData ? (
+            ) : paymentResult?.payment?.id ? (
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground text-center">
-                  Escaneie o QR Code abaixo para realizar o pagamento via PIX:
-                </p>
+                {paymentResult?.pixData ? (
+                  <>
+                    <p className="text-sm text-muted-foreground text-center">
+                      Escaneie o QR Code abaixo para realizar o pagamento via PIX:
+                    </p>
 
-                <div className="bg-white p-4 rounded-lg flex justify-center border">
-                  <img
-                    src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
-                    alt="QR Code PIX"
-                    className="max-w-[250px] w-full"
-                  />
-                </div>
+                    <div className="bg-white p-4 rounded-lg flex justify-center border">
+                      <img
+                        src={`data:image/png;base64,${paymentResult.pixData.encodedImage}`}
+                        alt="QR Code PIX"
+                        className="max-w-[250px] w-full"
+                      />
+                    </div>
 
-                <Button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(paymentResult.pixData.payload);
-                    toast.success("Código PIX copiado!");
-                  }}
-                  className="w-full"
-                  variant="outline"
-                >
-                  <Copy className="w-4 h-4 mr-2" />
-                  Copiar código PIX
-                </Button>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(paymentResult.pixData.payload);
+                        toast.success("Código PIX copiado!");
+                      }}
+                      className="w-full"
+                      variant="outline"
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copiar código PIX
+                    </Button>
+                  </>
+                ) : (
+                  // Cobranca criada sem QR exibivel (pix_qr_unavailable ou
+                  // recuperacao sem QR): a pagina da fatura do Asaas mostra o
+                  // proprio QR Code e o copia-e-cola. Nao ha recusa aqui.
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground text-center">
+                      Seu PIX está criado. Não foi possível exibir o QR Code aqui,
+                      mas você pode concluir o pagamento na página do PIX:
+                    </p>
+                    {paymentResult?.invoiceUrl && (
+                      <Button
+                        type="button"
+                        onClick={() => window.open(paymentResult.invoiceUrl, "_blank", "noopener,noreferrer")}
+                        className="w-full"
+                      >
+                        Abrir página do PIX
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 {isPolling && (
                   <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
@@ -1888,6 +1971,27 @@ export default function Checkout() {
                         Verificando pagamento automaticamente... ({checkCount} verificações)
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* Timeout da verificacao NAO e recusa: o PIX segue valido. A
+                    verificacao so reinicia por acao explicita do cliente. */}
+                {pixPollingTimedOut && !isPolling && (
+                  <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-lg p-3 space-y-2">
+                    <p className="text-xs text-amber-900 dark:text-amber-100">
+                      O PIX continua disponível. A confirmação pode levar alguns instantes.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        setPixPollingTimedOut(false);
+                        startPolling();
+                      }}
+                    >
+                      Já paguei — verificar novamente
+                    </Button>
                   </div>
                 )}
 

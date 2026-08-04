@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 import { generatePollCapability } from "../_shared/pollCapability.ts";
+import { recoverVitalicioPendingPix } from "../_shared/vitalicioPixRecovery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1005,10 +1006,53 @@ serve(async (req) => {
       ) as VitalicioReservation | null;
 
       if (reservation?.result === "purchase_blocked") {
+        // Compra realmente paga (CONFIRMED/RECEIVED ou guard 'paid') continua
+        // bloqueada sem tentativa de recuperacao.
         return vitalicioGuardResponse("purchase_blocked", 200);
       }
 
       if (reservation?.result === "purchase_processing") {
+        // Ha uma tentativa recente em andamento para este CPF. Se ela for um
+        // PIX PENDING que corresponda INTEGRALMENTE a tentativa atual — mesmo
+        // preco, mesma COMPOSICAO (conjunto de order bumps, cupom e desconto) e
+        // mesmo total calculado pelo servidor, tudo comparado em centavos —
+        // devolvemos a PROPRIA cobranca em vez de um beco sem saida; nenhuma
+        // cobranca nova e criada. Qualquer divergencia de composicao (bump
+        // trocado, cupom diferente, outro preco), cartao em analise, guard
+        // orfao ou falha na consulta caem na resposta generica anterior.
+        if (billingType === "PIX") {
+          const recovery = await recoverVitalicioPendingPix(supabaseClient, {
+            producerId: productOwnerId,
+            productId: product.id,
+            priceId: price.id,
+            normalizedDocument: normalizedVitalicioDocument,
+            // Composicao e totais da tentativa ATUAL calculados neste servidor
+            // (validateOrderBumps/validateCouponCode). Nunca valores vindos do
+            // navegador.
+            orderBumpIds: selectedOrderBumpIds,
+            couponCode: validatedCoupon?.code ?? null,
+            expectedDiscountTotal: serverDiscount,
+            expectedChargeTotal: serverChargeTotal,
+          });
+
+          if (recovery) {
+            return new Response(
+              JSON.stringify({
+                success: true,
+                recovered: true,
+                message:
+                  "Você já possui um PIX disponível. Continue com o pagamento abaixo.",
+                payment: recovery.payment,
+                transaction: recovery.transaction,
+                pollingToken: recovery.pollingToken,
+                pixData: recovery.pixData,
+                invoiceUrl: recovery.payment.invoiceUrl,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
+
         return vitalicioGuardResponse("purchase_processing", 202);
       }
 
@@ -1140,6 +1184,15 @@ serve(async (req) => {
       : customerData.cpfCnpj;
     const dueDate = getServerDueDate();
     const serverDescription = `${product.name}${price.name ? ` - ${price.name}` : ""}`;
+    // PIX: a description da cobranca vira o texto "Solicitacao de quem vai
+    // receber" no app bancario do pagador. So o nome-base do produto vai para o
+    // Asaas ("PsicoPlanilhas - Acesso Vitalicio" -> "PsicoPlanilhas"); a
+    // descricao completa continua na transacao local para conciliacao e
+    // relatorios. Cartao e assinatura seguem com a descricao completa.
+    const pixShortDescription =
+      String(product.name).split(" - ")[0].trim() || String(product.name);
+    const chargeDescription =
+      billingType === "PIX" ? pixShortDescription : serverDescription;
     const serverExternalReference =
       vitalicioGuard?.externalReference ?? `${product.unique_code}-${Date.now()}`;
 
@@ -1253,7 +1306,7 @@ serve(async (req) => {
       billingType,
       value: serverChargeTotal,
       dueDate,
-      description: serverDescription,
+      description: chargeDescription,
       externalReference: serverExternalReference,
     };
 
@@ -1553,15 +1606,59 @@ serve(async (req) => {
     // 5. Get PIX QR Code if payment method is PIX
     let pixData = null;
     if (billingType === "PIX") {
-      const pixResponse = await fetch(`${asaasBaseUrl}/payments/${paymentResult.id}/pixQrCode`, {
-        headers: {
-          "Content-Type": "application/json",
-          "access_token": apiKey,
-        },
-      });
+      try {
+        const pixResponse = await fetch(`${asaasBaseUrl}/payments/${paymentResult.id}/pixQrCode`, {
+          headers: {
+            "Content-Type": "application/json",
+            "access_token": apiKey,
+          },
+        });
 
-      if (pixResponse.ok) {
-        pixData = await pixResponse.json();
+        if (pixResponse.ok) {
+          pixData = await pixResponse.json();
+        } else {
+          // Apenas dados tecnicos: id da cobranca e status HTTP. Nada de CPF,
+          // e-mail, token ou payload.
+          console.error(
+            "PIX QR Code fetch failed with HTTP",
+            pixResponse.status,
+            "for payment:",
+            paymentResult.id,
+          );
+        }
+      } catch (_error) {
+        console.error("PIX QR Code fetch threw for payment:", paymentResult.id);
+      }
+
+      if (!isRecord(pixData) || !getTextValue(pixData.payload)) {
+        // A cobranca EXISTE no Asaas e a transacao ja esta gravada; so o QR Code
+        // nao pode ser exibido. Devolver `success: true` aqui deixava o modal em
+        // branco com o CPF preso no guard. A resposta estruturada entrega o
+        // invoiceUrl (a pagina da fatura do Asaas mostra o proprio QR) e o
+        // pollingToken, entao o comprador ainda paga e a confirmacao ainda chega
+        // pelo polling e pelo webhook. Nenhuma cobranca nova e criada e o guard
+        // nao e liberado: a cobranca em aberto continua sendo a verdade.
+        return new Response(
+          JSON.stringify({
+            success: false,
+            result: "pix_qr_unavailable",
+            message:
+              "Seu PIX foi criado, mas o QR Code não pôde ser exibido. Abra a página do PIX para concluir o pagamento.",
+            payment: {
+              id: paymentResult.id,
+              status: paymentResult.status,
+              billingType: paymentResult.billingType,
+              value: paymentResult.value,
+              invoiceUrl: paymentResult.invoiceUrl,
+              bankSlipUrl: paymentResult.bankSlipUrl,
+            },
+            transaction: transactionData,
+            pollingToken: pollCapability?.token ?? null,
+            pixData: null,
+            invoiceUrl: paymentResult.invoiceUrl ?? null,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
     }
 
